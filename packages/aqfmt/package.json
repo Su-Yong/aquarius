@@ -1,0 +1,30 @@
+{
+  "name": "aqfmt",
+  "version": "0.1.0",
+  "description": "aqfmt Node CLI foundation",
+  "type": "module",
+  "bin": {
+    "aqfmt": "./dist/cli.mjs"
+  },
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "node": ">=24.11.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Su-Yong/aquarius.git",
+    "directory": "packages/aqfmt"
+  },
+  "scripts": {
+    "build": "tsdown",
+    "dev": "tsdown --watch",
+    "typecheck": "tsc --project tsconfig.json --noEmit",
+    "start": "node dist/cli.mjs",
+    "test": "vitest run"
+  }
+}

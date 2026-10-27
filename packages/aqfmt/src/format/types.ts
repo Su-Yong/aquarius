@@ -23,6 +23,7 @@ export interface FormatExecutionOptions extends TargetOptions {
   check?: boolean;
   undo?: boolean;
   signal?: AbortSignal;
+  onProgress?: (message: string) => void;
 }
 
 export interface FormatExecutionResult {

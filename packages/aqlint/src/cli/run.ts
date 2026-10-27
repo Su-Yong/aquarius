@@ -1,6 +1,7 @@
 import { parseArgs } from "node:util";
-import type { RulePlugin } from "@aquarius/core/internal";
+import { startProgress, statusText, type RulePlugin } from "@aquarius/core/internal";
 import { executeLint } from "../lint/execute";
+import type { LintExecutionResult } from "../lint/types";
 import { printHuman, safeText } from "./output";
 
 const help = `aqlint — AI rule-based diagnostics
@@ -54,12 +55,14 @@ export const runCli = async (
       throw new Error("--format must be text or json.");
     }
 
+    const progress = startProgress(values.format === "text");
     const controller = new AbortController();
     const abort = () => controller.abort();
     process.once("SIGINT", abort);
     process.once("SIGTERM", abort);
+    let execution: LintExecutionResult;
     try {
-      const execution = await executeLint({
+      execution = await executeLint({
         cwd: process.cwd(),
         configPath: values.config,
         paths: positionals,
@@ -68,16 +71,18 @@ export const runCli = async (
         noIgnore: values["no-ignore"],
         noErrorOnUnmatchedPattern: values["no-error-on-unmatched-pattern"],
         signal: controller.signal,
+        onProgress: progress.update,
       }, builtinPlugins);
-      if (values.format === "json") console.log(JSON.stringify(execution.result, null, 2));
-      else printHuman(execution);
-      return execution.exitCode;
     } finally {
+      progress.stop();
       process.removeListener("SIGINT", abort);
       process.removeListener("SIGTERM", abort);
     }
+    if (values.format === "json") console.log(JSON.stringify(execution.result, null, 2));
+    else printHuman(execution);
+    return execution.exitCode;
   } catch (cause) {
-    console.error(safeText(`aqlint: ${cause instanceof Error ? cause.message : String(cause)}`));
+    console.error(statusText(safeText(`aqlint: ${cause instanceof Error ? cause.message : String(cause)}`), "error", process.stderr));
     console.error("Run aqlint --help for usage.");
     return 2;
   }

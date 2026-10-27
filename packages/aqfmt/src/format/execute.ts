@@ -1,5 +1,5 @@
 import { realpath } from "node:fs/promises";
-import { relative } from "node:path";
+import { isAbsolute, relative } from "node:path";
 import {
   AquariusError,
   callBridge,
@@ -38,6 +38,7 @@ export const executeFormat = async (
 
     const config = await loadConfig("format", { cwd: options.cwd, configPath: options.configPath });
     if (options.undo) {
+      options.onProgress?.("Restoring files");
       const restoredFiles = await undoLastFileChanges(config.projectRoot);
       return {
         result: { changedFiles: [], restoredFiles, warnings: [], errors: [] },
@@ -51,12 +52,14 @@ export const executeFormat = async (
       return { result: initial, exitCode: 0 };
     }
 
+    options.onProgress?.("Preparing rules");
     const prepared = await prepareRules(config, builtinPlugins);
     initial.errors.push(...prepared.errors);
     if (prepared.rules.length === 0) {
       return { result: initial, exitCode: initial.errors.length ? 2 : 0 };
     }
 
+    options.onProgress?.("Selecting files");
     const policy = await selectTargets(config, options);
     if (policy.targets.length === 0) {
       return { result: initial, exitCode: initial.errors.length ? 2 : 0 };
@@ -65,11 +68,16 @@ export const executeFormat = async (
 
     const baseline = await captureBaseline(config.projectRoot, policy.targets);
     const bridge = suppliedBridge ?? await resolveBridge(config);
+    const cwdRelative = relative(config.projectRoot, config.cwd).replaceAll("\\", "/");
+    const pathsRelativeTo = !options.paths?.length && (cwdRelative === ".." || cwdRelative.startsWith("../") || isAbsolute(cwdRelative))
+      ? "."
+      : cwdRelative || ".";
     const prompt = buildFormatPrompt(prepared.rules, policy, {
       files: config.files,
       paths: options.paths?.length ? options.paths : ["."],
-      pathsRelativeTo: relative(config.projectRoot, config.cwd).replaceAll("\\", "/") || ".",
+      pathsRelativeTo,
     });
+    options.onProgress?.("Formatting files with AI");
     const raw = await callBridge(bridge, {
       projectRoot: await realpath(config.projectRoot),
       readableFiles: policy.readableFiles,
@@ -80,6 +88,7 @@ export const executeFormat = async (
     }, config.ai.timeoutMs, options.signal);
     if (options.signal?.aborted) throw new AquariusError("AI_ABORTED", "Execution was cancelled.");
 
+    options.onProgress?.("Checking changes");
     const response = normalizeFormatResponse(raw, prepared.rules, policy);
     const result: FormatResult = {
       changedFiles: [],
@@ -96,6 +105,7 @@ export const executeFormat = async (
     if (options.signal?.aborted) throw new AquariusError("AI_ABORTED", "Execution was cancelled.");
 
     if (plan.files.length) {
+      options.onProgress?.("Writing changes");
       const store = await createGitUndoStore(config.projectRoot);
       const applied = await applyFileChanges(plan, store);
       result.changedFiles = applied.changedFiles;

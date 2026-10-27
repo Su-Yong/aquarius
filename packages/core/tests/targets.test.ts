@@ -2,6 +2,7 @@ import { afterEach, describe, expect, test } from "vitest";
 import { mkdtemp, mkdir, rm, symlink, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
+import { loadConfig } from "../src/config/load";
 import { selectTargets } from "../src/files/targets";
 import type { LoadedConfig } from "../src/internal";
 
@@ -9,6 +10,32 @@ const directories: string[] = [];
 
 afterEach(async () => {
   await Promise.all(directories.splice(0).map((directory) => rm(directory, { recursive: true, force: true })));
+});
+
+test.each(["lint", "format"] as const)("uses the config root inside an ignored outer directory for %s", async (tool) => {
+  const outer = await baseProject("aquarius-nested-root-");
+  const root = join(outer, "demo", "before");
+  await mkdir(root, { recursive: true });
+  await writeFile(join(outer, ".gitignore"), "demo/\n");
+  await writeFile(join(root, tool === "lint" ? ".aqlintrc.jsonc" : ".aqfmtrc.jsonc"), '{ "files": ["src/**"] }');
+  await file(root, "src/example.txt");
+  await file(outer, "outside.txt");
+  const config = await loadConfig(tool, { cwd: root });
+  const policy = await selectTargets(config, { paths: ["."] });
+  expect(policy.projectRoot).toBe(root);
+  expect(policy.targets).toEqual(["src/example.txt"]);
+  expect(policy.readableFiles).not.toContain("outside.txt");
+});
+
+test.each(["lint", "format"] as const)("defaults to the explicit config root when cwd is outside for %s", async (tool) => {
+  const outer = await baseProject("aquarius-explicit-root-");
+  const root = join(outer, "config");
+  await file(root, "src/example.txt");
+  await writeFile(join(root, "custom.jsonc"), '{ "files": ["src/**"] }');
+  const config = await loadConfig(tool, { cwd: outer, configPath: "config/custom.jsonc" });
+  const policy = await selectTargets(config);
+  expect(policy.targets).toEqual(["src/example.txt"]);
+  await expect(selectTargets(config, { paths: ["."] })).rejects.toMatchObject({ code: "TARGET_PATH_OUTSIDE_ROOT" });
 });
 
 describe("selectTargets lint policy", () => {

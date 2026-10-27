@@ -20,3 +20,5 @@ export type * from "./changes/types";
 export { fileChangeSchema, type FileChange } from "./changes/schema";
 export * from "./undo/store";
 export * from "./undo/schema";
+
+export { startProgress, statusText, terminalColors } from "./shared/progress";

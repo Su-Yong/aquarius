@@ -101,7 +101,36 @@ test("human CLI preserves warning rules and paths", async () => {
   }
 });
 
+test("JSON output stays machine-readable without terminal progress", async () => {
+  const root = await project("format", { rules: [] });
+  const cwd = vi.spyOn(process, "cwd").mockReturnValue(root);
+  const logs = vi.spyOn(console, "log").mockImplementation(() => {});
+  const writes = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+  const tty = Object.getOwnPropertyDescriptor(process.stderr, "isTTY");
+  Object.defineProperty(process.stderr, "isTTY", { configurable: true, value: true });
+  try {
+    expect(await runCli("0.1.0", { fixture: plugin }, ["--format", "json"])).toBe(0);
+    expect(JSON.parse(String(logs.mock.calls[0]?.[0]))).toEqual({ changedFiles: [], warnings: [], errors: [] });
+    expect(writes).not.toHaveBeenCalled();
+  } finally {
+    if (tty) Object.defineProperty(process.stderr, "isTTY", tty); else Reflect.deleteProperty(process.stderr, "isTTY");
+    cwd.mockRestore();
+    logs.mockRestore();
+    writes.mockRestore();
+  }
+});
+
 describe("format execution", () => {
+  test("reports actual formatting stages in check mode", async () => {
+    const root = await project("format");
+    const onProgress = vi.fn();
+    const run = await executeFormat({ cwd: root, check: true, onProgress }, { fixture: plugin }, bridge(formatReply()));
+    expect(run.exitCode).toBe(1);
+    expect(onProgress.mock.calls.map(([stage]) => stage)).toEqual([
+      "Preparing rules", "Selecting files", "Formatting files with AI", "Checking changes",
+    ]);
+  });
+
   test("timeout stops a request without retry or source writes", async () => {
     const root = await project("format", { ai: { timeoutMs: 25 } });
     const runSpy = vi.fn(() => new Promise<unknown>(() => {}));

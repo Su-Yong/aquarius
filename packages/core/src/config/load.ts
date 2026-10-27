@@ -19,11 +19,11 @@ export const loadConfig = async (
   options: { cwd: string; configPath?: string },
 ): Promise<LoadedConfig> => {
   const cwd = await resolveDirectory(options.cwd);
-  const projectRoot = await findProjectRoot(cwd);
   const configPath = options.configPath
     ? await resolveConfigPath(cwd, options.configPath)
-    : await findConfig(cwd, projectRoot, CONFIG_NAMES[tool]);
-  const configDirectory = configPath ? dirname(configPath) : projectRoot;
+    : await findConfig(cwd, CONFIG_NAMES[tool]);
+  const projectRoot = configPath ? dirname(configPath) : cwd;
+  const configDirectory = projectRoot;
   const input = configPath ? await readConfig(configPath) : {};
   const config = validateConfig(tool, input);
 
@@ -59,22 +59,11 @@ const resolveDirectory = async (directory: string): Promise<string> => {
   }
 };
 
-const findProjectRoot = async (cwd: string): Promise<string> => {
-  let directory = cwd;
-  while (true) {
-    if (await pathExists(join(directory, ".git"))) return directory;
-    const parent = dirname(directory);
-    if (parent === directory) return cwd;
-    directory = parent;
-  }
-};
-
-const findConfig = async (cwd: string, projectRoot: string, name: string): Promise<string | undefined> => {
+const findConfig = async (cwd: string, name: string): Promise<string | undefined> => {
   let directory = cwd;
   while (true) {
     const candidate = join(directory, name);
     if (await pathExists(candidate)) return realpath(candidate);
-    if (directory === projectRoot) return undefined;
     const parent = dirname(directory);
     if (parent === directory) return undefined;
     directory = parent;

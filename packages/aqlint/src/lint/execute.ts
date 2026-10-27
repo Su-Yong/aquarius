@@ -1,5 +1,5 @@
 import { realpath } from "node:fs/promises";
-import { relative } from "node:path";
+import { isAbsolute, relative } from "node:path";
 import { z } from "zod";
 import {
   AquariusError,
@@ -23,6 +23,7 @@ export interface LintExecutionOptions extends TargetOptions {
   configPath?: string;
   fix?: boolean;
   signal?: AbortSignal;
+  onProgress?: (message: string) => void;
 }
 
 const emptyResult = (): LintResult => ({ diagnostics: [], unknowns: [], errors: [] });
@@ -42,12 +43,14 @@ export const executeLint = async (
       return { result: initial, exitCode: 0 };
     }
 
+    options.onProgress?.("Preparing rules");
     const prepared = await prepareRules(config, builtinPlugins);
     initial.errors.push(...prepared.errors);
     if (prepared.rules.length === 0) {
       return { result: initial, exitCode: initial.errors.length ? 2 : 0 };
     }
 
+    options.onProgress?.("Selecting files");
     const policy = await selectTargets(config, options);
     if (policy.targets.length === 0) {
       return { result: initial, exitCode: initial.errors.length ? 2 : 0 };
@@ -56,10 +59,14 @@ export const executeLint = async (
 
     const baseline = options.fix ? await captureBaseline(config.projectRoot, policy.targets) : undefined;
     const bridge = suppliedBridge ?? await resolveBridge(config);
+    const cwdRelative = relative(config.projectRoot, config.cwd).replaceAll("\\", "/");
+    const pathsRelativeTo = !options.paths?.length && (cwdRelative === ".." || cwdRelative.startsWith("../") || isAbsolute(cwdRelative))
+      ? "."
+      : cwdRelative || ".";
     const prompt = buildLintPrompt(prepared.rules, policy, {
       files: config.files,
       paths: options.paths?.length ? options.paths : ["."],
-      pathsRelativeTo: relative(config.projectRoot, config.cwd).replaceAll("\\", "/") || ".",
+      pathsRelativeTo,
     });
     const input = {
       projectRoot: await realpath(config.projectRoot),
@@ -69,20 +76,24 @@ export const executeLint = async (
       outputSchema: z.toJSONSchema(lintResponseSchema) as JsonObject,
       options: config.ai.options,
     };
+    options.onProgress?.("Analyzing files with AI");
     const raw = await callBridge(bridge, input, config.ai.timeoutMs, options.signal);
     if (options.signal?.aborted) throw new AquariusError("AI_ABORTED", "Execution was cancelled.");
 
+    options.onProgress?.("Checking results");
     let result = await normalizeLintResponse(raw, prepared.rules, policy);
     result.errors.unshift(...prepared.errors);
     if (options.fix) {
       result.changedFiles = [];
       initial = result;
       if (!result.errors.length && result.diagnostics.length) {
+        options.onProgress?.("Fixing diagnostics");
         const changedFiles = await fixDiagnostics(result.diagnostics, prepared.rules, policy, config, bridge, baseline!, options.signal);
         result.changedFiles = changedFiles;
         if (changedFiles.length) {
           result.diagnostics = [];
           result.unknowns = [];
+          options.onProgress?.("Checking fixes with AI");
           const checked = await callBridge(bridge, input, config.ai.timeoutMs, options.signal);
           if (options.signal?.aborted) throw new AquariusError("AI_ABORTED", "Execution was cancelled.");
           result = await normalizeLintResponse(checked, prepared.rules, policy);

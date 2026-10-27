@@ -1,5 +1,5 @@
 import { parseArgs } from "node:util";
-import type { RulePlugin } from "@aquarius/core/internal";
+import { startProgress, statusText, type RulePlugin } from "@aquarius/core/internal";
 import { executeFormat } from "../format/execute";
 import type { FormatExecutionResult } from "../format/types";
 import { printHuman, safeText } from "./output";
@@ -58,6 +58,7 @@ export const runCli = async (
       throw new Error("--format must be text or json.");
     }
 
+    const progress = startProgress(values.format === "text");
     const controller = new AbortController();
     const abort = (): void => controller.abort();
     process.once("SIGINT", abort);
@@ -74,8 +75,10 @@ export const runCli = async (
         check: values.check,
         undo: values.undo,
         signal: controller.signal,
+        onProgress: progress.update,
       }, builtinPlugins);
     } finally {
+      progress.stop();
       process.removeListener("SIGINT", abort);
       process.removeListener("SIGTERM", abort);
     }
@@ -84,7 +87,7 @@ export const runCli = async (
     else printHuman(execution, values.check === true);
     return execution.exitCode;
   } catch (cause) {
-    console.error(safeText(`aqfmt: ${cause instanceof Error ? cause.message : String(cause)}`));
+    console.error(statusText(safeText(`aqfmt: ${cause instanceof Error ? cause.message : String(cause)}`), "error", process.stderr));
     console.error("Run aqfmt --help for usage.");
     return 2;
   }

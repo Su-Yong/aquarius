@@ -63,6 +63,16 @@ afterEach(async () => {
 });
 
 describe("lint execution", () => {
+  test("reports actual analysis stages", async () => {
+    const root = await createProject();
+    const onProgress = vi.fn();
+    const run = await executeLint({ cwd: root, onProgress }, { fixture: plugin }, bridge(lintReply()));
+    expect(run.exitCode).toBe(0);
+    expect(onProgress.mock.calls.map(([stage]) => stage)).toEqual([
+      "Preparing rules", "Selecting files", "Analyzing files with AI", "Checking results",
+    ]);
+  });
+
   test("context may provide evidence but cannot receive primary diagnostics", async () => {
     const root = await createProject();
     await writeFile(join(root, "README.md"), "Existing project contract\n");
@@ -403,3 +413,19 @@ test("fix CLI uses configured bridge and prints JSON with final diagnostics", as
     cwd.mockRestore(); logs.mockRestore(); errors.mockRestore();
   }
 });
+
+test("JSON CLI output stays structured and contains no terminal styling", async () => {
+  const root = await createProject({ ai: { adapter: "./bridge.mjs" } });
+  await writeFile(join(root, "bridge.mjs"), `export default { id: "fixture", run: async () => (${JSON.stringify(findingReply())}) };`);
+  const cwd = vi.spyOn(process, "cwd").mockReturnValue(root);
+  const logs = vi.spyOn(console, "log").mockImplementation(() => {});
+  try {
+    expect(await runCli("0.1.0", { fixture: plugin }, ["--format", "json", "src/sample.any"])).toBe(1);
+    const output = String(logs.mock.calls[0]![0]);
+    expect(output).not.toContain("\x1b");
+    expect(JSON.parse(output).diagnostics).toHaveLength(1);
+  } finally {
+    cwd.mockRestore(); logs.mockRestore();
+  }
+});
+

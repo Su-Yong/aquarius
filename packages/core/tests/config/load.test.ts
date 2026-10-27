@@ -46,12 +46,31 @@ describe("loadConfig", () => {
     const format = await loadConfig("format", { cwd: nested });
 
     expect(lint.configPath).toBe(join(root, "packages", "app", ".aqlintrc.jsonc"));
+    expect(lint.projectRoot).toBe(join(root, "packages", "app"));
+    expect(format.projectRoot).toBe(root);
     expect(lint.rules).toEqual([{ rule: "nested/check", severity: "warn" }]);
     expect(format.configPath).toBe(join(root, ".aqfmtrc.jsonc"));
     expect(format.rules[0]?.rule).toBe("fmt/root");
   });
 
-  test("an explicit config changes its pattern base but not the project root", async () => {
+  test("searches past a nested Git root for the nearest config", async () => {
+    const root = await project();
+    const nested = join(root, "nested");
+    await mkdir(join(nested, ".git"), { recursive: true });
+    await writeFile(join(root, ".aqlintrc.jsonc"), "{}");
+    const loaded = await loadConfig("lint", { cwd: nested });
+    expect(loaded.projectRoot).toBe(root);
+    expect(loaded.configPath).toBe(join(root, ".aqlintrc.jsonc"));
+  });
+
+  test("uses the working directory when no config exists in a Git repository", async () => {
+    const root = await project();
+    const nested = join(root, "nested");
+    await mkdir(nested);
+    expect((await loadConfig("lint", { cwd: nested })).projectRoot).toBe(nested);
+  });
+
+  test("an explicit config sets the project root and pattern base", async () => {
     const root = await project();
     const configDirectory = join(root, "config");
     await mkdir(configDirectory);
@@ -60,7 +79,7 @@ describe("loadConfig", () => {
 
     const loaded = await loadConfig("lint", { cwd: root, configPath: "config/custom.jsonc" });
 
-    expect(loaded.projectRoot).toBe(root);
+    expect(loaded.projectRoot).toBe(configDirectory);
     expect(loaded.configPath).toBe(path);
     expect(loaded.configDirectory).toBe(configDirectory);
     expect(loaded.ignore).toEqual(["/generated/**"]);

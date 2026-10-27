@@ -35,8 +35,8 @@ export const selectTargets = async (config: LoadedConfig, options: TargetOptions
   const gitInfoIgnore = config.tool === "format" ? await loadGitInfoExclude(projectRoot) : undefined;
   const gitIgnoreMatchers = await loadGitignoreMatchers(projectRoot);
 
-  const allFiles = await discoverFiles(projectRoot, false);
-  const gitDiscovered = new Set(await discoverFiles(projectRoot, true));
+  const allFiles = await discoverFiles(projectRoot);
+  const gitDiscovered = new Set(allFiles.filter((path) => !isIgnoredByMatchers(gitIgnoreMatchers, projectRoot, path)));
   const regularFiles = new Set<string>();
   for (const path of allFiles) {
     if (await isRegularPath(projectRoot, path)) regularFiles.add(path);
@@ -101,7 +101,11 @@ const createScopes = async (
   config: LoadedConfig,
   options: TargetOptions,
 ): Promise<{ positive: Scope[]; negative: string[] }> => {
-  const inputs = options.paths && options.paths.length > 0 ? options.paths : [config.cwd];
+  const cwdFromRoot = relative(config.projectRoot, config.cwd);
+  const defaultTarget = cwdFromRoot === ".." || cwdFromRoot.startsWith(`..${sep}`) || isAbsolute(cwdFromRoot)
+    ? config.projectRoot
+    : config.cwd;
+  const inputs = options.paths && options.paths.length > 0 ? options.paths : [defaultTarget];
   const positive: Scope[] = [];
   const negative: string[] = [];
 
@@ -228,14 +232,14 @@ const loadGitignoreMatchers = async (projectRoot: string): Promise<IgnoreMatcher
   return matchers;
 };
 
-const discoverFiles = async (projectRoot: string, gitignore: boolean): Promise<string[]> => {
+const discoverFiles = async (projectRoot: string): Promise<string[]> => {
   try {
     return await globby("**/*", {
       cwd: projectRoot,
       absolute: false,
       dot: true,
       followSymbolicLinks: false,
-      gitignore,
+      gitignore: false,
       ignore: ["**/.git", "**/.git/**"],
       onlyFiles: true,
       unique: true,

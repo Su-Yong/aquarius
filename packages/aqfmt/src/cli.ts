@@ -1,32 +1,6 @@
 #!/usr/bin/env node
-import { parseArgs } from "node:util";
+import rules from "@aquarius/rules";
 import packageJson from "../package.json" with { type: "json" };
+import { runCli } from "./cli/run";
 
-try {
-  const { values } = parseArgs({
-    options: {
-      help: { type: "boolean", short: "h" },
-      version: { type: "boolean", short: "v" },
-    },
-    strict: true,
-    allowPositionals: false,
-  });
-
-  if (values.version && !values.help) {
-    console.log(packageJson.version);
-  } else {
-    console.log(`aqfmt — CLI foundation
-
-Usage: aqfmt [options]
-
-Options:
-  -h, --help     Show help
-  -v, --version  Show version
-
-Formatting functionality is not implemented yet.`);
-  }
-} catch (error) {
-  console.error(`aqfmt: ${error instanceof Error ? error.message : String(error)}`);
-  console.error("Run aqfmt --help for usage.");
-  process.exitCode = 1;
-}
+process.exitCode = await runCli(packageJson.version, { "@aquarius/rules": rules });

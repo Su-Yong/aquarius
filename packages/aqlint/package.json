@@ -1,7 +1,7 @@
 {
   "name": "aqlint",
   "version": "0.1.0",
-  "description": "aqlint Node CLI foundation",
+  "description": "AI-driven, rule-based code diagnostics",
   "type": "module",
   "bin": {
     "aqlint": "./dist/cli.mjs"
@@ -19,6 +19,11 @@
     "type": "git",
     "url": "git+https://github.com/Su-Yong/aquarius.git",
     "directory": "packages/aqlint"
+  },
+  "dependencies": {
+    "@aquarius/core": "workspace:*",
+    "@aquarius/rules": "workspace:*",
+    "zod": "4.6.7"
   },
   "scripts": {
     "build": "tsdown",

@@ -1,0 +1,35 @@
+MOCK AI: prepared responses, real Aquarius CLI pipeline. No model is called.
+$ aqlint example.js
+example.js:6:5 error [aquarius/contracts/no-input-mutation:error] items.sort() mutates the caller's array despite the non-mutation contract.
+  evidence example.js:1: The function promises not to change the caller's items.
+  evidence example.js:6: Array.sort() modifies the original items array in place.
+exit: 1
+
+BEFORE FMT
+/** Return sorted labels without changing the caller's items. */
+export function sortedLabels(items, enabled) {
+  if (!enabled) {
+    return [];
+  } else {
+    items.sort();
+    return items.map((item) => item.trim());
+  }
+}
+
+$ aqfmt example.js
+Formatted example.js
+warn UNDO_UNAVAILABLE: Formatting completed without Git undo support.
+exit: 0
+
+AFTER FMT
+/** Return sorted labels without changing the caller's items. */
+export function sortedLabels(items, enabled) {
+  if (!enabled) {
+    return [];
+  }
+  items.sort();
+  return items.map((item) => item.trim());
+}
+
+Verified: lint left the source unchanged; fmt matched after.js; 12 input/return observations matched.
+The existing input-mutation bug is intentionally preserved by the formatter.

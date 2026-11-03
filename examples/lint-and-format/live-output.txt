@@ -1,0 +1,31 @@
+LIVE CODEX: real model execution requested.
+$ aqlint example.js
+error CODEX_SANDBOX_PROBE_FAILED: Codex could not read the approved snapshot through its sandbox.
+exit: 2
+
+BEFORE FMT
+/** Return sorted labels without changing the caller's items. */
+export function sortedLabels(items, enabled) {
+  if (!enabled) {
+    return [];
+  } else {
+    items.sort();
+    return items.map((item) => item.trim());
+  }
+}
+
+$ aqfmt example.js
+error CODEX_SANDBOX_PROBE_FAILED: Codex could not read the approved snapshot through its sandbox.
+exit: 2
+
+AFTER FMT
+/** Return sorted labels without changing the caller's items. */
+export function sortedLabels(items, enabled) {
+  if (!enabled) {
+    return [];
+  } else {
+    items.sort();
+    return items.map((item) => item.trim());
+  }
+}
+

@@ -4,10 +4,10 @@ import plugin from "../src/index";
 describe("provided rules", () => {
   test("preserves existing rules and publishes the architecture catalog", async () => {
     expect(plugin.namespace).toBe("aquarius");
-    expect(plugin.lintRules).toHaveLength(318);
+    expect(plugin.lintRules).toHaveLength(332);
     expect(plugin.formatRules).toHaveLength(3);
     const all = [...plugin.lintRules!, ...plugin.formatRules!];
-    expect(new Set(all.map((rule) => rule.id)).size).toBe(321);
+    expect(new Set(all.map((rule) => rule.id)).size).toBe(335);
     for (const rule of plugin.lintRules!) {
       const instructions = await rule.buildPrompt({ options: rule.defaultOptions ?? {} });
       expect(instructions.applicability).not.toBe("");

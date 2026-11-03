@@ -21,13 +21,14 @@ import { cacheRules } from "./lint/section-16-cache";
 import { securityRules } from "./lint/section-17-security";
 import { privacyRules } from "./lint/section-18-privacy";
 import { httpRules } from "./lint/section-19-http";
+import { eventRules } from "./lint/section-20-event";
 import { noInputMutation } from "./lint/no-input-mutation";
 import { releaseOnExit } from "./lint/release-on-exit";
 import { usePublicEntry } from "./lint/use-public-entry";
 
 export const aquariusRules: RulePlugin = {
   namespace: "aquarius",
-  lintRules: [noInputMutation, usePublicEntry, releaseOnExit, ...architectureRules, ...section02Rules, ...section03Rules, ...section04Rules, ...section05Rules, ...section06Rules, ...section07Rules, ...section08Rules, ...stateRules, ...errorRules, ...asyncRules, ...resourceRules, ...persistenceRules, ...queryRules, ...distributedRules, ...cacheRules, ...securityRules, ...privacyRules, ...httpRules],
+  lintRules: [noInputMutation, usePublicEntry, releaseOnExit, ...architectureRules, ...section02Rules, ...section03Rules, ...section04Rules, ...section05Rules, ...section06Rules, ...section07Rules, ...section08Rules, ...stateRules, ...errorRules, ...asyncRules, ...resourceRules, ...persistenceRules, ...queryRules, ...distributedRules, ...cacheRules, ...securityRules, ...privacyRules, ...httpRules, ...eventRules],
   formatRules: [preferEarlyReturn, nameCompoundConditions, separateResponsibilities],
 };
 

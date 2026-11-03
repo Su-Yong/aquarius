@@ -1,0 +1,548 @@
+[
+  {
+    "id": "architecture/enforce-layer-direction",
+    "description": "프로젝트가 정한 계층·허용 예외·참조 종류에 따라 해석된 의존 방향 위반을 검사합니다. 런타임·타입·빌드 의존은 선언된 정책대로 구분합니다.",
+    "sourceUrl": "https://chatgpt.com/space/page_dd6ffadaf0448191aa29ee9e19e7d2ad",
+    "sourceBlockId": "d9ff373a-8e0b-4d9d-afea-9f3f94a4a02a",
+    "boundary": "A type-only edge is permitted only when the actual policy excludes type dependencies; it is not automatically exempt.",
+    "overlap": "Keep a layer-direction violation separate from a public-entry violation when the edge has two distinct obligations.",
+    "examples": [
+      {
+        "scenario": "Synthetic fixture: Policy permits application -> domain and forbids domain -> application; domain/order.js imports application/checkout.js.",
+        "expected": "violation",
+        "reason": "The resolved edge crosses the forbidden direction."
+      },
+      {
+        "scenario": "Synthetic fixture: The same policy is present; application/checkout.js imports only the public domain/order.js API.",
+        "expected": "pass",
+        "reason": "The complete inspected edges follow the declared direction."
+      },
+      {
+        "scenario": "Synthetic fixture: A folder is named domain but the layer mapping and import alias resolution are unavailable.",
+        "expected": "unknown",
+        "reason": "Names alone do not establish layers or the resolved edge."
+      },
+      {
+        "scenario": "Synthetic fixture: The project explicitly has one module and declares no layer boundary for these files.",
+        "expected": "not_applicable",
+        "reason": "The layer-policy prerequisite is confirmed absent."
+      }
+    ],
+    "inspectionDetail": {
+      "수준": "계약 근거 검사",
+      "필수 근거": "계층별 경로와 패키지 맵, 허용된 의존 방향, 타입·런타임·빌드 의존의 구분, 해석기·emit·번들 설정이 필요합니다.",
+      "위반 사례": "프로젝트 계약이 domain → web 의존을 금지하지만, domain/price.js가 web/request.js를 직접 import합니다.",
+      "허용 사례": "동일한 참조가 허용된 타입 전용 그래프에만 존재하고, 배포 코드에서는 제거됩니다.",
+      "판단 불가": "import(targetName)의 실제 대상이나 TypeScript의 emit 설정을 알 수 없습니다.",
+      "중복 구별": "no-cross-domain-internals는 공개 API 경계를, 이 규칙은 의존 방향을 검사합니다. 같은 참조라도 서로 다른 금지 계약을 위반한다면 각 의무를 보존합니다."
+    }
+  },
+  {
+    "id": "architecture/no-dependency-cycles",
+    "description": "프로젝트가 금지한 의존 순환과 실제 초기화·실행 계약을 깨는 순환을 구분해 검사하며, 허용된 지연 참조를 순환 존재만으로 결함 처리하지 않습니다.",
+    "sourceUrl": "https://chatgpt.com/space/page_dd6ffadaf0448191aa29ee9e19e7d2ad",
+    "sourceBlockId": "3a0785d3-0cea-4c46-bcf4-7dfd0aaa46bf",
+    "boundary": "A policy forbidding all cycles still applies to a safe lazy cycle; safety does not override that explicit policy.",
+    "overlap": "Preserve distinct evidence for a dependency-direction violation even when it participates in the same cycle.",
+    "examples": [
+      {
+        "scenario": "Synthetic fixture: A project forbids runtime cycles; a.js imports b.js and b.js imports a.js through resolved runtime edges.",
+        "expected": "violation",
+        "reason": "The complete cycle violates the declared structural policy."
+      },
+      {
+        "scenario": "Synthetic fixture: Cycles are permitted; two modules register deferred callbacks and tests and execution order establish no pre-initialization reads.",
+        "expected": "pass",
+        "reason": "The permitted cycle preserves the relevant initialization contract."
+      },
+      {
+        "scenario": "Synthetic fixture: A dynamic import in the apparent cycle cannot be resolved, and initialization order is unavailable.",
+        "expected": "unknown",
+        "reason": "The cycle and its effects cannot be established."
+      },
+      {
+        "scenario": "Synthetic fixture: The complete relevant graph is acyclic.",
+        "expected": "not_applicable",
+        "reason": "No cycle exists in the inspected scope."
+      }
+    ],
+    "inspectionDetail": {
+      "수준": "계약 근거 검사 / 분석기·런타임 의미 확인",
+      "필수 근거": "순환 허용 정책, 해석된 의존 그래프, 초기화 순서와 값의 읽기 시점, TDZ 또는 CommonJS의 부분 초기화된 export가 미치는 영향을 확인해야 합니다.",
+      "위반 사례": "ESM의 a 모듈이 최상위 코드에서 b 모듈의 아직 초기화되지 않은 let 값을 읽어, import가 ReferenceError로 실패합니다.",
+      "허용 사례": "a ↔ b의 순환이 함수만 연결하고 모듈 평가가 끝난 뒤 호출되어 정상 동작합니다. 프로젝트에도 순환 금지 정책이 없습니다.",
+      "판단 불가": "CommonJS와 ESM의 변환, 조건부 export 또는 loader 동작을 알 수 없어 실제 실행 순환을 확정할 수 없습니다.",
+      "중복 구별": "명시적인 순환 금지 정책은 런타임 실패가 없어도 위반될 수 있습니다. 모듈 의존 순환을 no-circular-construction의 생성 순환과 혼동하지 않습니다."
+    }
+  },
+  {
+    "id": "architecture/framework-independent-domain",
+    "description": "선언된 도메인 경계가 프레임워크로부터 독립적이어야 하는 프로젝트에서, 프레임워크의 요청·수명·실행 계약이 도메인 정책으로 새는 경로를 검사합니다. 의도된 프레임워크 중심 설계는 구분하되, 설정에 명시된 금지 의존성은 직접 참조만으로도 해당 계약 위반이 될 수 있습니다.",
+    "sourceUrl": "https://chatgpt.com/space/page_dd6ffadaf0448191aa29ee9e19e7d2ad",
+    "sourceBlockId": "4efdb9a9-83da-4d2b-a574-194926358517",
+    "boundary": "Type-only framework imports count when the independence policy prohibits that reference kind.",
+    "overlap": "Transport and framework independence can overlap, but retain each distinct contract and remedy.",
+    "examples": [
+      {
+        "scenario": "Synthetic fixture: Domain imports Express Request although its policy expressly forbids Express dependencies in domain modules.",
+        "expected": "violation",
+        "reason": "The prohibited resolved import itself breaches the declared contract."
+      },
+      {
+        "scenario": "Synthetic fixture: An HTTP adapter extracts an OrderCommand and invokes a domain function with no request or framework lifecycle dependency.",
+        "expected": "pass",
+        "reason": "The adapter preserves the specified domain independence."
+      },
+      {
+        "scenario": "Synthetic fixture: A symbol named Request is used but its origin and the domain independence policy cannot be resolved.",
+        "expected": "unknown",
+        "reason": "A name is insufficient to identify framework coupling or a required boundary."
+      },
+      {
+        "scenario": "Synthetic fixture: This scope deliberately implements framework-specific controllers and is outside the declared independent domain.",
+        "expected": "not_applicable",
+        "reason": "The independence boundary does not include this scope."
+      }
+    ]
+  },
+  {
+    "id": "architecture/transport-independent-use-cases",
+    "description": "전달 계층과 업무 흐름을 분리한다는 설계 계약이 있을 때, 업무 정책이나 수명이 HTTP 요청·응답 등 전달 계약에 의존하는 경로를 검사합니다. 명시된 금지 의존성과 공개 계약은 그대로 확인하며, 단순한 라우트 핸들러에 별도 유스케이스 계층을 강제하지 않습니다.",
+    "sourceUrl": "https://chatgpt.com/space/page_dd6ffadaf0448191aa29ee9e19e7d2ad",
+    "sourceBlockId": "b5e9f0d5-47ca-4932-8973-3662ace7316b",
+    "boundary": "A request-scoped use case is allowed when that lifetime is the deliberate public contract.",
+    "overlap": "A transport violation may also violate a framework boundary; do not erase either independent obligation.",
+    "examples": [
+      {
+        "scenario": "Synthetic fixture: A reusable billing use case is required to be transport-independent but decides business eligibility from an HTTP response status object.",
+        "expected": "violation",
+        "reason": "Business policy depends on transport semantics against the established contract."
+      },
+      {
+        "scenario": "Synthetic fixture: The use case returns a domain result; an HTTP adapter maps it to 201 or 409 outside the business boundary.",
+        "expected": "pass",
+        "reason": "Protocol mapping remains in the permitted adapter."
+      },
+      {
+        "scenario": "Synthetic fixture: A function accepts req but no symbol origin, callers, or separation contract can be established.",
+        "expected": "unknown",
+        "reason": "Parameter spelling cannot establish transport coupling or intent."
+      },
+      {
+        "scenario": "Synthetic fixture: A simple health route has no business flow and is expressly kept as a transport-specific handler.",
+        "expected": "not_applicable",
+        "reason": "The declared application separation obligation does not apply."
+      }
+    ]
+  },
+  {
+    "id": "architecture/persistence-independent-domain",
+    "description": "저장 방식과 독립적인 도메인 모델을 목표로 하는 범위에서, ORM·스키마 제약이 업무 규칙과 공개 계약을 의도치 않게 결정하는 경로를 검사합니다. Active Record 등 의도된 설계를 일괄 위반으로 보지 않습니다.",
+    "sourceUrl": "https://chatgpt.com/space/page_dd6ffadaf0448191aa29ee9e19e7d2ad",
+    "sourceBlockId": "50d341e4-f210-41b8-9060-6a28d1560ba1",
+    "boundary": "An intended persistence model still violates a separate explicitly forbidden dependency when that policy applies.",
+    "overlap": "A shared-database ownership bypass is a distinct obligation from representation independence.",
+    "examples": [
+      {
+        "scenario": "Synthetic fixture: The domain promises money values independent of storage, but exposes ORM decimal wrappers that require an active database session.",
+        "expected": "violation",
+        "reason": "Persistence representation and lifetime leak into the protected public contract."
+      },
+      {
+        "scenario": "Synthetic fixture: A repository converts storage rows to independent Money and Order values before returning to the domain.",
+        "expected": "pass",
+        "reason": "The storage representation does not govern the protected domain behavior."
+      },
+      {
+        "scenario": "Synthetic fixture: An entity has save() but the ORM origin, domain boundary, and intended model are unavailable.",
+        "expected": "unknown",
+        "reason": "The method name alone does not prove unintended persistence coupling."
+      },
+      {
+        "scenario": "Synthetic fixture: This model is explicitly designed as Active Record and is outside any persistence-independent boundary.",
+        "expected": "not_applicable",
+        "reason": "The independence prerequisite is confirmed absent."
+      }
+    ]
+  },
+  {
+    "id": "architecture/no-cross-domain-internals",
+    "description": "선언된 도메인 간 공개 계약과 승인된 예외를 기준으로 다른 도메인의 내부 구현에 직접 의존하는 경로를 검사합니다.",
+    "sourceUrl": "https://chatgpt.com/space/page_dd6ffadaf0448191aa29ee9e19e7d2ad",
+    "sourceBlockId": "d905a0ac-85e2-47d1-ad8e-16e4c4caf915",
+    "boundary": "A public re-export of an otherwise internal file can be valid when the contract authorizes the exported symbol.",
+    "overlap": "Existing architecture/use-public-entry checks module boundaries; retain this domain contract without silently retiring the existing rule.",
+    "examples": [
+      {
+        "scenario": "Synthetic fixture: Sales is permitted to call Billing public API only, but imports Billing private calculateTax.js directly.",
+        "expected": "violation",
+        "reason": "The resolved consumer bypasses the established domain public contract."
+      },
+      {
+        "scenario": "Synthetic fixture: Sales uses Billing documented public invoice API and all re-exports resolve to supported symbols.",
+        "expected": "pass",
+        "reason": "The dependency stays within the supported public contract."
+      },
+      {
+        "scenario": "Synthetic fixture: An alias resolves incompletely and domain ownership of the target is unknown.",
+        "expected": "unknown",
+        "reason": "Neither the crossed boundary nor the private target can be proven."
+      },
+      {
+        "scenario": "Synthetic fixture: Both modules belong to the same domain and no cross-domain dependency occurs.",
+        "expected": "not_applicable",
+        "reason": "The rule concerns dependencies between domains."
+      }
+    ],
+    "inspectionDetail": {
+      "수준": "계약 근거 검사",
+      "필수 근거": "도메인과 소유권 맵, 공개 경로와 허용된 friend 경로, 해석기 설정, 예외의 유효 범위가 필요합니다.",
+      "위반 사례": "billing이 account/internal/recalculate.js를 import하지만, 도메인 계약은 account/public.js를 통한 접근만 허용합니다.",
+      "허용 사례": "명시적으로 승인된 friend migration 모듈이 정해진 범위와 기간 안에서 내부 API를 호출합니다.",
+      "판단 불가": "폴더 이름이 internal이라는 사실만 있고, 소유자·공개 API·friend 예외 설정은 없습니다.",
+      "중복 구별": "같은 계층 사이에서도 내부 구현 침범이 가능하므로 enforce-layer-direction과 독립적입니다. explicit-public-api는 공개 범위를 선언하는 의무를 다룹니다."
+    }
+  },
+  {
+    "id": "architecture/no-shared-database-bypass",
+    "description": "데이터 소유 모듈의 불변조건·권한 계약을 우회하는 직접 쓰기를 검사하고, 검증된 공용 저장 경계와 승인된 운영·마이그레이션 경로를 구분합니다.",
+    "sourceUrl": "https://chatgpt.com/space/page_dd6ffadaf0448191aa29ee9e19e7d2ad",
+    "sourceBlockId": "4c877ee3-bf2e-4b30-8ffc-79cd6998a5c8",
+    "boundary": "An approved migration exemption applies only to its stated tables, operation, time, and substitute safeguards.",
+    "overlap": "Keep a use-case bypass separate when the same write also skips a distinct workflow effect or authorization obligation.",
+    "examples": [
+      {
+        "scenario": "Synthetic fixture: Orders owns inventory bounds; another module writes inventory below zero directly without the mandatory owner validation.",
+        "expected": "violation",
+        "reason": "The write bypasses the established invariant-enforcement boundary."
+      },
+      {
+        "scenario": "Synthetic fixture: A shared stored procedure is an approved write boundary and enforces ownership, authorization, and inventory bounds for every caller.",
+        "expected": "pass",
+        "reason": "The verified common boundary preserves the required guarantees."
+      },
+      {
+        "scenario": "Synthetic fixture: A bulk SQL operation is visible but its triggers, ownership policy, and write permissions are unavailable.",
+        "expected": "unknown",
+        "reason": "The presence or absence of required enforcement is not established."
+      },
+      {
+        "scenario": "Synthetic fixture: The inspected module writes only its own data through its declared ownership boundary.",
+        "expected": "not_applicable",
+        "reason": "No foreign-owner write boundary is crossed."
+      }
+    ],
+    "inspectionDetail": {
+      "수준": "계약 근거 검사",
+      "필수 근거": "테이블 소유자, 쓰기 권한, 업무 불변조건, 트랜잭션 및 데이터베이스 집행 방식, 마이그레이션 정책이 필요합니다.",
+      "위반 사례": "shipping이 payment 테이블에 paid=true를 직접 UPDATE하여, payment 모듈의 영수증 및 금액 검사를 건너뜁니다.",
+      "허용 사례": "같은 데이터베이스를 사용하더라도 승인된 쓰기는 RLS·제약 조건·공용 저장 계약을 지키며, 읽기 전용 보고 기능은 조회만 수행합니다.",
+      "판단 불가": "SQL 프로시저 내부의 집행 방식이나 테이블 소유권 정보를 확인하지 못했습니다.",
+      "중복 구별": "저장소 불변조건 규칙과 동일한 우회 경로를 발견한 경우에만 중복을 제거합니다. 데이터를 공유한다는 사실 자체를 금지하지 않습니다."
+    }
+  },
+  {
+    "id": "architecture/explicit-communication-style",
+    "description": "모듈 간 통신의 완료·실패·전달·순서·응답 의미를 계약에서 확인하고, 실제 호출이 그 보장과 일치하는지 검사합니다.",
+    "sourceUrl": "https://chatgpt.com/space/page_dd6ffadaf0448191aa29ee9e19e7d2ad",
+    "sourceBlockId": "29c05019-8f14-4024-b490-780293de36a9",
+    "boundary": "A retry setting alone does not establish exactly-once effects or ordering.",
+    "overlap": "Keep idempotency, temporal ordering, and communication-contract defects separate when their obligations differ.",
+    "examples": [
+      {
+        "scenario": "Synthetic fixture: Checkout promises reservation is complete when it returns, but returns success after only enqueueing a reservation job.",
+        "expected": "violation",
+        "reason": "Enqueue acknowledgement does not meet the established completion promise."
+      },
+      {
+        "scenario": "Synthetic fixture: The API explicitly returns accepted and a status token, and clients poll until reservation completion.",
+        "expected": "pass",
+        "reason": "The asynchronous communication matches the declared completion semantics."
+      },
+      {
+        "scenario": "Synthetic fixture: A queue wrapper is used but delivery guarantees and what the caller promises are unavailable.",
+        "expected": "unknown",
+        "reason": "The required and supplied guarantees cannot be compared."
+      },
+      {
+        "scenario": "Synthetic fixture: The inspected code performs only local computation and no inter-module communication.",
+        "expected": "not_applicable",
+        "reason": "No communication boundary is present."
+      }
+    ],
+    "inspectionDetail": {
+      "수준": "절차·계약 자료 확인 / 계약 근거 검사",
+      "필수 근거": "호출과 메시지 계약, 완료·수신 확인·내구성의 경계, 호출 효과 요약이 필요합니다.",
+      "위반 사례": "publish()의 Promise 이행은 큐 등록만 의미하지만, 호출자는 업무 완료를 보장하는 것으로 약속한 응답을 즉시 보냅니다.",
+      "허용 사례": "Promise를 반환하는 HTTP 호출도 요청·응답 방식일 수 있고, 이벤트 버스도 콜백을 동기적으로 호출할 수 있습니다. 각각의 완료 의미가 계약에 명시되어 있습니다.",
+      "판단 불가": "이름에 async가 있을 뿐, 큐 등록·수신 확인·업무 완료의 의미를 설명하는 어댑터 계약이 없습니다.",
+      "중복 구별": "동기·비동기 문법과 요청·이벤트 통신 방식은 별개입니다. match-sync-async-behavior와 실제로 같은 계약 위반을 지적할 때만 중복을 제거합니다."
+    }
+  },
+  {
+    "id": "architecture/explicit-trust-boundaries",
+    "description": "외부·낮은 신뢰 데이터와 권한이 보호 영역으로 들어오는 경계를 식별하고, 필요한 검증·변환·집행 책임을 실제 경로와 연결합니다.",
+    "sourceUrl": "https://chatgpt.com/space/page_dd6ffadaf0448191aa29ee9e19e7d2ad",
+    "sourceBlockId": "7a71772e-7303-4ff0-813a-a54c52492b3a",
+    "boundary": "Data sanitization and authorization are different guarantees; one does not establish the other.",
+    "overlap": "Preserve distinct injection, access-control, or data-validation obligations even when they share the same boundary.",
+    "examples": [
+      {
+        "scenario": "Synthetic fixture: A public request supplies accountId and an authenticated handler reads that account without the required ownership authorization.",
+        "expected": "violation",
+        "reason": "Untrusted identity selects a protected asset without the required check."
+      },
+      {
+        "scenario": "Synthetic fixture: All entry paths use a verified authorization boundary that binds the requested account to the authenticated principal.",
+        "expected": "pass",
+        "reason": "The required authorization is enforced before the protected operation."
+      },
+      {
+        "scenario": "Synthetic fixture: A gateway is said to validate requests, but its configuration and bypass paths are unavailable.",
+        "expected": "unknown",
+        "reason": "The claimed upstream guarantee cannot be verified."
+      },
+      {
+        "scenario": "Synthetic fixture: The complete inspected computation uses constants only and crosses no data or authority trust boundary.",
+        "expected": "not_applicable",
+        "reason": "The trust-transition prerequisite is absent."
+      }
+    ],
+    "inspectionDetail": {
+      "수준": "절차·계약 자료 확인 / 계약 근거 검사",
+      "필수 근거": "신뢰 경계 맵, 데이터 출처, 우회 가능성, 권한 집행과 검증의 책임이 필요합니다.",
+      "위반 사례": "웹 입력이 데이터베이스 명령으로 전달되지만, 경계 맵은 이를 내부의 신뢰된 데이터로 잘못 분류하여 검증 의무를 누락합니다.",
+      "허용 사례": "검증을 마친 gateway → service 경로에 데이터의 출처와 검증 우회가 불가능한 조건이 명시되어 있습니다.",
+      "판단 불가": "데이터의 기원과 gateway 정책을 알 수 없으며, trusted라는 변수 이름만 확인됩니다.",
+      "중복 구별": "경계 맵을 선언하는 것만으로 실제 권한 집행이나 검증의 성공이 보장되지는 않습니다. 이 규칙이 security/* 전체를 포함한다고 주장하지 않습니다."
+    }
+  },
+  {
+    "id": "architecture/isolate-external-models",
+    "description": "공급자 변경·도메인 독립성이 요구된 경계에서 외부 데이터·행동 계약이 내부 정책을 의도치 않게 지배하는지 검사하며, 의도된 공유 모델은 허용합니다.",
+    "sourceUrl": "https://chatgpt.com/space/page_dd6ffadaf0448191aa29ee9e19e7d2ad",
+    "sourceBlockId": "afbc9988-1cc1-4c93-bc9d-a5715637584f",
+    "boundary": "An adapter that only renames fields is insufficient if provider-specific lifecycle still determines internal policy.",
+    "overlap": "Transport independence and external-model independence may have different protected contracts.",
+    "examples": [
+      {
+        "scenario": "Synthetic fixture: Payments must be provider-independent, but domain refund eligibility depends directly on VendorX status codes.",
+        "expected": "violation",
+        "reason": "Provider-specific behavior governs protected domain policy."
+      },
+      {
+        "scenario": "Synthetic fixture: A provider adapter maps documented vendor states into the domain refund state machine and owns vendor errors.",
+        "expected": "pass",
+        "reason": "The adapter preserves the established independent domain semantics."
+      },
+      {
+        "scenario": "Synthetic fixture: A status field appears in domain code but its provider origin and independence requirement are unverified.",
+        "expected": "unknown",
+        "reason": "Neither external origin nor prohibited coupling is established."
+      },
+      {
+        "scenario": "Synthetic fixture: This adapter is deliberately provider-specific and outside the independent internal boundary.",
+        "expected": "not_applicable",
+        "reason": "Provider-specific details belong in this scope."
+      }
+    ],
+    "inspectionDetail": {
+      "수준": "선택적 설계 검토 / 계약 근거 검사",
+      "필수 근거": "안정적으로 유지할 공개 계약, 공급자의 변경 가능 영역, 매핑 책임, 승인된 외부 모델 노출 범위가 필요합니다.",
+      "위반 사례": "공급자 교체 독립성을 약속했지만, 할인 정책의 공개 입력이 VendorCustomer SDK 인스턴스와 공급자 전용 status 값에 종속됩니다.",
+      "허용 사례": "얇은 SDK 래퍼가 공급자의 모델을 그대로 노출한다는 제품 계약을 명시적으로 갖고 있습니다.",
+      "판단 불가": "외부 모델을 사용한다는 사실은 보이지만, 교체 독립성 요구나 승인된 공유 여부는 알 수 없습니다.",
+      "중복 구별": "no-unintended-vendor-type-leak는 공개 경계를 통한 전파를 다룹니다. 내부 정책의 종속은 공개 타입 누출 없이도 발생할 수 있습니다."
+    }
+  },
+  {
+    "id": "architecture/isolate-legacy-boundaries",
+    "description": "레거시의 특수 계약이 격리 대상으로 정한 새 코드에 새어 변경·오류 처리 계약을 깨는지 검토하며, 검증된 연결 계층이나 동등한 격리를 인정합니다.",
+    "sourceUrl": "https://chatgpt.com/space/page_dd6ffadaf0448191aa29ee9e19e7d2ad",
+    "sourceBlockId": "54220cb1-e040-42e8-ad4c-3b65f3756240",
+    "boundary": "A missing wrapper is not a violation if the actual boundary already supplies equivalent isolation.",
+    "overlap": "Keep a distinct external-model obligation if the same legacy system is also an external provider.",
+    "examples": [
+      {
+        "scenario": "Synthetic fixture: New billing must expose typed domain failures, but callers inspect legacy magic error string E17 throughout new business logic.",
+        "expected": "violation",
+        "reason": "Legacy error semantics escape the required isolation boundary."
+      },
+      {
+        "scenario": "Synthetic fixture: One approved compatibility adapter converts E17 into the documented domain failure before returning to new billing.",
+        "expected": "pass",
+        "reason": "The required error contract is preserved by equivalent isolation."
+      },
+      {
+        "scenario": "Synthetic fixture: An old library is imported, but no special legacy contract or isolation goal is established.",
+        "expected": "unknown",
+        "reason": "Age alone cannot establish a boundary violation."
+      },
+      {
+        "scenario": "Synthetic fixture: The inspected module is the explicitly designated legacy adapter, where translation is intended.",
+        "expected": "not_applicable",
+        "reason": "Legacy-specific handling is in the allowed boundary scope."
+      }
+    ],
+    "inspectionDetail": {
+      "수준": "선택적 설계 검토 / 계약 근거 검사",
+      "필수 근거": "구버전 프로토콜, 센티널과 오류의 의미, 마이그레이션 범위, 격리 정책이 필요합니다.",
+      "위반 사례": "레거시의 -999 센티널이 새 도메인의 금액으로 그대로 전달되어 음수 금액 거부 계약을 위반합니다.",
+      "허용 사례": "공유 직렬화 helper가 센티널을 명시적인 오류로 일관되게 변환하여 요구된 격리를 제공합니다.",
+      "판단 불가": "라이브러리가 레거시라고 불린다는 사실 외에는 보존하거나 격리해야 할 계약이 없습니다.",
+      "중복 구별": "isolate-external-models와 대상이 겹칠 수는 있지만 같은 규칙은 아닙니다. 시스템이 오래되었다는 이유만으로 어댑터를 강제하지 않습니다."
+    }
+  },
+  {
+    "id": "architecture/isolate-platform-specific-code",
+    "description": "공통 실행 대상으로 선언된 코드가 지원 환경에서 사용할 수 없는 플랫폼 API에 도달하거나 구현을 잘못 노출하는지 검사하며, 검증된 조건 분기·어댑터·진입점 분리를 인정합니다.",
+    "sourceUrl": "https://chatgpt.com/space/page_dd6ffadaf0448191aa29ee9e19e7d2ad",
+    "sourceBlockId": "f0bf4510-2fd1-4f3c-a24c-ee3982399d16",
+    "boundary": "An unreachable guarded call can be safe, but an unconditional unsupported import may fail before that guard.",
+    "overlap": "Keep an independent environment-configuration or import-boundary defect when portability evidence does not subsume it.",
+    "examples": [
+      {
+        "scenario": "Synthetic fixture: A browser-shared entry imports node:fs at module evaluation without a bundler adapter or alternate entry.",
+        "expected": "violation",
+        "reason": "The supported browser resolves an unavailable platform API before any guard."
+      },
+      {
+        "scenario": "Synthetic fixture: Package exports select verified browser and Node entries; the browser graph contains no Node-only imports.",
+        "expected": "pass",
+        "reason": "Entry separation enforces the declared portability contract."
+      },
+      {
+        "scenario": "Synthetic fixture: A process guard is present but the bundler, export conditions, and target runtimes are unavailable.",
+        "expected": "unknown",
+        "reason": "Resolution and reachability of the platform API remain unverified."
+      },
+      {
+        "scenario": "Synthetic fixture: The package explicitly supports Node only and the inspected API is supported by that declared Node version.",
+        "expected": "not_applicable",
+        "reason": "No cross-platform shared-code requirement applies."
+      }
+    ],
+    "inspectionDetail": {
+      "수준": "계약 근거 검사 / 분석기·런타임 의미 확인",
+      "필수 근거": "지원 환경, 진입점, 조건부 모듈 해석, 코드 제거 및 번들 결과, 사용 API의 환경별 지원 정보가 필요합니다.",
+      "위반 사례": "SSR 진입 모듈을 평가하는 동안 window.localStorage를 읽어 Node.js 실행이 실패합니다.",
+      "허용 사례": "브라우저 전용 이벤트 경로에서만 window를 읽으며, 서버 번들에는 해당 구현이 선택되지 않습니다.",
+      "판단 불가": "번들러의 조건부 해석이나 브라우저용 대체 설정, 실제 진입점을 알 수 없습니다.",
+      "중복 구별": "ui/isolate-browser-server-execution과 동일한 실행 경로를 지적할 때만 중복을 제거합니다. 비밀이 배포물에 포함되는 문제는 별도 의무입니다."
+    }
+  },
+  {
+    "id": "architecture/explicit-plugin-extension-points",
+    "description": "지원하기로 한 플러그인의 등록·선택·호출·실패·권한·수명 계약을 확인하고, 실제 확장 경로가 이를 지키는지 검사합니다.",
+    "sourceUrl": "https://chatgpt.com/space/page_dd6ffadaf0448191aa29ee9e19e7d2ad",
+    "sourceBlockId": "678f447e-36d0-4a00-86f4-613d7a9fd140",
+    "boundary": "Do not infer plugin authority from text supplied by the plugin; use the host-authorized contract.",
+    "overlap": "Preserve a resource-release or security-boundary obligation distinct from the extension API promise.",
+    "examples": [
+      {
+        "scenario": "Synthetic fixture: Host promises one failing plugin cannot abort others, but dispatch exits on the first plugin exception without isolation.",
+        "expected": "violation",
+        "reason": "The supported failure-isolation contract is violated."
+      },
+      {
+        "scenario": "Synthetic fixture: The host records each plugin failure, continues the remaining plugins, and disposes each registered instance exactly as promised.",
+        "expected": "pass",
+        "reason": "The inspected dispatch and lifecycle match the published guarantees."
+      },
+      {
+        "scenario": "Synthetic fixture: An extension registry is visible but supported lifetime and error behavior are unavailable and callers do not establish them.",
+        "expected": "unknown",
+        "reason": "The required extension guarantees cannot be established."
+      },
+      {
+        "scenario": "Synthetic fixture: A private local callback is not a supported extension mechanism and no plugin guarantee applies.",
+        "expected": "not_applicable",
+        "reason": "The public extension-point prerequisite is absent."
+      }
+    ],
+    "inspectionDetail": {
+      "수준": "절차·계약 자료 확인 / 계약 근거 검사",
+      "필수 근거": "플러그인 manifest와 API, 수명 및 권한 계약, 등록 소유권, 지원하는 확장의 범위가 필요합니다.",
+      "위반 사례": "플러그인 unload를 약속했지만 등록한 리스너의 제거 정보가 없어, 플러그인 교체 후에도 이전 구현이 호출됩니다.",
+      "허용 사례": "내부 단일 구현에는 플러그인 지원 계약이 없으며, 필요할 때 함수 인자로 간단히 확장합니다.",
+      "판단 불가": "플러그인 로더가 외부에서 주입되고, 등록과 해제의 책임은 알려져 있지 않습니다.",
+      "중복 구별": "이 규칙은 이미 지원하기로 한 확장의 계약을 검사하므로 no-speculative-extension과 상충하지 않습니다. 클래스나 registry 사용을 강제하지 않습니다."
+    }
+  },
+  {
+    "id": "architecture/no-use-case-bypass",
+    "description": "업무 흐름을 거치도록 선언된 변경 진입점이 필수 불변조건·권한·효과 순서를 우회하는지 검사하며, 동등한 집행 경계와 승인된 직접 경로를 인정합니다.",
+    "sourceUrl": "https://chatgpt.com/space/page_dd6ffadaf0448191aa29ee9e19e7d2ad",
+    "sourceBlockId": "347140f5-9f85-4c4e-8c60-e720933b63f2",
+    "boundary": "A direct path that preserves invariants can still violate an express mandatory-entry policy if no exception authorizes it.",
+    "overlap": "A foreign-data write can violate both workflow and data ownership; keep the distinct required guarantees.",
+    "examples": [
+      {
+        "scenario": "Synthetic fixture: All refunds must authorize the caller and record an audit event before issuing payment; an admin route invokes payment directly and skips both.",
+        "expected": "violation",
+        "reason": "The alternate entry bypasses required authorization and effect ordering."
+      },
+      {
+        "scenario": "Synthetic fixture: An approved operational refund path independently enforces the same authorization and audit-before-payment obligations.",
+        "expected": "pass",
+        "reason": "The approved equivalent boundary preserves the mandatory guarantees."
+      },
+      {
+        "scenario": "Synthetic fixture: A route calls a repository, but neither the workflow contract nor middleware enforcement can be established.",
+        "expected": "unknown",
+        "reason": "Direct access alone does not prove an omitted business obligation."
+      },
+      {
+        "scenario": "Synthetic fixture: The code is a read-only query with no state-changing entry point covered by this workflow contract.",
+        "expected": "not_applicable",
+        "reason": "The protected change-entry prerequisite is absent."
+      }
+    ],
+    "inspectionDetail": {
+      "수준": "계약 근거 검사",
+      "필수 근거": "필수 업무 흐름과 보장, 실제 외부 진입점, 동등한 집행 방식, 우회 권한이 필요합니다.",
+      "위반 사례": "승인이 필수인 refund 흐름 대신 외부 route가 balance를 직접 올립니다.",
+      "허용 사례": "단순 CRUD route가 동일한 권한·불변조건 보장을 제공하며, 프로젝트는 별도의 use-case 계층을 요구하지 않습니다.",
+      "판단 불가": "repository라는 이름의 함수가 실제로 모든 업무 규칙을 집행하는지 알 수 없습니다.",
+      "중복 구별": "소스에 useCase 호출이 없다는 이유만으로 위반을 만들지 않습니다. no-shared-database-bypass와 같은 직접 쓰기 경로를 지적할 때만 중복을 제거합니다."
+    }
+  },
+  {
+    "id": "architecture/document-boundary-exceptions",
+    "description": "프로젝트가 허용한 경계 예외의 이유·대상·조건·유효 범위를 확인하고, 만료되거나 승인 범위를 넘은 예외를 구분합니다.",
+    "sourceUrl": "https://chatgpt.com/space/page_dd6ffadaf0448191aa29ee9e19e7d2ad",
+    "sourceBlockId": "dc5d96bf-c74b-4749-956d-9120d86c2f97",
+    "boundary": "Do not declare an exception expired when there is no verified current time or applicable expiration policy.",
+    "overlap": "Keep the underlying boundary violation distinct from an exception-governance violation when both are independently established.",
+    "examples": [
+      {
+        "scenario": "Synthetic fixture: Approval permits only migration M42 to write Billing internals; a normal request handler relies on that approval for the same write.",
+        "expected": "violation",
+        "reason": "The request handler is outside the approved exception target and conditions."
+      },
+      {
+        "scenario": "Synthetic fixture: Migration M42 performs the approved write within its authorized scope and required safeguards.",
+        "expected": "pass",
+        "reason": "The actual dependency satisfies the exception conditions."
+      },
+      {
+        "scenario": "Synthetic fixture: A comment says approved, but its approval source or applicable validity cannot be verified.",
+        "expected": "unknown",
+        "reason": "A claim of authority is not proof of authorization or a proved violation."
+      },
+      {
+        "scenario": "Synthetic fixture: No boundary exception is claimed or required in the complete inspected scope.",
+        "expected": "not_applicable",
+        "reason": "The exception-governance prerequisite is absent."
+      }
+    ],
+    "inspectionDetail": {
+      "수준": "절차·계약 자료 확인",
+      "필수 근거": "권위 있는 예외 기록, 대상·소유자·만료 조건, 서로 충돌하는 근거의 우선순위가 필요합니다.",
+      "위반 사례": "domain → infra 의존 예외가 마이그레이션 파일 하나에만 승인되었지만, 일상적인 handler로 적용 범위가 확장되었습니다.",
+      "허용 사례": "예외 근거가 중앙 ADR이나 정책 파일에 있으므로 모든 소스 줄에 같은 주석을 반복하지 않습니다.",
+      "판단 불가": "승인 기록 저장소에 접근하지 못하여 소스 주석이 없다는 사실만 확인했습니다.",
+      "중복 구별": "respect-scoped-suppressions는 도구의 억제 정책을 다룹니다. 문서화된 아키텍처 예외가 보안 의무까지 면제하는 것은 아닙니다."
+    }
+  }
+]

@@ -4,13 +4,14 @@ import { preferEarlyReturn } from "./format/prefer-early-return";
 import { separateResponsibilities } from "./format/separate-responsibilities";
 import { architectureRules } from "./lint/architecture";
 import { section02Rules } from "./lint/section-02";
+import { section03Rules } from "./lint/section-03";
 import { noInputMutation } from "./lint/no-input-mutation";
 import { releaseOnExit } from "./lint/release-on-exit";
 import { usePublicEntry } from "./lint/use-public-entry";
 
 export const aquariusRules: RulePlugin = {
   namespace: "aquarius",
-  lintRules: [noInputMutation, usePublicEntry, releaseOnExit, ...architectureRules, ...section02Rules],
+  lintRules: [noInputMutation, usePublicEntry, releaseOnExit, ...architectureRules, ...section02Rules, ...section03Rules],
   formatRules: [preferEarlyReturn, nameCompoundConditions, separateResponsibilities],
 };
 

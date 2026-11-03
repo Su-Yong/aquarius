@@ -24,13 +24,14 @@ import { httpRules } from "./lint/section-19-http";
 import { eventRules } from "./lint/section-20-event";
 import { section21Rules } from "./lint/catalog/section-21";
 import { section22Rules } from "./lint/catalog/section-22";
+import { section23Rules } from "./lint/catalog/section-23";
 import { noInputMutation } from "./lint/no-input-mutation";
 import { releaseOnExit } from "./lint/release-on-exit";
 import { usePublicEntry } from "./lint/use-public-entry";
 
 export const aquariusRules: RulePlugin = {
   namespace: "aquarius",
-  lintRules: [noInputMutation, usePublicEntry, releaseOnExit, ...architectureRules, ...section02Rules, ...section03Rules, ...section04Rules, ...section05Rules, ...section06Rules, ...section07Rules, ...section08Rules, ...stateRules, ...errorRules, ...asyncRules, ...resourceRules, ...persistenceRules, ...queryRules, ...distributedRules, ...cacheRules, ...securityRules, ...privacyRules, ...httpRules, ...eventRules, ...section21Rules, ...section22Rules],
+  lintRules: [noInputMutation, usePublicEntry, releaseOnExit, ...architectureRules, ...section02Rules, ...section03Rules, ...section04Rules, ...section05Rules, ...section06Rules, ...section07Rules, ...section08Rules, ...stateRules, ...errorRules, ...asyncRules, ...resourceRules, ...persistenceRules, ...queryRules, ...distributedRules, ...cacheRules, ...securityRules, ...privacyRules, ...httpRules, ...eventRules, ...section21Rules, ...section22Rules, ...section23Rules],
   formatRules: [preferEarlyReturn, nameCompoundConditions, separateResponsibilities],
 };
 

@@ -13,13 +13,14 @@ import { section08Rules } from "./lint/section-08";
 import { stateRules } from "./lint/section-09-state";
 import { errorRules } from "./lint/section-10-error";
 import { asyncRules } from "./lint/section-11-async";
+import { resourceRules } from "./lint/section-12-resource";
 import { noInputMutation } from "./lint/no-input-mutation";
 import { releaseOnExit } from "./lint/release-on-exit";
 import { usePublicEntry } from "./lint/use-public-entry";
 
 export const aquariusRules: RulePlugin = {
   namespace: "aquarius",
-  lintRules: [noInputMutation, usePublicEntry, releaseOnExit, ...architectureRules, ...section02Rules, ...section03Rules, ...section04Rules, ...section05Rules, ...section06Rules, ...section07Rules, ...section08Rules, ...stateRules, ...errorRules, ...asyncRules],
+  lintRules: [noInputMutation, usePublicEntry, releaseOnExit, ...architectureRules, ...section02Rules, ...section03Rules, ...section04Rules, ...section05Rules, ...section06Rules, ...section07Rules, ...section08Rules, ...stateRules, ...errorRules, ...asyncRules, ...resourceRules],
   formatRules: [preferEarlyReturn, nameCompoundConditions, separateResponsibilities],
 };
 

@@ -11,7 +11,8 @@ export const buildLintPrompt = (
   rules: readonly PreparedRule[],
   policy: PathPolicy,
   writeScope: JsonObject,
-): string => buildTaskPrompt(lintInstructions, rules, policy, {
-  task: "lint",
-  writeScope,
-});
+): string =>
+  buildTaskPrompt(lintInstructions, rules, policy, {
+    task: "lint",
+    writeScope,
+  });

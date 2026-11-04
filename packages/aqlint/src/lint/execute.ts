@@ -57,12 +57,16 @@ export const executeLint = async (
     }
     if (options.signal?.aborted) throw new AquariusError("AI_ABORTED", "Execution was cancelled.");
 
-    const baseline = options.fix ? await captureBaseline(config.projectRoot, policy.targets) : undefined;
-    const bridge = suppliedBridge ?? await resolveBridge(config);
+    const baseline = options.fix
+      ? await captureBaseline(config.projectRoot, policy.targets)
+      : undefined;
+    const bridge = suppliedBridge ?? (await resolveBridge(config));
     const cwdRelative = relative(config.projectRoot, config.cwd).replaceAll("\\", "/");
-    const pathsRelativeTo = !options.paths?.length && (cwdRelative === ".." || cwdRelative.startsWith("../") || isAbsolute(cwdRelative))
-      ? "."
-      : cwdRelative || ".";
+    const pathsRelativeTo =
+      !options.paths?.length &&
+      (cwdRelative === ".." || cwdRelative.startsWith("../") || isAbsolute(cwdRelative))
+        ? "."
+        : cwdRelative || ".";
     const prompt = buildLintPrompt(prepared.rules, policy, {
       files: config.files,
       paths: options.paths?.length ? options.paths : ["."],
@@ -88,14 +92,23 @@ export const executeLint = async (
       initial = result;
       if (!result.errors.length && result.diagnostics.length) {
         options.onProgress?.("Fixing diagnostics");
-        const changedFiles = await fixDiagnostics(result.diagnostics, prepared.rules, policy, config, bridge, baseline!, options.signal);
+        const changedFiles = await fixDiagnostics(
+          result.diagnostics,
+          prepared.rules,
+          policy,
+          config,
+          bridge,
+          baseline!,
+          options.signal,
+        );
         result.changedFiles = changedFiles;
         if (changedFiles.length) {
           result.diagnostics = [];
           result.unknowns = [];
           options.onProgress?.("Checking fixes with AI");
           const checked = await callBridge(bridge, input, config.ai.timeoutMs, options.signal);
-          if (options.signal?.aborted) throw new AquariusError("AI_ABORTED", "Execution was cancelled.");
+          if (options.signal?.aborted)
+            throw new AquariusError("AI_ABORTED", "Execution was cancelled.");
           result = await normalizeLintResponse(checked, prepared.rules, policy);
           result.changedFiles = changedFiles;
           initial = result;

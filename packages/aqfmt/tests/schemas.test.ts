@@ -1,17 +1,23 @@
 import { expect, test } from "vitest";
-import { fileChangeSchema, formatResponseJsonSchema, formatResponseSchema } from "../src/format/schemas";
+import {
+  fileChangeSchema,
+  formatResponseJsonSchema,
+  formatResponseSchema,
+} from "../src/format/schemas";
 import { parseUndoManifest } from "../src/undo/schema";
 
 test("format response schema is strict and produces the AI JSON schema", () => {
   const response = {
     completedRuleIds: ["style/early-return"],
-    changes: [{
-      op: "replace",
-      path: "src/file.ts",
-      oldText: "before",
-      newText: "after",
-      ruleIds: ["style/early-return"],
-    }],
+    changes: [
+      {
+        op: "replace",
+        path: "src/file.ts",
+        oldText: "before",
+        newText: "after",
+        ruleIds: ["style/early-return"],
+      },
+    ],
     warnings: [],
     errors: [],
   };
@@ -27,10 +33,26 @@ test("format AI schema uses Codex-compatible unions with strict operation fields
       changes: {
         items: {
           anyOf: [
-            { properties: { op: { const: "replace" } }, required: ["op", "path", "oldText", "newText", "ruleIds"], additionalProperties: false },
-            { properties: { op: { const: "create" } }, required: ["op", "path", "content", "ruleIds"], additionalProperties: false },
-            { properties: { op: { const: "delete" } }, required: ["op", "path", "ruleIds"], additionalProperties: false },
-            { properties: { op: { const: "move" } }, required: ["op", "from", "to", "ruleIds"], additionalProperties: false },
+            {
+              properties: { op: { const: "replace" } },
+              required: ["op", "path", "oldText", "newText", "ruleIds"],
+              additionalProperties: false,
+            },
+            {
+              properties: { op: { const: "create" } },
+              required: ["op", "path", "content", "ruleIds"],
+              additionalProperties: false,
+            },
+            {
+              properties: { op: { const: "delete" } },
+              required: ["op", "path", "ruleIds"],
+              additionalProperties: false,
+            },
+            {
+              properties: { op: { const: "move" } },
+              required: ["op", "from", "to", "ruleIds"],
+              additionalProperties: false,
+            },
           ],
         },
       },
@@ -40,7 +62,13 @@ test("format AI schema uses Codex-compatible unions with strict operation fields
 });
 
 test.each([
-  { op: "replace", path: "src/file.ts", oldText: "before", newText: "after", ruleIds: ["style/early-return"] },
+  {
+    op: "replace",
+    path: "src/file.ts",
+    oldText: "before",
+    newText: "after",
+    ruleIds: ["style/early-return"],
+  },
   { op: "create", path: "src/file.ts", content: "created", ruleIds: ["style/early-return"] },
   { op: "delete", path: "src/file.ts", ruleIds: ["style/early-return"] },
   { op: "move", from: "src/file.ts", to: "src/moved.ts", ruleIds: ["style/early-return"] },
@@ -58,12 +86,21 @@ test.each([
 
 test("undo manifest schema rejects malformed and empty state records", () => {
   const root = process.cwd();
-  expect(() => parseUndoManifest({ version: 1, projectRoot: root, files: "invalid", createdDirectories: [] }, root))
-    .toThrow(expect.objectContaining({ code: "UNDO_RECORD_INVALID" }));
-  expect(() => parseUndoManifest({
-    version: 1,
-    projectRoot: root,
-    files: [{ path: "src/file.ts", before: null, after: null }],
-    createdDirectories: [],
-  }, root)).toThrow(expect.objectContaining({ code: "UNDO_RECORD_INVALID" }));
+  expect(() =>
+    parseUndoManifest(
+      { version: 1, projectRoot: root, files: "invalid", createdDirectories: [] },
+      root,
+    ),
+  ).toThrow(expect.objectContaining({ code: "UNDO_RECORD_INVALID" }));
+  expect(() =>
+    parseUndoManifest(
+      {
+        version: 1,
+        projectRoot: root,
+        files: [{ path: "src/file.ts", before: null, after: null }],
+        createdDirectories: [],
+      },
+      root,
+    ),
+  ).toThrow(expect.objectContaining({ code: "UNDO_RECORD_INVALID" }));
 });

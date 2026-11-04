@@ -10,13 +10,7 @@ import {
 } from "./schemas";
 import type { LoadedConfig } from "../config/types";
 import type { JsonObject, RunError } from "../shared/types";
-import type {
-  ActiveSeverity,
-  FormatRule,
-  LintRule,
-  PreparedRules,
-  RulePlugin,
-} from "./types";
+import type { ActiveSeverity, FormatRule, LintRule, PreparedRules, RulePlugin } from "./types";
 
 export const prepareRules = async (
   config: LoadedConfig,
@@ -30,13 +24,15 @@ export const prepareRules = async (
   for (const specifier of config.plugins) {
     let plugin: RulePlugin;
     try {
-      plugin = await importProjectModule(
+      plugin = (await importProjectModule(
         specifier,
         config.configDirectory,
         Object.hasOwn(builtinPlugins, specifier) ? builtinPlugins[specifier] : undefined,
-      ) as RulePlugin;
+      )) as RulePlugin;
     } catch (error) {
-      errors.push(runError("PLUGIN_LOAD_FAILED", `Cannot load plugin ${specifier}: ${errorMessage(error)}`));
+      errors.push(
+        runError("PLUGIN_LOAD_FAILED", `Cannot load plugin ${specifier}: ${errorMessage(error)}`),
+      );
       continue;
     }
     registerPlugin(specifier, plugin, namespaces, lintRules, formatRules, errors);
@@ -44,9 +40,14 @@ export const prepareRules = async (
 
   const prepared: PreparedRules["rules"] = [];
   for (const selection of config.rules) {
-    const rule = config.tool === "lint" ? lintRules.get(selection.rule) : formatRules.get(selection.rule);
+    const rule =
+      config.tool === "lint" ? lintRules.get(selection.rule) : formatRules.get(selection.rule);
     if (!rule) {
-      errors.push(runError("RULE_NOT_FOUND", `Rule is not registered for ${config.tool}: ${selection.rule}`, [selection.rule]));
+      errors.push(
+        runError("RULE_NOT_FOUND", `Rule is not registered for ${config.tool}: ${selection.rule}`, [
+          selection.rule,
+        ]),
+      );
       continue;
     }
     if (config.tool === "lint" && selection.severity === "off") continue;
@@ -58,17 +59,20 @@ export const prepareRules = async (
       prepared.push({
         id: selection.rule,
         scope: rule.scope,
-        severity: config.tool === "lint"
-          ? (selection.severity ?? (rule as LintRule).defaultSeverity) as ActiveSeverity
-          : undefined,
+        severity:
+          config.tool === "lint"
+            ? ((selection.severity ?? (rule as LintRule).defaultSeverity) as ActiveSeverity)
+            : undefined,
         instructions,
       });
     } catch (error) {
-      errors.push(runError(
-        error instanceof RulePreparationError ? error.code : "RULE_PROMPT_FAILED",
-        `${selection.rule}: ${errorMessage(error)}`,
-        [selection.rule],
-      ));
+      errors.push(
+        runError(
+          error instanceof RulePreparationError ? error.code : "RULE_PROMPT_FAILED",
+          `${selection.rule}: ${errorMessage(error)}`,
+          [selection.rule],
+        ),
+      );
     }
   }
 
@@ -90,7 +94,12 @@ const registerPlugin = (
     return;
   }
   if (namespaces.has(plugin.namespace)) {
-    errors.push(runError("PLUGIN_NAMESPACE_CONFLICT", `Plugin namespace is already registered: ${plugin.namespace}`));
+    errors.push(
+      runError(
+        "PLUGIN_NAMESPACE_CONFLICT",
+        `Plugin namespace is already registered: ${plugin.namespace}`,
+      ),
+    );
     return;
   }
   namespaces.add(plugin.namespace);
@@ -114,12 +123,15 @@ const registerRuleList = <T extends LintRule | FormatRule>(
 
   const schema = kind === "lint" ? lintRuleSchema : formatRuleSchema;
   for (const candidate of input) {
-    const candidateId = typeof candidate === "object" && candidate !== null && "id" in candidate
-      ? candidate.id
-      : undefined;
+    const candidateId =
+      typeof candidate === "object" && candidate !== null && "id" in candidate
+        ? candidate.id
+        : undefined;
     const id = typeof candidateId === "string" ? `${namespace}/${candidateId}` : namespace;
     const parsed = schema.safeParse(candidate);
-    const problem = parsed.success ? validateRuleId(candidateId) : formatRuleZodIssues(parsed.error);
+    const problem = parsed.success
+      ? validateRuleId(candidateId)
+      : formatRuleZodIssues(parsed.error);
     if (problem) {
       errors.push(runError("RULE_INVALID", `${id}: ${problem}`, [id]));
       continue;
@@ -151,24 +163,29 @@ const prepareOptions = (rule: LintRule | FormatRule, selected: JsonObject): Json
     throw new RulePreparationError("RULE_OPTIONS_INVALID", formatRuleZodIssues(parsed.error));
   }
   if (!isDeepStrictEqual(parsed.data, merged)) {
-    throw new RulePreparationError("RULE_SCHEMA_TRANSFORMED_OPTIONS", "optionsSchema must validate without changing options");
+    throw new RulePreparationError(
+      "RULE_SCHEMA_TRANSFORMED_OPTIONS",
+      "optionsSchema must validate without changing options",
+    );
   }
   return merged;
 };
 
 const deepMerge = (defaults: JsonObject, selected: JsonObject): JsonObject => {
   const keys = new Set([...Object.keys(defaults), ...Object.keys(selected)]);
-  return Object.fromEntries([...keys].map((key) => {
-    if (!Object.hasOwn(selected, key)) return [key, cloneJson(defaults[key])];
-    const selectedValue = selected[key];
-    const defaultValue = defaults[key];
-    return [
-      key,
-      isPlainObject(defaultValue) && isPlainObject(selectedValue)
-        ? deepMerge(defaultValue, selectedValue)
-        : cloneJson(selectedValue),
-    ];
-  }));
+  return Object.fromEntries(
+    [...keys].map((key) => {
+      if (!Object.hasOwn(selected, key)) return [key, cloneJson(defaults[key])];
+      const selectedValue = selected[key];
+      const defaultValue = defaults[key];
+      return [
+        key,
+        isPlainObject(defaultValue) && isPlainObject(selectedValue)
+          ? deepMerge(defaultValue, selectedValue)
+          : cloneJson(selectedValue),
+      ];
+    }),
+  );
 };
 
 const cloneJson = (value: unknown): unknown => {
@@ -188,25 +205,24 @@ const deepFreeze = <T>(value: T): T => {
 };
 
 const validateInstructions = (tool: LoadedConfig["tool"], input: unknown): void => {
-  const parsed = (tool === "lint" ? lintInstructionsSchema : formatInstructionsSchema).safeParse(input);
+  const parsed = (tool === "lint" ? lintInstructionsSchema : formatInstructionsSchema).safeParse(
+    input,
+  );
   if (!parsed.success) {
     throw new RulePreparationError("RULE_INSTRUCTIONS_INVALID", formatRuleZodIssues(parsed.error));
   }
 };
 
-const validateRuleId = (value: unknown): string | undefined => (
-  typeof value === "string" && isRuleId(value) ? undefined : "id is invalid"
-);
+const validateRuleId = (value: unknown): string | undefined =>
+  typeof value === "string" && isRuleId(value) ? undefined : "id is invalid";
 
-const isNamespace = (value: unknown): value is string => (
-  typeof value === "string" && /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(value)
-);
+const isNamespace = (value: unknown): value is string =>
+  typeof value === "string" && /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(value);
 
-const isRuleId = (value: string): boolean => (
-  !value.startsWith("/")
-  && !value.endsWith("/")
-  && value.split("/").every((part) => /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(part))
-);
+const isRuleId = (value: string): boolean =>
+  !value.startsWith("/") &&
+  !value.endsWith("/") &&
+  value.split("/").every((part) => /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(part));
 
 const isPlainObject = (value: unknown): value is JsonObject => {
   if (value === null || typeof value !== "object" || Array.isArray(value)) return false;
@@ -214,12 +230,20 @@ const isPlainObject = (value: unknown): value is JsonObject => {
   return prototype === Object.prototype || prototype === null;
 };
 
-const runError = (code: string, message: string, ruleIds: string[] = []): RunError => ({ code, message, ruleIds });
+const runError = (code: string, message: string, ruleIds: string[] = []): RunError => ({
+  code,
+  message,
+  ruleIds,
+});
 
-const errorMessage = (error: unknown): string => error instanceof Error ? error.message : String(error);
+const errorMessage = (error: unknown): string =>
+  error instanceof Error ? error.message : String(error);
 
 class RulePreparationError extends Error {
-  constructor(public readonly code: string, message: string) {
+  constructor(
+    public readonly code: string,
+    message: string,
+  ) {
     super(message);
   }
 }

@@ -36,7 +36,11 @@ prompt:
       },
     });
 
-    expect(rule).toMatchObject({ id: "contracts/check", scope: "module", defaultSeverity: "error" });
+    expect(rule).toMatchObject({
+      id: "contracts/check",
+      scope: "module",
+      defaultSeverity: "error",
+    });
     expect(rule.optionsSchema?.safeParse({ enabled: "true" }).success).toBe(false);
     expect(instructions).toEqual({
       applicability: "Code with {{options.enabled}}",
@@ -79,7 +83,9 @@ prompt:
   criteria: "{{options.missing}}"
   evidenceRequirements: []
 `);
-    await expect(Promise.resolve().then(() => rule.buildPrompt({ options: {} }))).rejects.toMatchObject({
+    await expect(
+      Promise.resolve().then(() => rule.buildPrompt({ options: {} })),
+    ).rejects.toMatchObject({
       code: "YAML_TEMPLATE_MISSING",
     });
   });
@@ -88,7 +94,8 @@ prompt:
     ["{{context.file}}", "only options dot paths"],
     ["{{options.value", "malformed"],
   ])("rejects unsupported template syntax %s", (template, message) => {
-    expect(() => lintRuleFromYaml(`
+    expect(() =>
+      lintRuleFromYaml(`
 id: contracts/check
 description: Check
 scope: file
@@ -97,12 +104,21 @@ prompt:
   applicability: code
   criteria: "${template}"
   evidenceRequirements: []
-`)).toThrow(expect.objectContaining({ code: "YAML_RULE_INVALID", message: expect.stringContaining(message) }));
+`),
+    ).toThrow(
+      expect.objectContaining({
+        code: "YAML_RULE_INVALID",
+        message: expect.stringContaining(message),
+      }),
+    );
   });
 
   test("rejects invalid YAML and unknown rule fields", () => {
-    expect(() => lintRuleFromYaml("id: [")).toThrow(expect.objectContaining({ code: "YAML_PARSE_FAILED" }));
-    expect(() => formatRuleFromYaml(`
+    expect(() => lintRuleFromYaml("id: [")).toThrow(
+      expect.objectContaining({ code: "YAML_PARSE_FAILED" }),
+    );
+    expect(() =>
+      formatRuleFromYaml(`
 id: style/check
 description: Check
 scope: file
@@ -111,6 +127,7 @@ prompt:
   applicability: code
   transformation: transform
   constraints: []
-`)).toThrow(expect.objectContaining({ code: "YAML_RULE_INVALID" }));
+`),
+    ).toThrow(expect.objectContaining({ code: "YAML_RULE_INVALID" }));
   });
 });

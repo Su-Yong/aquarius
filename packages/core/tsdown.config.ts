@@ -13,4 +13,3 @@ export default defineConfig({
   minify: false,
   dts: true,
 });
-

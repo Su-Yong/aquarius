@@ -1,8 +1,23 @@
-import { chmod, mkdtemp, mkdir, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises";
+import {
+  chmod,
+  mkdtemp,
+  mkdir,
+  readFile,
+  realpath,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { delimiter, dirname, isAbsolute, join, resolve } from "node:path";
 import { afterEach, describe, expect, test } from "vitest";
-import { codexBridge, buildCodexConfigOverrides, createCodexSnapshot, resolveCodexExecutable, runExec } from "../src/ai/codex";
+import {
+  codexBridge,
+  buildCodexConfigOverrides,
+  createCodexSnapshot,
+  resolveCodexExecutable,
+  runExec,
+} from "../src/ai/codex";
 
 const temporaryDirectories: string[] = [];
 
@@ -14,13 +29,18 @@ const temporaryDirectory = async (label: string): Promise<string> => {
 
 afterEach(async () => {
   const tempRoot = resolve(tmpdir());
-  await Promise.all(temporaryDirectories.splice(0).map((directory) => {
-    const candidate = resolve(directory);
-    if (dirname(candidate) !== tempRoot || !candidate.startsWith(join(tempRoot, "aquarius-codex-test-"))) {
-      throw new Error("Refusing to remove a directory not created by this test.");
-    }
-    return rm(candidate, { recursive: true, force: true });
-  }));
+  await Promise.all(
+    temporaryDirectories.splice(0).map((directory) => {
+      const candidate = resolve(directory);
+      if (
+        dirname(candidate) !== tempRoot ||
+        !candidate.startsWith(join(tempRoot, "aquarius-codex-test-"))
+      ) {
+        throw new Error("Refusing to remove a directory not created by this test.");
+      }
+      return rm(candidate, { recursive: true, force: true });
+    }),
+  );
 });
 
 describe("Codex readable snapshot", () => {
@@ -31,9 +51,12 @@ describe("Codex readable snapshot", () => {
     await writeFile(join(root, "src", "main.ts"), "export const answer = 42;\n");
     await writeFile(join(root, "secret.txt"), "not approved\n");
 
-    await expect(createCodexSnapshot(root, ["src/main.ts"], [], view, new AbortController().signal))
-      .resolves.toEqual(["src/main.ts"]);
-    await expect(readFile(join(view, "src", "main.ts"), "utf8")).resolves.toBe("export const answer = 42;\n");
+    await expect(
+      createCodexSnapshot(root, ["src/main.ts"], [], view, new AbortController().signal),
+    ).resolves.toEqual(["src/main.ts"]);
+    await expect(readFile(join(view, "src", "main.ts"), "utf8")).resolves.toBe(
+      "export const answer = 42;\n",
+    );
     await expect(readFile(join(view, "secret.txt"), "utf8")).rejects.toThrow();
   });
 
@@ -43,13 +66,15 @@ describe("Codex readable snapshot", () => {
     await mkdir(join(root, "generated"));
     await writeFile(join(root, "generated", "secret.ts"), "secret\n");
 
-    await expect(createCodexSnapshot(
-      root,
-      ["generated/secret.ts"],
-      [{ baseDirectory: root, patterns: ["generated/**"] }],
-      view,
-      new AbortController().signal,
-    )).rejects.toMatchObject({ code: "CODEX_IGNORE_VIOLATION" });
+    await expect(
+      createCodexSnapshot(
+        root,
+        ["generated/secret.ts"],
+        [{ baseDirectory: root, patterns: ["generated/**"] }],
+        view,
+        new AbortController().signal,
+      ),
+    ).rejects.toMatchObject({ code: "CODEX_IGNORE_VIOLATION" });
   });
 
   test("applies ignore patterns based above the project root", async () => {
@@ -59,13 +84,15 @@ describe("Codex readable snapshot", () => {
     await mkdir(join(root, "generated"), { recursive: true });
     await writeFile(join(root, "generated", "secret.ts"), "secret\n");
 
-    await expect(createCodexSnapshot(
-      root,
-      ["generated/secret.ts"],
-      [{ baseDirectory: parent, patterns: ["project/generated/**"] }],
-      view,
-      new AbortController().signal,
-    )).rejects.toMatchObject({ code: "CODEX_IGNORE_VIOLATION" });
+    await expect(
+      createCodexSnapshot(
+        root,
+        ["generated/secret.ts"],
+        [{ baseDirectory: parent, patterns: ["project/generated/**"] }],
+        view,
+        new AbortController().signal,
+      ),
+    ).rejects.toMatchObject({ code: "CODEX_IGNORE_VIOLATION" });
   });
 
   test("rejects traversal, duplicate paths, and pre-aborted work", async () => {
@@ -73,15 +100,18 @@ describe("Codex readable snapshot", () => {
     const view = await temporaryDirectory("invalid-view");
     await writeFile(join(root, "file.ts"), "value\n");
 
-    await expect(createCodexSnapshot(root, ["../file.ts"], [], view, new AbortController().signal))
-      .rejects.toMatchObject({ code: "CODEX_READABLE_PATH_INVALID" });
-    await expect(createCodexSnapshot(root, ["file.ts", "file.ts"], [], view, new AbortController().signal))
-      .rejects.toMatchObject({ code: "CODEX_READABLE_PATH_INVALID" });
+    await expect(
+      createCodexSnapshot(root, ["../file.ts"], [], view, new AbortController().signal),
+    ).rejects.toMatchObject({ code: "CODEX_READABLE_PATH_INVALID" });
+    await expect(
+      createCodexSnapshot(root, ["file.ts", "file.ts"], [], view, new AbortController().signal),
+    ).rejects.toMatchObject({ code: "CODEX_READABLE_PATH_INVALID" });
 
     const controller = new AbortController();
     controller.abort();
-    await expect(createCodexSnapshot(root, ["file.ts"], [], view, controller.signal))
-      .rejects.toMatchObject({ code: "CODEX_ABORTED" });
+    await expect(
+      createCodexSnapshot(root, ["file.ts"], [], view, controller.signal),
+    ).rejects.toMatchObject({ code: "CODEX_ABORTED" });
   });
 
   test("does not follow source symlinks", async () => {
@@ -95,53 +125,79 @@ describe("Codex readable snapshot", () => {
       throw error;
     }
 
-    await expect(createCodexSnapshot(root, ["linked.ts"], [], view, new AbortController().signal))
-      .rejects.toMatchObject({ code: "CODEX_READABLE_PATH_UNSUPPORTED" });
+    await expect(
+      createCodexSnapshot(root, ["linked.ts"], [], view, new AbortController().signal),
+    ).rejects.toMatchObject({ code: "CODEX_READABLE_PATH_UNSUPPORTED" });
   });
 });
 
 describe("Codex invocation policy", () => {
-  test.skipIf(process.platform === "win32")("accepts a recovered error but rejects a final failure", async () => {
-    const root = await temporaryDirectory("events");
-    const executable = join(root, "codex");
-    const resultPath = join(root, "result.json");
-    const input = {
-      projectRoot: root,
-      readableFiles: [],
-      ignore: [],
-      prompt: "Return an empty object.",
-      outputSchema: { type: "object" },
-      options: {},
-      signal: new AbortController().signal,
-    };
+  test.skipIf(process.platform === "win32")(
+    "accepts a recovered error but rejects a final failure",
+    async () => {
+      const root = await temporaryDirectory("events");
+      const executable = join(root, "codex");
+      const resultPath = join(root, "result.json");
+      const input = {
+        projectRoot: root,
+        readableFiles: [],
+        ignore: [],
+        prompt: "Return an empty object.",
+        outputSchema: { type: "object" },
+        options: {},
+        signal: new AbortController().signal,
+      };
 
-    const runWithEvents = async (events: object[]) => {
-      const script = `#!${process.execPath}\n` +
-        `const fs = require("node:fs");\n` +
-        `process.stdin.resume();\n` +
-        `process.stdin.on("end", () => {\n` +
-        `  fs.writeFileSync(${JSON.stringify(resultPath)}, "{}");\n` +
-        `  for (const event of ${JSON.stringify(events)}) console.log(JSON.stringify(event));\n` +
-        `});\n`;
-      await writeFile(executable, script, { mode: 0o755 });
-      return runExec(executable, input, {}, root, root, join(root, "schema.json"), resultPath, []);
-    };
+      const runWithEvents = async (events: object[]) => {
+        const script =
+          `#!${process.execPath}\n` +
+          `const fs = require("node:fs");\n` +
+          `process.stdin.resume();\n` +
+          `process.stdin.on("end", () => {\n` +
+          `  fs.writeFileSync(${JSON.stringify(resultPath)}, "{}");\n` +
+          `  for (const event of ${JSON.stringify(events)}) console.log(JSON.stringify(event));\n` +
+          `});\n`;
+        await writeFile(executable, script, { mode: 0o755 });
+        return runExec(
+          executable,
+          input,
+          {},
+          root,
+          root,
+          join(root, "schema.json"),
+          resultPath,
+          [],
+        );
+      };
 
-    await expect(runWithEvents([{ type: "error" }, { type: "turn.completed" }])).resolves.toEqual({});
-    await expect(runWithEvents([{ type: "error" }, { type: "turn.failed" }]))
-      .rejects.toMatchObject({ code: "CODEX_EXECUTION_FAILED" });
-    await expect(runWithEvents([{
-      type: "turn.failed",
-      error: { message: JSON.stringify({ error: { code: "model_not_found" } }) },
-    }])).rejects.toMatchObject({
-      code: "CODEX_EXECUTION_FAILED",
-      message: expect.stringContaining("configured Codex model is unavailable"),
-    });
-    await expect(runWithEvents([{ type: "error" }]))
-      .rejects.toMatchObject({ code: "CODEX_EXECUTION_FAILED" });
-    await expect(runWithEvents([{ type: "error" }, { type: "item.completed", item: { type: "file_change" } }]))
-      .rejects.toMatchObject({ code: "CODEX_TOOL_VIOLATION" });
-  });
+      await expect(runWithEvents([{ type: "error" }, { type: "turn.completed" }])).resolves.toEqual(
+        {},
+      );
+      await expect(
+        runWithEvents([{ type: "error" }, { type: "turn.failed" }]),
+      ).rejects.toMatchObject({ code: "CODEX_EXECUTION_FAILED" });
+      await expect(
+        runWithEvents([
+          {
+            type: "turn.failed",
+            error: { message: JSON.stringify({ error: { code: "model_not_found" } }) },
+          },
+        ]),
+      ).rejects.toMatchObject({
+        code: "CODEX_EXECUTION_FAILED",
+        message: expect.stringContaining("configured Codex model is unavailable"),
+      });
+      await expect(runWithEvents([{ type: "error" }])).rejects.toMatchObject({
+        code: "CODEX_EXECUTION_FAILED",
+      });
+      await expect(
+        runWithEvents([
+          { type: "error" },
+          { type: "item.completed", item: { type: "file_change" } },
+        ]),
+      ).rejects.toMatchObject({ code: "CODEX_TOOL_VIOLATION" });
+    },
+  );
 
   test("uses invocation-only permission settings without a legacy sandbox flag", () => {
     const view = join(tmpdir(), "aquarius-view");
@@ -159,7 +215,9 @@ describe("Codex invocation policy", () => {
   });
 
   test("requires an absolute explicit executable and resolves an existing native file", async () => {
-    await expect(resolveCodexExecutable("codex")).rejects.toMatchObject({ code: "CODEX_EXECUTABLE_INVALID" });
+    await expect(resolveCodexExecutable("codex")).rejects.toMatchObject({
+      code: "CODEX_EXECUTABLE_INVALID",
+    });
     const resolved = await resolveCodexExecutable(process.execPath);
     expect(isAbsolute(resolved)).toBe(true);
   });
@@ -178,16 +236,32 @@ describe("Codex invocation policy", () => {
     const platform = platforms[`${process.platform}-${process.arch}`];
     if (!platform) return;
     const [packageName, target, binaryName] = platform;
-    const desktopExecutable = join(desktopDirectory, process.platform === "win32" ? "codex.exe" : "codex");
+    const desktopExecutable = join(
+      desktopDirectory,
+      process.platform === "win32" ? "codex.exe" : "codex",
+    );
     const packageRoot = join(npmDirectory, "node_modules", "@openai", "codex");
-    const npmExecutable = join(packageRoot, "node_modules", "@openai", packageName, "vendor", target, "bin", binaryName);
+    const npmExecutable = join(
+      packageRoot,
+      "node_modules",
+      "@openai",
+      packageName,
+      "vendor",
+      target,
+      "bin",
+      binaryName,
+    );
     await mkdir(join(packageRoot, "bin"), { recursive: true });
     await mkdir(dirname(npmExecutable), { recursive: true });
     await writeFile(desktopExecutable, "desktop");
     await writeFile(join(packageRoot, "bin", "codex.js"), "shim");
     await writeFile(npmExecutable, "npm");
     if (process.platform !== "win32") {
-      await Promise.all([desktopExecutable, join(packageRoot, "bin", "codex.js"), npmExecutable].map((path) => chmod(path, 0o755)));
+      await Promise.all(
+        [desktopExecutable, join(packageRoot, "bin", "codex.js"), npmExecutable].map((path) =>
+          chmod(path, 0o755),
+        ),
+      );
     }
 
     const originalPath = process.env.PATH;
@@ -205,14 +279,16 @@ describe("Codex invocation policy", () => {
     controller.abort();
 
     expect(codexBridge.id).toBe("codex");
-    await expect(codexBridge.run({
-      projectRoot: root,
-      readableFiles: [],
-      ignore: [],
-      prompt: "Return an empty object.",
-      outputSchema: { type: "object" },
-      options: { executable: process.execPath },
-      signal: controller.signal,
-    })).rejects.toMatchObject({ code: "CODEX_ABORTED" });
+    await expect(
+      codexBridge.run({
+        projectRoot: root,
+        readableFiles: [],
+        ignore: [],
+        prompt: "Return an empty object.",
+        outputSchema: { type: "object" },
+        options: { executable: process.execPath },
+        signal: controller.signal,
+      }),
+    ).rejects.toMatchObject({ code: "CODEX_ABORTED" });
   });
 });

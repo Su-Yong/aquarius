@@ -25,18 +25,25 @@ type Scope =
   | { kind: "directory"; path: string; raw: string }
   | { kind: "glob"; pattern: string; raw: string };
 
-export const selectTargets = async (config: LoadedConfig, options: TargetOptions = {}): Promise<PathPolicy> => {
+export const selectTargets = async (
+  config: LoadedConfig,
+  options: TargetOptions = {},
+): Promise<PathPolicy> => {
   const projectRoot = await realpath(config.projectRoot);
   const configIgnore = createMatcher(config.configDirectory, config.ignore);
-  const ignoreRules: IgnoreRule[] = config.ignore.length === 0
-    ? []
-    : [{ baseDirectory: config.configDirectory, patterns: [...config.ignore] }];
+  const ignoreRules: IgnoreRule[] =
+    config.ignore.length === 0
+      ? []
+      : [{ baseDirectory: config.configDirectory, patterns: [...config.ignore] }];
   const manualIgnores = await loadManualIgnores(config, options);
-  const gitInfoIgnore = config.tool === "format" ? await loadGitInfoExclude(projectRoot) : undefined;
+  const gitInfoIgnore =
+    config.tool === "format" ? await loadGitInfoExclude(projectRoot) : undefined;
   const gitIgnoreMatchers = await loadGitignoreMatchers(projectRoot);
 
   const allFiles = await discoverFiles(projectRoot);
-  const gitDiscovered = new Set(allFiles.filter((path) => !isIgnoredByMatchers(gitIgnoreMatchers, projectRoot, path)));
+  const gitDiscovered = new Set(
+    allFiles.filter((path) => !isIgnoredByMatchers(gitIgnoreMatchers, projectRoot, path)),
+  );
   const regularFiles = new Set<string>();
   for (const path of allFiles) {
     if (await isRegularPath(projectRoot, path)) regularFiles.add(path);
@@ -55,7 +62,10 @@ export const selectTargets = async (config: LoadedConfig, options: TargetOptions
     const candidates = candidatesForScope(scope, regularFiles, gitDiscovered);
     let count = 0;
     for (const path of candidates) {
-      if (!isAllowedTarget(path, scope, config, options, configIgnore, manualIgnores, gitInfoIgnore)) continue;
+      if (
+        !isAllowedTarget(path, scope, config, options, configIgnore, manualIgnores, gitInfoIgnore)
+      )
+        continue;
       if (negative.some((pattern) => matchesPath(path, pattern))) continue;
       selected.add(path);
       count += 1;
@@ -102,18 +112,23 @@ const createScopes = async (
   options: TargetOptions,
 ): Promise<{ positive: Scope[]; negative: string[] }> => {
   const cwdFromRoot = relative(config.projectRoot, config.cwd);
-  const defaultTarget = cwdFromRoot === ".." || cwdFromRoot.startsWith(`..${sep}`) || isAbsolute(cwdFromRoot)
-    ? config.projectRoot
-    : config.cwd;
+  const defaultTarget =
+    cwdFromRoot === ".." || cwdFromRoot.startsWith(`..${sep}`) || isAbsolute(cwdFromRoot)
+      ? config.projectRoot
+      : config.cwd;
   const inputs = options.paths && options.paths.length > 0 ? options.paths : [defaultTarget];
   const positive: Scope[] = [];
   const negative: string[] = [];
 
   for (const raw of inputs) {
-    if (raw.trim() === "") throw new AquariusError("TARGET_PATH_INVALID", "Target paths cannot be empty");
+    if (raw.trim() === "")
+      throw new AquariusError("TARGET_PATH_INVALID", "Target paths cannot be empty");
     if (raw.startsWith("!")) {
       if (config.tool !== "format") {
-        throw new AquariusError("TARGET_PATH_INVALID", `aqlint does not accept exclusion paths: ${raw}`);
+        throw new AquariusError(
+          "TARGET_PATH_INVALID",
+          `aqlint does not accept exclusion paths: ${raw}`,
+        );
       }
       negative.push(normalizePattern(config, raw.slice(1)));
       continue;
@@ -124,11 +139,18 @@ const createScopes = async (
     if (info) {
       const path = toProjectRelative(config.projectRoot, absolute, info.isDirectory());
       if (await hasSymlinkComponent(config.projectRoot, path)) {
-        throw new AquariusError("TARGET_SYMLINK_UNSUPPORTED", `Symbolic link targets are not supported: ${raw}`);
+        throw new AquariusError(
+          "TARGET_SYMLINK_UNSUPPORTED",
+          `Symbolic link targets are not supported: ${raw}`,
+        );
       }
       if (info.isFile()) positive.push({ kind: "file", path, raw });
       else if (info.isDirectory()) positive.push({ kind: "directory", path, raw });
-      else throw new AquariusError("TARGET_PATH_INVALID", `Target is not a regular file or directory: ${raw}`);
+      else
+        throw new AquariusError(
+          "TARGET_PATH_INVALID",
+          `Target is not a regular file or directory: ${raw}`,
+        );
       continue;
     }
 
@@ -148,7 +170,11 @@ const createScopes = async (
   return { positive, negative };
 };
 
-const candidatesForScope = (scope: Scope, allFiles: Set<string>, gitDiscovered: Set<string>): string[] => {
+const candidatesForScope = (
+  scope: Scope,
+  allFiles: Set<string>,
+  gitDiscovered: Set<string>,
+): string[] => {
   if (scope.kind === "file") return allFiles.has(scope.path) ? [scope.path] : [];
   const source = gitDiscovered;
   if (scope.kind === "directory") {
@@ -170,15 +196,24 @@ const isAllowedTarget = (
   if (matchesIgnore(configIgnore, config.projectRoot, path)) return false;
   if (isIgnoredByMatchers(manualIgnores, config.projectRoot, path)) return false;
   if (isToolDefaultIgnored(path, config.tool, options)) return false;
-  if (scope.kind !== "file" && gitInfoIgnore && matchesIgnore(gitInfoIgnore, config.projectRoot, path)) return false;
+  if (
+    scope.kind !== "file" &&
+    gitInfoIgnore &&
+    matchesIgnore(gitInfoIgnore, config.projectRoot, path)
+  )
+    return false;
   return true;
 };
 
-const loadManualIgnores = async (config: LoadedConfig, options: TargetOptions): Promise<IgnoreMatcher[]> => {
+const loadManualIgnores = async (
+  config: LoadedConfig,
+  options: TargetOptions,
+): Promise<IgnoreMatcher[]> => {
   if (config.tool === "lint" && options.noIgnore) return [];
-  const names = options.ignorePaths && options.ignorePaths.length > 0
-    ? options.ignorePaths
-    : [config.tool === "lint" ? ".eslintignore" : ".prettierignore"];
+  const names =
+    options.ignorePaths && options.ignorePaths.length > 0
+      ? options.ignorePaths
+      : [config.tool === "lint" ? ".eslintignore" : ".prettierignore"];
   const matchers: IgnoreMatcher[] = [];
 
   for (const name of names) {
@@ -220,7 +255,9 @@ const loadGitignoreMatchers = async (projectRoot: string): Promise<IgnoreMatcher
   });
   const rootIgnore = join(projectRoot, ".gitignore");
   if (await tryLstat(rootIgnore)) paths.push(rootIgnore);
-  const unique = [...new Set(paths)].sort((left, right) => left.split(sep).length - right.split(sep).length);
+  const unique = [...new Set(paths)].sort(
+    (left, right) => left.split(sep).length - right.split(sep).length,
+  );
   const matchers: IgnoreMatcher[] = [];
   for (const path of unique) {
     const info = await lstat(path);
@@ -245,29 +282,51 @@ const discoverFiles = async (projectRoot: string): Promise<string[]> => {
       unique: true,
     });
   } catch (error) {
-    throw new AquariusError("TARGET_DISCOVERY_FAILED", `Cannot discover project files: ${errorMessage(error)}`);
+    throw new AquariusError(
+      "TARGET_DISCOVERY_FAILED",
+      `Cannot discover project files: ${errorMessage(error)}`,
+    );
   }
 };
 
 const createMatcher = (baseDirectory: string, patterns: string[]): IgnoreMatcher => {
-  return { baseDirectory: resolve(baseDirectory), patterns: [...patterns], matcher: createIgnore().add(patterns) };
+  return {
+    baseDirectory: resolve(baseDirectory),
+    patterns: [...patterns],
+    matcher: createIgnore().add(patterns),
+  };
 };
 
 const matchesIgnore = (rule: IgnoreMatcher, projectRoot: string, projectPath: string): boolean => {
   const absolute = resolve(projectRoot, ...projectPath.split("/"));
   const relativePath = relative(rule.baseDirectory, absolute);
-  if (relativePath === "" || relativePath === ".." || relativePath.startsWith(`..${sep}`) || isAbsolute(relativePath)) {
+  if (
+    relativePath === "" ||
+    relativePath === ".." ||
+    relativePath.startsWith(`..${sep}`) ||
+    isAbsolute(relativePath)
+  ) {
     return false;
   }
   return rule.matcher.ignores(toPosix(relativePath));
 };
 
-const isIgnoredByMatchers = (matchers: IgnoreMatcher[], projectRoot: string, path: string): boolean => {
+const isIgnoredByMatchers = (
+  matchers: IgnoreMatcher[],
+  projectRoot: string,
+  path: string,
+): boolean => {
   let ignored = false;
   for (const matcher of matchers) {
     const absolute = resolve(projectRoot, ...path.split("/"));
     const relativePath = relative(matcher.baseDirectory, absolute);
-    if (relativePath === "" || relativePath === ".." || relativePath.startsWith(`..${sep}`) || isAbsolute(relativePath)) continue;
+    if (
+      relativePath === "" ||
+      relativePath === ".." ||
+      relativePath.startsWith(`..${sep}`) ||
+      isAbsolute(relativePath)
+    )
+      continue;
     const result = matcher.matcher.test(toPosix(relativePath));
     if (result.ignored) ignored = true;
     else if (result.unignored) ignored = false;
@@ -292,14 +351,26 @@ const matchesPath = (path: string, pattern: string): boolean => {
 };
 
 const maskDotSegments = (path: string): string => {
-  return path.split("/").map((part) => part.startsWith(".") ? `\0${part.slice(1)}` : part).join("/");
+  return path
+    .split("/")
+    .map((part) => (part.startsWith(".") ? `\0${part.slice(1)}` : part))
+    .join("/");
 };
 
-const isToolDefaultIgnored = (path: string, tool: LoadedConfig["tool"], options: TargetOptions): boolean => {
+const isToolDefaultIgnored = (
+  path: string,
+  tool: LoadedConfig["tool"],
+  options: TargetOptions,
+): boolean => {
   const parts = path.split("/");
   const name = parts.at(-1)!;
   if (tool === "lint") {
-    return parts.includes(".git") || name.includes(".min.") || name.includes("-min.") || name.includes("_min.");
+    return (
+      parts.includes(".git") ||
+      name.includes(".min.") ||
+      name.includes("-min.") ||
+      name.includes("_min.")
+    );
   }
   if (hasDirectory(path, FORMAT_VCS_DIRECTORIES)) return true;
   if (!options.withNodeModules && parts.includes("node_modules")) return true;
@@ -317,7 +388,10 @@ const isAtOrBelow = (path: string, directory: string): boolean => {
 };
 
 const hasDirectory = (path: string, directories: Set<string>): boolean => {
-  return path.split("/").slice(0, -1).some((part) => directories.has(part));
+  return path
+    .split("/")
+    .slice(0, -1)
+    .some((part) => directories.has(part));
 };
 
 const normalizePattern = (config: LoadedConfig, input: string): string => {
@@ -327,22 +401,36 @@ const normalizePattern = (config: LoadedConfig, input: string): string => {
     const absolute = toPosix(resolve(input));
     if (absolute === root) return "**/*";
     if (!absolute.startsWith(`${root}/`)) {
-      throw new AquariusError("TARGET_PATH_OUTSIDE_ROOT", `Target pattern escapes the project root: ${input}`);
+      throw new AquariusError(
+        "TARGET_PATH_OUTSIDE_ROOT",
+        `Target pattern escapes the project root: ${input}`,
+      );
     }
     return absolute.slice(root.length + 1);
   }
   const cwd = toPosix(relative(config.projectRoot, config.cwd));
   const combined = posix.normalize(cwd === "" ? normalized : `${cwd}/${normalized}`);
   if (combined === ".." || combined.startsWith("../")) {
-    throw new AquariusError("TARGET_PATH_OUTSIDE_ROOT", `Target pattern escapes the project root: ${input}`);
+    throw new AquariusError(
+      "TARGET_PATH_OUTSIDE_ROOT",
+      `Target pattern escapes the project root: ${input}`,
+    );
   }
   return combined.replace(/^\.\//, "");
 };
 
 const toProjectRelative = (projectRoot: string, absolute: string, allowRoot = false): string => {
   const value = relative(projectRoot, absolute);
-  if ((!allowRoot && value === "") || value === ".." || value.startsWith(`..${sep}`) || isAbsolute(value)) {
-    throw new AquariusError("TARGET_PATH_OUTSIDE_ROOT", `Target escapes the project root: ${absolute}`);
+  if (
+    (!allowRoot && value === "") ||
+    value === ".." ||
+    value.startsWith(`..${sep}`) ||
+    isAbsolute(value)
+  ) {
+    throw new AquariusError(
+      "TARGET_PATH_OUTSIDE_ROOT",
+      `Target escapes the project root: ${absolute}`,
+    );
   }
   return toPosix(value);
 };
@@ -402,7 +490,10 @@ const readOptionalFile = async (path: string, required: boolean): Promise<string
     return await readFile(path, "utf8");
   } catch (error) {
     if (!required && isNodeError(error, "ENOENT")) return undefined;
-    throw new AquariusError("IGNORE_FILE_FAILED", `Cannot read ignore file ${path}: ${errorMessage(error)}`);
+    throw new AquariusError(
+      "IGNORE_FILE_FAILED",
+      `Cannot read ignore file ${path}: ${errorMessage(error)}`,
+    );
   }
 };
 

@@ -26,7 +26,10 @@ export type UndoManifest = z.infer<typeof undoManifestSchema>;
 export const parseUndoManifest = (value: unknown, expectedRoot: string): UndoManifest => {
   const parsed = undoManifestSchema.safeParse(value);
   if (!parsed.success) {
-    throw new AquariusError("UNDO_RECORD_INVALID", `Undo record structure is invalid: ${parsed.error.message}`);
+    throw new AquariusError(
+      "UNDO_RECORD_INVALID",
+      `Undo record structure is invalid: ${parsed.error.message}`,
+    );
   }
   if (parsed.data.projectRoot !== expectedRoot) {
     throw new AquariusError("UNDO_RECORD_INVALID", "Undo record project root does not match");
@@ -35,7 +38,8 @@ export const parseUndoManifest = (value: unknown, expectedRoot: string): UndoMan
   const seen = new Set<string>();
   for (const file of parsed.data.files) {
     const key = process.platform === "win32" ? file.path.toLowerCase() : file.path;
-    if (seen.has(key)) throw new AquariusError("UNDO_RECORD_INVALID", `Duplicate undo path: ${file.path}`);
+    if (seen.has(key))
+      throw new AquariusError("UNDO_RECORD_INVALID", `Duplicate undo path: ${file.path}`);
     if (file.before === null && file.after === null) {
       throw new AquariusError("UNDO_RECORD_INVALID", `Undo path has no state: ${file.path}`);
     }

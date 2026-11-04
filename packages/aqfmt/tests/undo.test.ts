@@ -12,7 +12,10 @@ const temporaryProject = async (): Promise<string> => {
 
 const removeTemporaryProject = async (root: string): Promise<void> => {
   const resolved = path.resolve(root);
-  if (path.dirname(resolved) !== path.resolve(tmpdir()) || !path.basename(resolved).startsWith("aquarius-undo-")) {
+  if (
+    path.dirname(resolved) !== path.resolve(tmpdir()) ||
+    !path.basename(resolved).startsWith("aquarius-undo-")
+  ) {
     throw new Error(`Refusing to remove unexpected test path: ${resolved}`);
   }
   await rm(resolved, { recursive: true, force: true });
@@ -91,13 +94,19 @@ test("undo covers create, delete, move, replacement, and created directories", a
       baseline,
     );
     await applyFileChanges(plan, await createGitUndoStore(root));
-    expect(await readFile(path.join(root, "created", "deep", "moved.txt"), "utf8")).toBe("move new\n");
+    expect(await readFile(path.join(root, "created", "deep", "moved.txt"), "utf8")).toBe(
+      "move new\n",
+    );
 
     await undoLastFileChanges(root);
     expect(await readFile(path.join(root, "src", "move.txt"), "utf8")).toBe("move old\n");
     expect(await readFile(path.join(root, "delete.txt"), "utf8")).toBe("delete me\n");
-    await expect(readFile(path.join(root, "created", "new.txt"))).rejects.toMatchObject({ code: "ENOENT" });
-    await expect(readFile(path.join(root, "created", "deep", "moved.txt"))).rejects.toMatchObject({ code: "ENOENT" });
+    await expect(readFile(path.join(root, "created", "new.txt"))).rejects.toMatchObject({
+      code: "ENOENT",
+    });
+    await expect(readFile(path.join(root, "created", "deep", "moved.txt"))).rejects.toMatchObject({
+      code: "ENOENT",
+    });
   } finally {
     await removeTemporaryProject(root);
   }
@@ -195,7 +204,9 @@ test("a pre-write failure keeps the previous successful undo record", async () =
       await captureBaseline(root, ["second.txt"]),
     );
     await writeFile(path.join(root, "second.txt"), "user edit");
-    await expect(applyFileChanges(secondPlan, await createGitUndoStore(root))).rejects.toMatchObject({
+    await expect(
+      applyFileChanges(secondPlan, await createGitUndoStore(root)),
+    ).rejects.toMatchObject({
       code: "FILE_CHANGED",
     });
 
@@ -242,7 +253,9 @@ test("an incomplete pending transaction blocks new work and preserves its record
     const transaction = await store!.begin(plan, []);
     await expect(createGitUndoStore(root)).rejects.toMatchObject({ code: "UNDO_INCOMPLETE" });
     await expect(readFile(store!.pendingPath, "utf8")).resolves.toContain('"version": 1');
-    expect(git(root, ["for-each-ref", "--format=%(refname)", "refs/aquarius/aqfmt-undo"])).toContain("/pending");
+    expect(
+      git(root, ["for-each-ref", "--format=%(refname)", "refs/aquarius/aqfmt-undo"]),
+    ).toContain("/pending");
     await transaction.abort();
   } finally {
     await removeTemporaryProject(root);
@@ -264,7 +277,9 @@ test("recovers a lock owned by a dead process when no journal is pending", async
     await mkdir(path.dirname(lockPath), { recursive: true });
     await writeFile(lockPath, "999999999\n");
 
-    await expect(applyFileChanges(plan, store)).resolves.toMatchObject({ changedFiles: ["file.txt"] });
+    await expect(applyFileChanges(plan, store)).resolves.toMatchObject({
+      changedFiles: ["file.txt"],
+    });
     await undoLastFileChanges(root);
     expect(await readFile(path.join(root, "file.txt"), "utf8")).toBe("old");
   } finally {
@@ -288,10 +303,7 @@ test("serializes concurrent attempts to recover the same stale lock", async () =
     await mkdir(path.dirname(lockPath), { recursive: true });
     await writeFile(lockPath, "999999999\n");
 
-    const attempts = await Promise.allSettled([
-      first!.begin(plan, []),
-      second!.begin(plan, []),
-    ]);
+    const attempts = await Promise.allSettled([first!.begin(plan, []), second!.begin(plan, [])]);
     const successful = attempts.filter((attempt) => attempt.status === "fulfilled");
     for (const attempt of successful) await attempt.value.abort();
 
@@ -299,7 +311,9 @@ test("serializes concurrent attempts to recover the same stale lock", async () =
     const failed = attempts.find((attempt) => attempt.status === "rejected");
     expect(failed).toMatchObject({
       status: "rejected",
-      reason: expect.objectContaining({ code: expect.stringMatching(/^UNDO_(?:BUSY|INCOMPLETE)$/) }),
+      reason: expect.objectContaining({
+        code: expect.stringMatching(/^UNDO_(?:BUSY|INCOMPLETE)$/),
+      }),
     });
   } finally {
     await removeTemporaryProject(root);
@@ -333,7 +347,9 @@ test("undo preserves an identical user file created in the final write window", 
       }
     })();
 
-    await expect(undoLastFileChanges(root)).rejects.toMatchObject({ code: "UNDO_ROLLBACK_INCOMPLETE" });
+    await expect(undoLastFileChanges(root)).rejects.toMatchObject({
+      code: "UNDO_ROLLBACK_INCOMPLETE",
+    });
     await injector;
     expect(injected).toBe(true);
     expect(await readFile(target, "utf8")).toBe("old");

@@ -5,8 +5,14 @@ export { selectTargets } from "./files/targets";
 export { resolveBridge, callBridge } from "./ai/bridge";
 export { buildTaskPrompt } from "./ai/prompt";
 export {
-  errorSchema, parseResultItem, resultEnvelope, references, nonempty,
-  normalizedPath, collectErrors, checkCompletion,
+  errorSchema,
+  parseResultItem,
+  resultEnvelope,
+  references,
+  nonempty,
+  normalizedPath,
+  collectErrors,
+  checkCompletion,
 } from "./ai/results";
 export { AquariusError, toRunError } from "./shared/errors";
 export type * from "./ai/types";

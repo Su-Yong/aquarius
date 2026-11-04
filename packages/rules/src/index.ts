@@ -13,4 +13,3 @@ export const aquariusRules: RulePlugin = {
 };
 
 export default aquariusRules;
-

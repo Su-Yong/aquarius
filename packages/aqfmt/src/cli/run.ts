@@ -65,18 +65,21 @@ export const runCli = async (
     process.once("SIGTERM", abort);
     let execution: FormatExecutionResult;
     try {
-      execution = await executeFormat({
-        cwd: process.cwd(),
-        configPath: values.config,
-        paths: positionals,
-        ignorePaths: values["ignore-path"],
-        withNodeModules: values["with-node-modules"],
-        noErrorOnUnmatchedPattern: values["no-error-on-unmatched-pattern"],
-        check: values.check,
-        undo: values.undo,
-        signal: controller.signal,
-        onProgress: progress.update,
-      }, builtinPlugins);
+      execution = await executeFormat(
+        {
+          cwd: process.cwd(),
+          configPath: values.config,
+          paths: positionals,
+          ignorePaths: values["ignore-path"],
+          withNodeModules: values["with-node-modules"],
+          noErrorOnUnmatchedPattern: values["no-error-on-unmatched-pattern"],
+          check: values.check,
+          undo: values.undo,
+          signal: controller.signal,
+          onProgress: progress.update,
+        },
+        builtinPlugins,
+      );
     } finally {
       progress.stop();
       process.removeListener("SIGINT", abort);
@@ -87,7 +90,13 @@ export const runCli = async (
     else printHuman(execution, values.check === true);
     return execution.exitCode;
   } catch (cause) {
-    console.error(statusText(safeText(`aqfmt: ${cause instanceof Error ? cause.message : String(cause)}`), "error", process.stderr));
+    console.error(
+      statusText(
+        safeText(`aqfmt: ${cause instanceof Error ? cause.message : String(cause)}`),
+        "error",
+        process.stderr,
+      ),
+    );
     console.error("Run aqfmt --help for usage.");
     return 2;
   }

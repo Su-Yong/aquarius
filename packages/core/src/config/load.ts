@@ -55,7 +55,10 @@ const resolveDirectory = async (directory: string): Promise<string> => {
     return resolved;
   } catch (error) {
     if (error instanceof AquariusError) throw error;
-    throw new AquariusError("CONFIG_CWD_INVALID", `Cannot access working directory ${directory}: ${errorMessage(error)}`);
+    throw new AquariusError(
+      "CONFIG_CWD_INVALID",
+      `Cannot access working directory ${directory}: ${errorMessage(error)}`,
+    );
   }
 };
 
@@ -80,7 +83,10 @@ const resolveConfigPath = async (cwd: string, configPath: string): Promise<strin
     return resolved;
   } catch (error) {
     if (error instanceof AquariusError) throw error;
-    throw new AquariusError("CONFIG_NOT_FOUND", `Cannot find configuration ${configPath}: ${errorMessage(error)}`);
+    throw new AquariusError(
+      "CONFIG_NOT_FOUND",
+      `Cannot find configuration ${configPath}: ${errorMessage(error)}`,
+    );
   }
 };
 
@@ -89,7 +95,10 @@ const readConfig = async (configPath: string): Promise<unknown> => {
   try {
     text = await readFile(configPath, "utf8");
   } catch (error) {
-    throw new AquariusError("CONFIG_READ_FAILED", `Cannot read ${configPath}: ${errorMessage(error)}`);
+    throw new AquariusError(
+      "CONFIG_READ_FAILED",
+      `Cannot read ${configPath}: ${errorMessage(error)}`,
+    );
   }
 
   const errors: ParseError[] = [];
@@ -110,7 +119,8 @@ const validateConfig = (tool: ToolKind, input: unknown): ProjectConfig => {
   if (!parsed.success) invalid(formatZodIssues(parsed.error));
   const config = parsed.data;
 
-  for (const pattern of [...(config.files ?? []), ...(config.ignore ?? [])]) validateRelativePattern(pattern);
+  for (const pattern of [...(config.files ?? []), ...(config.ignore ?? [])])
+    validateRelativePattern(pattern);
   if (config.plugins) rejectDuplicates(config.plugins, "plugins");
   validateRules(tool, config.rules ?? []);
   return config;
@@ -118,12 +128,16 @@ const validateConfig = (tool: ToolKind, input: unknown): ProjectConfig => {
 
 const validateRules = (tool: ToolKind, rules: RuleSelection[]): void => {
   for (const [index, rule] of rules.entries()) {
-    if (!isRuleReference(rule.rule)) invalid(`rules[${index}].rule must be a namespace/rule-id string`);
+    if (!isRuleReference(rule.rule))
+      invalid(`rules[${index}].rule must be a namespace/rule-id string`);
     if (tool === "format" && rule.severity !== undefined) {
       invalid(`rules[${index}].severity is only valid for aqlint`);
     }
   }
-  rejectDuplicates(rules.map(({ rule }) => rule), "rules");
+  rejectDuplicates(
+    rules.map(({ rule }) => rule),
+    "rules",
+  );
 };
 
 const rejectDuplicates = (values: string[], name: string): void => {
@@ -139,10 +153,10 @@ const validateRelativePattern = (pattern: string): void => {
   const normalized = value.replaceAll("\\", "/");
   const withoutAnchor = normalized.startsWith("/") ? normalized.slice(1) : normalized;
   if (
-    normalized.startsWith("//")
-    || /^[A-Za-z]:\//.test(normalized)
-    || parsePath(withoutAnchor).root !== ""
-    || withoutAnchor.split("/").includes("..")
+    normalized.startsWith("//") ||
+    /^[A-Za-z]:\//.test(normalized) ||
+    parsePath(withoutAnchor).root !== "" ||
+    withoutAnchor.split("/").includes("..")
   ) {
     invalid(`patterns must stay within their base directory: ${pattern}`);
   }
@@ -150,7 +164,9 @@ const validateRelativePattern = (pattern: string): void => {
 
 const isRuleReference = (value: string): boolean => {
   const slash = value.indexOf("/");
-  return slash > 0 && slash < value.length - 1 && !value.split("/").some((part) => part.trim() === "");
+  return (
+    slash > 0 && slash < value.length - 1 && !value.split("/").some((part) => part.trim() === "")
+  );
 };
 
 const invalid: (message: string) => never = (message) => {
@@ -172,8 +188,8 @@ const lineAndColumn = (text: string, offset: number): { line: number; column: nu
   return { line: before.length, column: before.at(-1)!.length + 1 };
 };
 
-const isNodeError = (error: unknown, code: string): boolean => (
-  error instanceof Error && "code" in error && error.code === code
-);
+const isNodeError = (error: unknown, code: string): boolean =>
+  error instanceof Error && "code" in error && error.code === code;
 
-const errorMessage = (error: unknown): string => error instanceof Error ? error.message : String(error);
+const errorMessage = (error: unknown): string =>
+  error instanceof Error ? error.message : String(error);

@@ -1,7 +1,10 @@
 import type { RunError } from "./types";
 
 export class AquariusError extends Error {
-  constructor(public readonly code: string, message: string) {
+  constructor(
+    public readonly code: string,
+    message: string,
+  ) {
     super(message);
     this.name = "AquariusError";
   }

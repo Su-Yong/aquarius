@@ -15,31 +15,52 @@ const original = 'function label(ok) {\n  if (!ok) { return "no"; } else { retur
 const replacement = 'function label(ok) {\n  if (!ok) return "no";\n  return "ok";\n}\n';
 const plugin: RulePlugin = {
   namespace: "fixture",
-  formatRules: [{
-    id: "format", description: "fixture", scope: "file",
-    buildPrompt: () => ({ applicability: "fixture", transformation: "fixture", constraints: [] }),
-  }],
+  formatRules: [
+    {
+      id: "format",
+      description: "fixture",
+      scope: "file",
+      buildPrompt: () => ({ applicability: "fixture", transformation: "fixture", constraints: [] }),
+    },
+  ],
 };
 
-const project = async (tool: "lint" | "format", extra: Record<string, unknown> = {}, git = false): Promise<string> => {
+const project = async (
+  tool: "lint" | "format",
+  extra: Record<string, unknown> = {},
+  git = false,
+): Promise<string> => {
   const root = await mkdtemp(join(tmpdir(), "aquarius-engine-test-"));
   roots.push(root);
   await mkdir(join(root, "src"));
   await writeFile(join(root, "src", "sample.any"), original);
   if (git) execFileSync("git", ["init", "-q", root], { windowsHide: true });
-  await writeFile(join(root, tool === "lint" ? ".aqlintrc.jsonc" : ".aqfmtrc.jsonc"), JSON.stringify({
-    files: ["src/**"], plugins: ["fixture"],
-    rules: [{ rule: tool === "lint" ? "fixture/first" : "fixture/format" }],
-    ...extra,
-  }));
+  await writeFile(
+    join(root, tool === "lint" ? ".aqlintrc.jsonc" : ".aqfmtrc.jsonc"),
+    JSON.stringify({
+      files: ["src/**"],
+      plugins: ["fixture"],
+      rules: [{ rule: tool === "lint" ? "fixture/first" : "fixture/format" }],
+      ...extra,
+    }),
+  );
   return root;
 };
 
 const formatReply = () => {
   return {
     completedRuleIds: ["fixture/format"],
-    changes: [{ op: "replace", path: "src/sample.any", oldText: original, newText: replacement, ruleIds: ["fixture/format"] }],
-    warnings: [], errors: [],
+    changes: [
+      {
+        op: "replace",
+        path: "src/sample.any",
+        oldText: original,
+        newText: replacement,
+        ruleIds: ["fixture/format"],
+      },
+    ],
+    warnings: [],
+    errors: [],
   };
 };
 
@@ -49,7 +70,10 @@ const bridge = (result: unknown): AiBridge => {
 
 afterEach(async () => {
   for (const root of roots.splice(0)) {
-    if (dirname(resolve(root)) !== resolve(tmpdir()) || !basename(root).startsWith("aquarius-engine-test-")) {
+    if (
+      dirname(resolve(root)) !== resolve(tmpdir()) ||
+      !basename(root).startsWith("aquarius-engine-test-")
+    ) {
       throw new Error("Unexpected cleanup path.");
     }
     await rm(root, { recursive: true, force: true });
@@ -59,14 +83,17 @@ afterEach(async () => {
 test("human CLI preserves execution error rule IDs", () => {
   const errors = vi.spyOn(console, "error").mockImplementation(() => {});
   try {
-    printHuman({
-      result: {
-        changedFiles: [],
-        warnings: [],
-        errors: [{ code: "RULE_FAILED", message: "Rule failed.", ruleIds: ["fixture/format"] }],
+    printHuman(
+      {
+        result: {
+          changedFiles: [],
+          warnings: [],
+          errors: [{ code: "RULE_FAILED", message: "Rule failed.", ruleIds: ["fixture/format"] }],
+        },
+        exitCode: 2,
       },
-      exitCode: 2,
-    }, false);
+      false,
+    );
     expect(errors.mock.calls.flat().join("\n")).toContain("fixture/format");
   } finally {
     errors.mockRestore();
@@ -78,14 +105,19 @@ test("human CLI preserves warning rules and paths", async () => {
   const reply = {
     ...formatReply(),
     changes: [],
-    warnings: [{
-      code: "RULE_CONFLICT",
-      ruleIds: ["fixture/format"],
-      paths: ["src/sample.any"],
-      message: "Kept the selected rule.",
-    }],
+    warnings: [
+      {
+        code: "RULE_CONFLICT",
+        ruleIds: ["fixture/format"],
+        paths: ["src/sample.any"],
+        message: "Kept the selected rule.",
+      },
+    ],
   };
-  await writeFile(join(root, "bridge.mjs"), `export default { id: "fixture", run: async () => (${JSON.stringify(reply)}) };`);
+  await writeFile(
+    join(root, "bridge.mjs"),
+    `export default { id: "fixture", run: async () => (${JSON.stringify(reply)}) };`,
+  );
   const cwd = vi.spyOn(process, "cwd").mockReturnValue(root);
   const logs = vi.spyOn(console, "log").mockImplementation(() => {});
   const errors = vi.spyOn(console, "error").mockImplementation(() => {});
@@ -110,10 +142,15 @@ test("JSON output stays machine-readable without terminal progress", async () =>
   Object.defineProperty(process.stderr, "isTTY", { configurable: true, value: true });
   try {
     expect(await runCli("0.1.0", { fixture: plugin }, ["--format", "json"])).toBe(0);
-    expect(JSON.parse(String(logs.mock.calls[0]?.[0]))).toEqual({ changedFiles: [], warnings: [], errors: [] });
+    expect(JSON.parse(String(logs.mock.calls[0]?.[0]))).toEqual({
+      changedFiles: [],
+      warnings: [],
+      errors: [],
+    });
     expect(writes).not.toHaveBeenCalled();
   } finally {
-    if (tty) Object.defineProperty(process.stderr, "isTTY", tty); else Reflect.deleteProperty(process.stderr, "isTTY");
+    if (tty) Object.defineProperty(process.stderr, "isTTY", tty);
+    else Reflect.deleteProperty(process.stderr, "isTTY");
     cwd.mockRestore();
     logs.mockRestore();
     writes.mockRestore();
@@ -124,17 +161,28 @@ describe("format execution", () => {
   test("reports actual formatting stages in check mode", async () => {
     const root = await project("format");
     const onProgress = vi.fn();
-    const run = await executeFormat({ cwd: root, check: true, onProgress }, { fixture: plugin }, bridge(formatReply()));
+    const run = await executeFormat(
+      { cwd: root, check: true, onProgress },
+      { fixture: plugin },
+      bridge(formatReply()),
+    );
     expect(run.exitCode).toBe(1);
     expect(onProgress.mock.calls.map(([stage]) => stage)).toEqual([
-      "Preparing rules", "Selecting files", "Formatting files with AI", "Checking changes",
+      "Preparing rules",
+      "Selecting files",
+      "Formatting files with AI",
+      "Checking changes",
     ]);
   });
 
   test("timeout stops a request without retry or source writes", async () => {
     const root = await project("format", { ai: { timeoutMs: 25 } });
     const runSpy = vi.fn(() => new Promise<unknown>(() => {}));
-    const result = await executeFormat({ cwd: root }, { fixture: plugin }, { id: "slow", run: runSpy });
+    const result = await executeFormat(
+      { cwd: root },
+      { fixture: plugin },
+      { id: "slow", run: runSpy },
+    );
     expect(result.exitCode).toBe(2);
     expect(result.result.errors[0]!.code).toBe("AI_TIMEOUT");
     expect(runSpy).toHaveBeenCalledTimes(1);
@@ -155,7 +203,11 @@ describe("format/check/undo through real core components", () => {
     expect(formatted.exitCode).toBe(0);
     expect((formatted.result as FormatResult).changedFiles).toEqual(["src/sample.any"]);
     expect(await readFile(join(root, "src", "sample.any"), "utf8")).toBe(replacement);
-    const noOp = await executeFormat({ cwd: root }, { fixture: plugin }, bridge({ ...formatReply(), changes: [] }));
+    const noOp = await executeFormat(
+      { cwd: root },
+      { fixture: plugin },
+      bridge({ ...formatReply(), changes: [] }),
+    );
     expect(noOp.exitCode).toBe(0);
     expect((noOp.result as FormatResult).changedFiles).toEqual([]);
 
@@ -190,4 +242,3 @@ describe("format/check/undo through real core components", () => {
     expect(await readFile(join(root, "src", "sample.any"), "utf8")).toBe(original);
   });
 });
-

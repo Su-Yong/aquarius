@@ -1,1 +1,13 @@
-export { FileTransitionRecoveredError, fileStatesEqual, canonicalProjectRoot, normalizeRelativePath, readProjectFileState, captureBaseline, planFileChanges, assertFilePlanState, removeEmptyDirectories, transitionFilePlan, applyFileChanges } from "@aquarius/core/internal";
+export {
+  FileTransitionRecoveredError,
+  fileStatesEqual,
+  canonicalProjectRoot,
+  normalizeRelativePath,
+  readProjectFileState,
+  captureBaseline,
+  planFileChanges,
+  assertFilePlanState,
+  removeEmptyDirectories,
+  transitionFilePlan,
+  applyFileChanges,
+} from "@aquarius/core/internal";

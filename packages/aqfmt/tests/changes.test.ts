@@ -1,4 +1,14 @@
-import { chmod, link, lstat, mkdtemp, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import {
+  chmod,
+  link,
+  lstat,
+  mkdtemp,
+  mkdir,
+  readFile,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { expect, test } from "vitest";
@@ -11,7 +21,10 @@ const temporaryProject = async (): Promise<string> => {
 
 const removeTemporaryProject = async (root: string): Promise<void> => {
   const resolved = path.resolve(root);
-  if (path.dirname(resolved) !== path.resolve(tmpdir()) || !path.basename(resolved).startsWith("aquarius-changes-")) {
+  if (
+    path.dirname(resolved) !== path.resolve(tmpdir()) ||
+    !path.basename(resolved).startsWith("aquarius-changes-")
+  ) {
     throw new Error(`Refusing to remove unexpected test path: ${resolved}`);
   }
   await rm(resolved, { recursive: true, force: true });
@@ -28,8 +41,20 @@ test("plans every replacement against the same original and applies it once", as
     const plan = await planFileChanges(
       root,
       [
-        { op: "replace", path: "src/sample.txt", oldText: "three", newText: "THREE", ruleIds: ["fmt/a"] },
-        { op: "replace", path: "src/sample.txt", oldText: "one", newText: "ONE", ruleIds: ["fmt/b"] },
+        {
+          op: "replace",
+          path: "src/sample.txt",
+          oldText: "three",
+          newText: "THREE",
+          ruleIds: ["fmt/a"],
+        },
+        {
+          op: "replace",
+          path: "src/sample.txt",
+          oldText: "one",
+          newText: "ONE",
+          ruleIds: ["fmt/b"],
+        },
       ],
       canWrite,
       baseline,
@@ -45,7 +70,15 @@ test("plans every replacement against the same original and applies it once", as
     const noOpBaseline = await captureBaseline(root, ["src/sample.txt"]);
     const noOp = await planFileChanges(
       root,
-      [{ op: "replace", path: "src/sample.txt", oldText: "two", newText: "two", ruleIds: ["fmt/a"] }],
+      [
+        {
+          op: "replace",
+          path: "src/sample.txt",
+          oldText: "two",
+          newText: "two",
+          ruleIds: ["fmt/a"],
+        },
+      ],
       canWrite,
       noOpBaseline,
     );
@@ -58,11 +91,22 @@ test("plans every replacement against the same original and applies it once", as
 test("preserves a UTF-8 BOM and exact CRLF bytes during replacement", async () => {
   const root = await temporaryProject();
   try {
-    const original = Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), Buffer.from("one\r\ntwo\r\n")]);
+    const original = Buffer.concat([
+      Buffer.from([0xef, 0xbb, 0xbf]),
+      Buffer.from("one\r\ntwo\r\n"),
+    ]);
     await writeFile(path.join(root, "bom.txt"), original);
     const plan = await planFileChanges(
       root,
-      [{ op: "replace", path: "bom.txt", oldText: "one\r\n", newText: "ONE\r\n", ruleIds: ["fmt/a"] }],
+      [
+        {
+          op: "replace",
+          path: "bom.txt",
+          oldText: "one\r\n",
+          newText: "ONE\r\n",
+          ruleIds: ["fmt/a"],
+        },
+      ],
       canWrite,
       await captureBaseline(root, ["bom.txt"]),
     );
@@ -84,7 +128,15 @@ test("rejects ambiguous and overlapping replacement ranges", async () => {
     await expect(
       planFileChanges(
         root,
-        [{ op: "replace", path: "ambiguous.txt", oldText: "abc", newText: "x", ruleIds: ["fmt/a"] }],
+        [
+          {
+            op: "replace",
+            path: "ambiguous.txt",
+            oldText: "abc",
+            newText: "x",
+            ruleIds: ["fmt/a"],
+          },
+        ],
         canWrite,
         baseline,
       ),
@@ -116,14 +168,24 @@ test("moves transformed original content and creates safe parent directories", a
       root,
       [
         { op: "move", from: "src/old.txt", to: "generated/deep/new.txt", ruleIds: ["fmt/move"] },
-        { op: "replace", path: "src/old.txt", oldText: "before", newText: "after", ruleIds: ["fmt/edit"] },
+        {
+          op: "replace",
+          path: "src/old.txt",
+          oldText: "before",
+          newText: "after",
+          ruleIds: ["fmt/edit"],
+        },
       ],
       canWrite,
       baseline,
     );
     await applyFileChanges(plan, null);
-    await expect(readFile(path.join(root, "src", "old.txt"))).rejects.toMatchObject({ code: "ENOENT" });
-    expect(await readFile(path.join(root, "generated", "deep", "new.txt"), "utf8")).toBe("after value\n");
+    await expect(readFile(path.join(root, "src", "old.txt"))).rejects.toMatchObject({
+      code: "ENOENT",
+    });
+    expect(await readFile(path.join(root, "generated", "deep", "new.txt"), "utf8")).toBe(
+      "after value\n",
+    );
   } finally {
     await removeTemporaryProject(root);
   }
@@ -179,7 +241,15 @@ test("preserves edits made after baseline capture or after planning", async () =
     await expect(
       planFileChanges(
         root,
-        [{ op: "replace", path: "file.txt", oldText: "original", newText: "formatted", ruleIds: ["fmt/a"] }],
+        [
+          {
+            op: "replace",
+            path: "file.txt",
+            oldText: "original",
+            newText: "formatted",
+            ruleIds: ["fmt/a"],
+          },
+        ],
         canWrite,
         staleBaseline,
       ),
@@ -256,7 +326,15 @@ test("does not overwrite an identical user file created in the final write windo
     await writeFile(target, "old");
     const plan = await planFileChanges(
       root,
-      [{ op: "replace", path: "race.txt", oldText: "old", newText: "formatted", ruleIds: ["fmt/a"] }],
+      [
+        {
+          op: "replace",
+          path: "race.txt",
+          oldText: "old",
+          newText: "formatted",
+          ruleIds: ["fmt/a"],
+        },
+      ],
       canWrite,
       await captureBaseline(root, ["race.txt"]),
     );
@@ -275,7 +353,9 @@ test("does not overwrite an identical user file created in the final write windo
       }
     })();
 
-    await expect(applyFileChanges(plan, null)).rejects.toMatchObject({ code: "APPLY_ROLLBACK_INCOMPLETE" });
+    await expect(applyFileChanges(plan, null)).rejects.toMatchObject({
+      code: "APPLY_ROLLBACK_INCOMPLETE",
+    });
     await injector;
     expect(injected).toBe(true);
     expect(await readFile(target, "utf8")).toBe("formatted");
@@ -330,48 +410,71 @@ test("rejects hard-link aliases of the same source file", async () => {
     await writeFile(path.join(root, "one.txt"), "same");
     await link(path.join(root, "one.txt"), path.join(root, "alias.txt"));
     const baseline = await captureBaseline(root, ["one.txt", "alias.txt"]);
-    await expect(planFileChanges(
-      root,
-      [
-        { op: "replace", path: "one.txt", oldText: "same", newText: "first", ruleIds: ["fmt/a"] },
-        { op: "replace", path: "alias.txt", oldText: "same", newText: "second", ruleIds: ["fmt/a"] },
-      ],
-      canWrite,
-      baseline,
-    )).rejects.toMatchObject({ code: "PATH_ALIAS_CONFLICT" });
-  } finally {
-    await removeTemporaryProject(root);
-  }
-});
-
-test.runIf(process.platform === "win32")("rejects NTFS alternate streams and Windows path aliases", async () => {
-  const root = await temporaryProject();
-  try {
-    const target = path.join(root, "download.txt");
-    await writeFile(target, "old");
-    await writeFile(`${target}:Zone.Identifier`, "[ZoneTransfer]");
-    const plan = await planFileChanges(
-      root,
-      [{ op: "replace", path: "download.txt", oldText: "old", newText: "new", ruleIds: ["fmt/a"] }],
-      canWrite,
-      await captureBaseline(root, ["download.txt"]),
-    );
-    await expect(applyFileChanges(plan, null)).rejects.toMatchObject({ code: "FILE_METADATA_UNSUPPORTED" });
-    expect(await readFile(target, "utf8")).toBe("old");
-    expect(await readFile(`${target}:Zone.Identifier`, "utf8")).toBe("[ZoneTransfer]");
-
-    for (const reserved of ["CON.txt", "trailing.", "trailing ", "file:stream"]) {
-      await expect(planFileChanges(
+    await expect(
+      planFileChanges(
         root,
-        [{ op: "create", path: reserved, content: "x", ruleIds: ["fmt/a"] }],
+        [
+          { op: "replace", path: "one.txt", oldText: "same", newText: "first", ruleIds: ["fmt/a"] },
+          {
+            op: "replace",
+            path: "alias.txt",
+            oldText: "same",
+            newText: "second",
+            ruleIds: ["fmt/a"],
+          },
+        ],
         canWrite,
-        new Map(),
-      )).rejects.toMatchObject({ code: "PATH_INVALID" });
-    }
+        baseline,
+      ),
+    ).rejects.toMatchObject({ code: "PATH_ALIAS_CONFLICT" });
   } finally {
     await removeTemporaryProject(root);
   }
 });
+
+test.runIf(process.platform === "win32")(
+  "rejects NTFS alternate streams and Windows path aliases",
+  async () => {
+    const root = await temporaryProject();
+    try {
+      const target = path.join(root, "download.txt");
+      await writeFile(target, "old");
+      await writeFile(`${target}:Zone.Identifier`, "[ZoneTransfer]");
+      const plan = await planFileChanges(
+        root,
+        [
+          {
+            op: "replace",
+            path: "download.txt",
+            oldText: "old",
+            newText: "new",
+            ruleIds: ["fmt/a"],
+          },
+        ],
+        canWrite,
+        await captureBaseline(root, ["download.txt"]),
+      );
+      await expect(applyFileChanges(plan, null)).rejects.toMatchObject({
+        code: "FILE_METADATA_UNSUPPORTED",
+      });
+      expect(await readFile(target, "utf8")).toBe("old");
+      expect(await readFile(`${target}:Zone.Identifier`, "utf8")).toBe("[ZoneTransfer]");
+
+      for (const reserved of ["CON.txt", "trailing.", "trailing ", "file:stream"]) {
+        await expect(
+          planFileChanges(
+            root,
+            [{ op: "create", path: reserved, content: "x", ruleIds: ["fmt/a"] }],
+            canWrite,
+            new Map(),
+          ),
+        ).rejects.toMatchObject({ code: "PATH_INVALID" });
+      }
+    } finally {
+      await removeTemporaryProject(root);
+    }
+  },
+);
 
 test("rejects paths whose parent is a symbolic link", async ({ skip }) => {
   const root = await temporaryProject();

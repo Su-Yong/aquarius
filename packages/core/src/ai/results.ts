@@ -9,14 +9,13 @@ export const errorSchema = z.strictObject({
   ruleIds: z.array(z.string()),
 });
 
-export const parseResultItem = <T>(
-  schema: z.ZodType<T>,
-  value: unknown,
-  name: string,
-): T => {
+export const parseResultItem = <T>(schema: z.ZodType<T>, value: unknown, name: string): T => {
   const parsed = schema.safeParse(value);
   if (!parsed.success) {
-    throw new AquariusError("INVALID_AI_ITEM", `Invalid ${name} structure: ${parsed.error.message}`);
+    throw new AquariusError(
+      "INVALID_AI_ITEM",
+      `Invalid ${name} structure: ${parsed.error.message}`,
+    );
   }
   return parsed.data;
 };
@@ -25,29 +24,49 @@ export const resultEnvelope = (value: unknown, arrays: string[]): Record<string,
   const fields = Object.fromEntries(arrays.map((key) => [key, z.array(z.unknown())]));
   const parsed = z.strictObject(fields).safeParse(value);
   if (!parsed.success) {
-    throw new AquariusError("INVALID_AI_RESPONSE", "AI response must contain only the expected result arrays.");
+    throw new AquariusError(
+      "INVALID_AI_RESPONSE",
+      "AI response must contain only the expected result arrays.",
+    );
   }
   return parsed.data;
 };
 
 export const references = (value: unknown, known: Set<string>, allowEmpty = false): string[] => {
   const parsed = z.array(z.string()).safeParse(value);
-  if (!parsed.success || (!allowEmpty && parsed.data.length === 0) ||
-      parsed.data.some((id) => !known.has(id)) || new Set(parsed.data).size !== parsed.data.length) {
-    throw new AquariusError("INVALID_RULE_REFERENCE", "AI result contains an unknown, repeated, or missing rule reference.");
+  if (
+    !parsed.success ||
+    (!allowEmpty && parsed.data.length === 0) ||
+    parsed.data.some((id) => !known.has(id)) ||
+    new Set(parsed.data).size !== parsed.data.length
+  ) {
+    throw new AquariusError(
+      "INVALID_RULE_REFERENCE",
+      "AI result contains an unknown, repeated, or missing rule reference.",
+    );
   }
   return parsed.data;
 };
 
 export const nonempty = (value: string, label: string): void => {
-  if (value.trim() === "") throw new AquariusError("INVALID_AI_ITEM", `${label} must not be empty.`);
+  if (value.trim() === "")
+    throw new AquariusError("INVALID_AI_ITEM", `${label} must not be empty.`);
 };
 
 export const normalizedPath = (value: string): string => {
   const segments = value.split("/");
-  if (value === "" || value.includes("\\") || value.includes(":") || /[\u0000-\u001f]/u.test(value) ||
-      isAbsolute(value) || segments.some((part) => part === "" || part === "." || part === "..")) {
-    throw new AquariusError("INVALID_RESULT_PATH", "AI result path must be a normalized project-relative file path.");
+  if (
+    value === "" ||
+    value.includes("\\") ||
+    value.includes(":") ||
+    /[\u0000-\u001f]/u.test(value) ||
+    isAbsolute(value) ||
+    segments.some((part) => part === "" || part === "." || part === "..")
+  ) {
+    throw new AquariusError(
+      "INVALID_RESULT_PATH",
+      "AI result path must be a normalized project-relative file path.",
+    );
   }
   return value;
 };

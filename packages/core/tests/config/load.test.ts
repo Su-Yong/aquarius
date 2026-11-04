@@ -7,7 +7,9 @@ import { loadConfig } from "../../src/config/load";
 const directories: string[] = [];
 
 afterEach(async () => {
-  await Promise.all(directories.splice(0).map((directory) => rm(directory, { recursive: true, force: true })));
+  await Promise.all(
+    directories.splice(0).map((directory) => rm(directory, { recursive: true, force: true })),
+  );
 });
 
 describe("loadConfig", () => {
@@ -35,12 +37,15 @@ describe("loadConfig", () => {
     await mkdir(nested, { recursive: true });
     await writeFile(join(root, ".aqlintrc.jsonc"), `{ "rules": [{ "rule": "root/rule" }] }`);
     await writeFile(join(root, ".aqfmtrc.jsonc"), `{ "rules": [{ "rule": "fmt/root" }] }`);
-    await writeFile(join(root, "packages", "app", ".aqlintrc.jsonc"), `{
+    await writeFile(
+      join(root, "packages", "app", ".aqlintrc.jsonc"),
+      `{
       // JSONC comments and trailing commas are supported.
       "files": ["packages/app/**",],
       "plugins": ["rules-package"],
       "rules": [{ "rule": "nested/check", "severity": "warn" }],
-    }`);
+    }`,
+    );
 
     const lint = await loadConfig("lint", { cwd: nested });
     const format = await loadConfig("format", { cwd: nested });
@@ -102,8 +107,13 @@ describe("loadConfig", () => {
 
   test("rejects lint-only severity in formatter configuration", async () => {
     const root = await project();
-    await writeFile(join(root, ".aqfmtrc.jsonc"), `{ "rules": [{ "rule": "a/r", "severity": "off" }] }`);
-    await expect(loadConfig("format", { cwd: root })).rejects.toMatchObject({ code: "CONFIG_INVALID" });
+    await writeFile(
+      join(root, ".aqfmtrc.jsonc"),
+      `{ "rules": [{ "rule": "a/r", "severity": "off" }] }`,
+    );
+    await expect(loadConfig("format", { cwd: root })).rejects.toMatchObject({
+      code: "CONFIG_INVALID",
+    });
   });
 
   test("reports JSONC syntax locations", async () => {

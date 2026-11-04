@@ -23,7 +23,10 @@ const sourceReader = (policy: PathPolicy) => {
   return async (path: string): Promise<string[]> => {
     normalizedPath(path);
     if (!allowed.has(path) || policy.isIgnored(path)) {
-      throw new AquariusError("INVALID_RESULT_PATH", `Result references a file outside the readable project: ${path}`);
+      throw new AquariusError(
+        "INVALID_RESULT_PATH",
+        `Result references a file outside the readable project: ${path}`,
+      );
     }
 
     let pending = cache.get(path);
@@ -39,7 +42,10 @@ const sourceReader = (policy: PathPolicy) => {
           relative(absolute, canonical) !== "" ||
           !(await lstat(absolute)).isFile()
         ) {
-          throw new AquariusError("INVALID_RESULT_PATH", `Result file is not a stable regular project file: ${path}`);
+          throw new AquariusError(
+            "INVALID_RESULT_PATH",
+            `Result file is not a stable regular project file: ${path}`,
+          );
         }
         const bytes = await readFile(absolute);
         const text = bytes.toString("utf8");
@@ -59,8 +65,14 @@ const validateLocations = async (
   read: ReturnType<typeof sourceReader>,
   requiredTargets?: Set<string>,
 ): Promise<void> => {
-  if (requiredTargets && (locations.length === 0 || !locations.every(({ path }) => requiredTargets.has(path)))) {
-    throw new AquariusError("INVALID_RESULT_LOCATION", "Every primary diagnostic location must be a selected target.");
+  if (
+    requiredTargets &&
+    (locations.length === 0 || !locations.every(({ path }) => requiredTargets.has(path)))
+  ) {
+    throw new AquariusError(
+      "INVALID_RESULT_LOCATION",
+      "Every primary diagnostic location must be a selected target.",
+    );
   }
   for (const location of locations) {
     const lines = await read(location.path);
@@ -72,7 +84,10 @@ const validateLocations = async (
       location.column < 1 ||
       location.column > lines[location.line - 1]!.length + 1
     ) {
-      throw new AquariusError("INVALID_RESULT_LOCATION", `Result position is outside ${location.path}.`);
+      throw new AquariusError(
+        "INVALID_RESULT_LOCATION",
+        `Result position is outside ${location.path}.`,
+      );
     }
   }
 };
@@ -112,7 +127,10 @@ export const normalizeLintResponse = async (
         nonempty(evidence.message, "Evidence message");
         const lines = await read(evidence.path);
         if (!Number.isInteger(evidence.line) || evidence.line < 1 || evidence.line > lines.length) {
-          throw new AquariusError("INVALID_EVIDENCE", `Evidence position is outside ${evidence.path}.`);
+          throw new AquariusError(
+            "INVALID_EVIDENCE",
+            `Evidence position is outside ${evidence.path}.`,
+          );
         }
       }
 
@@ -121,13 +139,18 @@ export const normalizeLintResponse = async (
       const existing = grouped.get(key);
       if (existing) {
         for (const contributor of contributors) {
-          if (!existing.rules.some(({ rule }) => rule === contributor.rule)) existing.rules.push(contributor);
+          if (!existing.rules.some(({ rule }) => rule === contributor.rule))
+            existing.rules.push(contributor);
         }
-        existing.severity = existing.rules.some(({ severity }) => severity === "error") ? "error" : "warn";
+        existing.severity = existing.rules.some(({ severity }) => severity === "error")
+          ? "error"
+          : "warn";
         continue;
       }
 
-      const severity: ActiveSeverity = contributors.some(({ severity }) => severity === "error") ? "error" : "warn";
+      const severity: ActiveSeverity = contributors.some(({ severity }) => severity === "error")
+        ? "error"
+        : "warn";
       const diagnostic: Diagnostic = {
         rules: contributors,
         severity,
@@ -147,7 +170,11 @@ export const normalizeLintResponse = async (
       const supplied = parseResultItem(unknownSchema, item, "unknown conclusion");
       references(supplied.ruleIds, known);
       nonempty(supplied.message, "Unknown conclusion message");
-      await validateLocations(supplied.locations, read, supplied.locations.length ? targets : undefined);
+      await validateLocations(
+        supplied.locations,
+        read,
+        supplied.locations.length ? targets : undefined,
+      );
       unknowns.push({
         ruleIds: [...supplied.ruleIds],
         message: supplied.message,

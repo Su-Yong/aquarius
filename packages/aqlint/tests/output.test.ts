@@ -4,14 +4,21 @@ import { printHuman } from "../src/cli/output";
 const execution = {
   exitCode: 1,
   result: {
-    changedFiles: [], unknowns: [], errors: [],
-    diagnostics: [{
-      severity: "error" as const,
-      rules: [{ rule: "example/rule\x1b[31m", severity: "error" as const }],
-      message: "Reason\x1b[2J",
-      locations: [{ path: "src/file.ts", line: 2, column: 3 }],
-      evidence: [{ path: "src/file.ts", line: 2, message: "First detail" }, { path: "src/file.ts", line: 3, message: "Second detail" }],
-    }],
+    changedFiles: [],
+    unknowns: [],
+    errors: [],
+    diagnostics: [
+      {
+        severity: "error" as const,
+        rules: [{ rule: "example/rule\x1b[31m", severity: "error" as const }],
+        message: "Reason\x1b[2J",
+        locations: [{ path: "src/file.ts", line: 2, column: 3 }],
+        evidence: [
+          { path: "src/file.ts", line: 2, message: "First detail" },
+          { path: "src/file.ts", line: 3, message: "Second detail" },
+        ],
+      },
+    ],
   },
 };
 
@@ -42,8 +49,10 @@ test("colors diagnostic fields on a terminal and sanitizes untrusted text", () =
     printHuman(execution);
     expect(log.mock.calls.flat().join("\n")).not.toContain("\x1b");
   } finally {
-    if (tty) Object.defineProperty(process.stdout, "isTTY", tty); else Reflect.deleteProperty(process.stdout, "isTTY");
-    if (hasColors) Object.defineProperty(process.stdout, "hasColors", hasColors); else Reflect.deleteProperty(process.stdout, "hasColors");
+    if (tty) Object.defineProperty(process.stdout, "isTTY", tty);
+    else Reflect.deleteProperty(process.stdout, "isTTY");
+    if (hasColors) Object.defineProperty(process.stdout, "hasColors", hasColors);
+    else Reflect.deleteProperty(process.stdout, "hasColors");
     log.mockRestore();
     vi.unstubAllEnvs();
   }

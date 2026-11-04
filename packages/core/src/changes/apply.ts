@@ -1,16 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { spawn } from "node:child_process";
 import { constants } from "node:fs";
-import {
-  link,
-  lstat,
-  mkdir,
-  open,
-  realpath,
-  rename,
-  rmdir,
-  unlink,
-} from "node:fs/promises";
+import { link, lstat, mkdir, open, realpath, rename, rmdir, unlink } from "node:fs/promises";
 import path from "node:path";
 import { AquariusError } from "../shared/errors";
 import type { FileChange } from "./schema";
@@ -79,15 +70,20 @@ export const canonicalProjectRoot = async (root: string): Promise<string> => {
   try {
     canonical = await realpath(resolved);
   } catch (error) {
-    throw new AquariusError("PROJECT_ROOT_INVALID", `Cannot resolve project root ${resolved}: ${String(error)}`);
+    throw new AquariusError(
+      "PROJECT_ROOT_INVALID",
+      `Cannot resolve project root ${resolved}: ${String(error)}`,
+    );
   }
   const stat = await lstat(canonical);
-  if (!stat.isDirectory()) fail("PROJECT_ROOT_INVALID", `Project root is not a directory: ${canonical}`);
+  if (!stat.isDirectory())
+    fail("PROJECT_ROOT_INVALID", `Project root is not a directory: ${canonical}`);
   return canonical;
 };
 
 export const normalizeRelativePath = (root: string, input: string): string => {
-  if (!input || input.includes("\0")) fail("PATH_INVALID", `Invalid project path: ${JSON.stringify(input)}`);
+  if (!input || input.includes("\0"))
+    fail("PATH_INVALID", `Invalid project path: ${JSON.stringify(input)}`);
   if (path.isAbsolute(input) || path.posix.isAbsolute(input) || path.win32.isAbsolute(input)) {
     fail("PATH_OUTSIDE_ROOT", `Path must be relative to the project root: ${input}`);
   }
@@ -96,16 +92,25 @@ export const normalizeRelativePath = (root: string, input: string): string => {
   if (rawParts.some((part) => part === "." || part === "..")) {
     fail("PATH_INVALID", `Path cannot contain . or .. segments: ${input}`);
   }
-  if (process.platform === "win32" && rawParts.some((part) => (
-    /[<>:"|?*\u0000-\u001f]/.test(part)
-    || /[ .]$/.test(part)
-    || WINDOWS_RESERVED_NAME.test(part)
-  ))) {
+  if (
+    process.platform === "win32" &&
+    rawParts.some(
+      (part) =>
+        /[<>:"|?*\u0000-\u001f]/.test(part) ||
+        /[ .]$/.test(part) ||
+        WINDOWS_RESERVED_NAME.test(part),
+    )
+  ) {
     fail("PATH_INVALID", `Path uses a reserved Windows name or alias: ${input}`);
   }
   const absolute = path.resolve(root, ...rawParts);
   const relative = path.relative(root, absolute);
-  if (!relative || relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
+  if (
+    !relative ||
+    relative === ".." ||
+    relative.startsWith(`..${path.sep}`) ||
+    path.isAbsolute(relative)
+  ) {
     fail("PATH_OUTSIDE_ROOT", `Path escapes or names the project root: ${input}`);
   }
   return slash(relative);
@@ -123,9 +128,13 @@ const assertSafePath = async (root: string, relativePath: string): Promise<strin
     current = path.join(current, parts[index]!);
     try {
       const stat = await lstat(current);
-      if (stat.isSymbolicLink()) fail("SYMLINK_UNSUPPORTED", `Symbolic links are not supported: ${normalized}`);
+      if (stat.isSymbolicLink())
+        fail("SYMLINK_UNSUPPORTED", `Symbolic links are not supported: ${normalized}`);
       if (index < parts.length - 1 && !stat.isDirectory()) {
-        fail("PATH_PARENT_INVALID", `Path parent is not a directory: ${slash(path.relative(root, current))}`);
+        fail(
+          "PATH_PARENT_INVALID",
+          `Path parent is not a directory: ${slash(path.relative(root, current))}`,
+        );
       }
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === "ENOENT") break;
@@ -142,9 +151,13 @@ const assertStableParent = async (root: string, relativePath: string): Promise<v
   try {
     actual = await realpath(expected);
   } catch (error) {
-    throw new AquariusError("PATH_PARENT_INVALID", `Cannot resolve path parent for ${relativePath}: ${String(error)}`);
+    throw new AquariusError(
+      "PATH_PARENT_INVALID",
+      `Cannot resolve path parent for ${relativePath}: ${String(error)}`,
+    );
   }
-  const normalize = (value: string): string => process.platform === "win32" ? value.toLowerCase() : value;
+  const normalize = (value: string): string =>
+    process.platform === "win32" ? value.toLowerCase() : value;
   if (normalize(path.resolve(actual)) !== normalize(path.resolve(expected))) {
     fail("SYMLINK_UNSUPPORTED", `Path parent changed through a symbolic link: ${relativePath}`);
   }
@@ -154,7 +167,10 @@ const assertStableParent = async (root: string, relativePath: string): Promise<v
   }
 };
 
-const assertNoAlternateDataStreams = async (root: string, relativePaths: readonly string[]): Promise<void> => {
+const assertNoAlternateDataStreams = async (
+  root: string,
+  relativePaths: readonly string[],
+): Promise<void> => {
   if (process.platform !== "win32" || relativePaths.length === 0) return;
   const paths = [...new Set(relativePaths.map((relativePath) => absolutePath(root, relativePath)))];
   const command = [
@@ -164,7 +180,7 @@ const assertNoAlternateDataStreams = async (root: string, relativePaths: readonl
     "  try {",
     "    Get-Item -LiteralPath $paths[$index] -Stream * -ErrorAction Stop |",
     "      Where-Object Stream -ne ':$DATA' |",
-    "      ForEach-Object { Write-Output ($index.ToString() + \"`t\" + $_.Stream) }",
+    '      ForEach-Object { Write-Output ($index.ToString() + "`t" + $_.Stream) }',
     "  } catch [System.Management.Automation.ItemNotFoundException] { }",
     "}",
   ].join("\n");
@@ -177,16 +193,23 @@ const assertNoAlternateDataStreams = async (root: string, relativePaths: readonl
     const stderr: Buffer[] = [];
     child.stdout.on("data", (chunk: Buffer) => stdout.push(chunk));
     child.stderr.on("data", (chunk: Buffer) => stderr.push(chunk));
-    child.once("error", (error) => reject(new AquariusError(
-      "FILE_METADATA_CHECK_FAILED",
-      `Cannot inspect NTFS alternate data streams: ${String(error)}`,
-    )));
+    child.once("error", (error) =>
+      reject(
+        new AquariusError(
+          "FILE_METADATA_CHECK_FAILED",
+          `Cannot inspect NTFS alternate data streams: ${String(error)}`,
+        ),
+      ),
+    );
     child.once("close", (code) => {
       if (code === 0) resolve(Buffer.concat(stdout).toString("utf8"));
-      else reject(new AquariusError(
-        "FILE_METADATA_CHECK_FAILED",
-        `Cannot inspect NTFS alternate data streams: ${Buffer.concat(stderr).toString("utf8").trim()}`,
-      ));
+      else
+        reject(
+          new AquariusError(
+            "FILE_METADATA_CHECK_FAILED",
+            `Cannot inspect NTFS alternate data streams: ${Buffer.concat(stderr).toString("utf8").trim()}`,
+          ),
+        );
     });
     child.stdin.on("error", () => undefined);
     child.stdin.end(JSON.stringify(paths));
@@ -195,14 +218,21 @@ const assertNoAlternateDataStreams = async (root: string, relativePaths: readonl
   if (first) {
     const [indexText, stream = "unknown"] = first.split("\t", 2);
     const index = Number(indexText);
-    const relativePath = Number.isInteger(index) && paths[index]
-      ? slash(path.relative(root, paths[index]))
-      : "unknown file";
-    fail("FILE_METADATA_UNSUPPORTED", `NTFS alternate data stream ${stream} is not supported: ${relativePath}`);
+    const relativePath =
+      Number.isInteger(index) && paths[index]
+        ? slash(path.relative(root, paths[index]))
+        : "unknown file";
+    fail(
+      "FILE_METADATA_UNSUPPORTED",
+      `NTFS alternate data stream ${stream} is not supported: ${relativePath}`,
+    );
   }
 };
 
-const readAbsoluteFileState = async (absolute: string, displayPath: string): Promise<FileState | null> => {
+const readAbsoluteFileState = async (
+  absolute: string,
+  displayPath: string,
+): Promise<FileState | null> => {
   let handle;
   try {
     handle = await open(absolute, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
@@ -215,7 +245,8 @@ const readAbsoluteFileState = async (absolute: string, displayPath: string): Pro
   }
   try {
     const stat = await handle.stat();
-    if (!stat.isFile()) fail("FILE_TYPE_UNSUPPORTED", `Only regular files are supported: ${displayPath}`);
+    if (!stat.isFile())
+      fail("FILE_TYPE_UNSUPPORTED", `Only regular files are supported: ${displayPath}`);
     const state = { content: new Uint8Array(await handle.readFile()), mode: fileMode(stat.mode) };
     fileIdentities.set(state, `${stat.dev}:${stat.ino}`);
     return state;
@@ -224,7 +255,10 @@ const readAbsoluteFileState = async (absolute: string, displayPath: string): Pro
   }
 };
 
-export const readProjectFileState = async (root: string, relativePath: string): Promise<FileState | null> => {
+export const readProjectFileState = async (
+  root: string,
+  relativePath: string,
+): Promise<FileState | null> => {
   return await readAbsoluteFileState(await assertSafePath(root, relativePath), relativePath);
 };
 
@@ -243,7 +277,10 @@ const requireSourceState = async (
   return state;
 };
 
-export const captureBaseline = async (root: string, paths: readonly string[]): Promise<Map<string, FileBaseline>> => {
+export const captureBaseline = async (
+  root: string,
+  paths: readonly string[],
+): Promise<Map<string, FileBaseline>> => {
   const projectRoot = await canonicalProjectRoot(root);
   const result = new Map<string, FileBaseline>();
   const relativePaths = paths.map((input) => normalizeRelativePath(projectRoot, input));
@@ -257,7 +294,11 @@ export const captureBaseline = async (root: string, paths: readonly string[]): P
   return result;
 };
 
-const registerPath = (map: Map<string, string>, relativePath: string, description: string): void => {
+const registerPath = (
+  map: Map<string, string>,
+  relativePath: string,
+  description: string,
+): void => {
   const key = pathKey(relativePath);
   const previous = map.get(key);
   if (previous) fail("PATH_CONFLICT", `${description} conflicts with ${previous}: ${relativePath}`);
@@ -271,13 +312,20 @@ const assertNoPrefixConflicts = (paths: readonly string[]): void => {
     for (let childIndex = index + 1; childIndex < sorted.length; childIndex += 1) {
       const child = sorted[childIndex]!;
       if (child.startsWith(`${parent}/`)) {
-        fail("PATH_CONFLICT", `A file path cannot also be another changed path's parent: ${parent}, ${child}`);
+        fail(
+          "PATH_CONFLICT",
+          `A file path cannot also be another changed path's parent: ${parent}, ${child}`,
+        );
       }
     }
   }
 };
 
-const applyReplacements = (relativePath: string, state: FileState, replacements: SourceChanges["replacements"]): FileState => {
+const applyReplacements = (
+  relativePath: string,
+  state: FileState,
+  replacements: SourceChanges["replacements"],
+): FileState => {
   if (replacements.length === 0) return copyState(state);
   let original: string;
   try {
@@ -289,7 +337,10 @@ const applyReplacements = (relativePath: string, state: FileState, replacements:
     if (!oldText) fail("REPLACE_TEXT_EMPTY", `oldText cannot be empty: ${relativePath}`);
     const start = original.indexOf(oldText);
     if (start < 0 || original.indexOf(oldText, start + oldText.length) >= 0) {
-      fail("REPLACE_NOT_UNIQUE", `oldText must occur exactly once in the original file: ${relativePath}`);
+      fail(
+        "REPLACE_NOT_UNIQUE",
+        `oldText must occur exactly once in the original file: ${relativePath}`,
+      );
     }
     return { start, end: start + oldText.length, newText };
   });
@@ -325,7 +376,8 @@ export const planFileChanges = async (
 
   const writablePath = (input: string): string => {
     const relativePath = normalizeRelativePath(projectRoot, input);
-    if (!canWrite(relativePath)) fail("PATH_NOT_WRITABLE", `Path is outside the writable target or ignored: ${relativePath}`);
+    if (!canWrite(relativePath))
+      fail("PATH_NOT_WRITABLE", `Path is outside the writable target or ignored: ${relativePath}`);
     allPaths.push(relativePath);
     return relativePath;
   };
@@ -342,7 +394,8 @@ export const planFileChanges = async (
     if (change.op === "replace") {
       const relativePath = writablePath(change.path);
       const source = sourceFor(relativePath);
-      if (source.delete) fail("CHANGE_CONFLICT", `Cannot replace and delete the same file: ${relativePath}`);
+      if (source.delete)
+        fail("CHANGE_CONFLICT", `Cannot replace and delete the same file: ${relativePath}`);
       source.replacements.push({ oldText: change.oldText, newText: change.newText });
     } else if (change.op === "delete") {
       const relativePath = writablePath(change.path);
@@ -354,9 +407,11 @@ export const planFileChanges = async (
     } else if (change.op === "move") {
       const from = writablePath(change.from);
       const to = writablePath(change.to);
-      if (pathKey(from) === pathKey(to)) fail("CHANGE_CONFLICT", `Move source and destination are the same: ${from}`);
+      if (pathKey(from) === pathKey(to))
+        fail("CHANGE_CONFLICT", `Move source and destination are the same: ${from}`);
       const source = sourceFor(from);
-      if (source.delete || source.moveTo) fail("CHANGE_CONFLICT", `Move conflicts with another operation: ${from}`);
+      if (source.delete || source.moveTo)
+        fail("CHANGE_CONFLICT", `Move conflicts with another operation: ${from}`);
       source.moveTo = to;
       registerPath(destinations, to, `move from ${from}`);
     } else {
@@ -376,7 +431,8 @@ export const planFileChanges = async (
   const sourceIdentities = new Map<string, string>();
   const setPlanned = (file: PlannedFile): void => {
     const key = pathKey(file.path);
-    if (planned.has(key)) fail("CHANGE_CONFLICT", `Multiple final states target the same path: ${file.path}`);
+    if (planned.has(key))
+      fail("CHANGE_CONFLICT", `Multiple final states target the same path: ${file.path}`);
     planned.set(key, file);
   };
 
@@ -385,7 +441,8 @@ export const planFileChanges = async (
     const identity = fileIdentities.get(before);
     if (identity) {
       const alias = sourceIdentities.get(identity);
-      if (alias) fail("PATH_ALIAS_CONFLICT", `Changed paths name the same file: ${alias}, ${source.path}`);
+      if (alias)
+        fail("PATH_ALIAS_CONFLICT", `Changed paths name the same file: ${alias}, ${source.path}`);
       sourceIdentities.set(identity, source.path);
     }
     const transformed = applyReplacements(source.path, before, source.replacements);
@@ -393,7 +450,10 @@ export const planFileChanges = async (
       setPlanned({ path: source.path, before, after: null });
     } else if (source.moveTo) {
       if (normalizedBaseline.has(pathKey(source.moveTo))) {
-        fail("DESTINATION_EXISTED", `Move destination existed when the AI baseline was captured: ${source.moveTo}`);
+        fail(
+          "DESTINATION_EXISTED",
+          `Move destination existed when the AI baseline was captured: ${source.moveTo}`,
+        );
       }
       if ((await readProjectFileState(projectRoot, source.moveTo)) !== null) {
         fail("DESTINATION_EXISTS", `Move destination already exists: ${source.moveTo}`);
@@ -408,7 +468,10 @@ export const planFileChanges = async (
   const createMode = 0o666 & ~process.umask();
   for (const create of creates.values()) {
     if (normalizedBaseline.has(pathKey(create.path))) {
-      fail("DESTINATION_EXISTED", `Create destination existed when the AI baseline was captured: ${create.path}`);
+      fail(
+        "DESTINATION_EXISTED",
+        `Create destination existed when the AI baseline was captured: ${create.path}`,
+      );
     }
     if ((await readProjectFileState(projectRoot, create.path)) !== null) {
       fail("DESTINATION_EXISTS", `Create destination already exists: ${create.path}`);
@@ -432,7 +495,8 @@ const stateAt = (file: PlannedFile, side: PlanSide): FileState | null => {
 
 const currentStates = async (plan: FileChangePlan): Promise<Map<string, FileState | null>> => {
   const result = new Map<string, FileState | null>();
-  for (const file of plan.files) result.set(pathKey(file.path), await readProjectFileState(plan.projectRoot, file.path));
+  for (const file of plan.files)
+    result.set(pathKey(file.path), await readProjectFileState(plan.projectRoot, file.path));
   return result;
 };
 
@@ -445,7 +509,11 @@ export const assertFilePlanState = async (plan: FileChangePlan, side: PlanSide):
   }
 };
 
-const missingParentDirectories = async (root: string, files: readonly PlannedFile[], side: PlanSide): Promise<string[]> => {
+const missingParentDirectories = async (
+  root: string,
+  files: readonly PlannedFile[],
+  side: PlanSide,
+): Promise<string[]> => {
   const missing = new Map<string, string>();
   for (const file of files) {
     if (stateAt(file, side) === null) continue;
@@ -459,8 +527,10 @@ const missingParentDirectories = async (root: string, files: readonly PlannedFil
       const absolute = await assertSafePath(root, parent);
       try {
         const stat = await lstat(absolute);
-        if (stat.isSymbolicLink()) fail("SYMLINK_UNSUPPORTED", `Symbolic links are not supported: ${parent}`);
-        if (!stat.isDirectory()) fail("PATH_PARENT_INVALID", `Path parent is not a directory: ${parent}`);
+        if (stat.isSymbolicLink())
+          fail("SYMLINK_UNSUPPORTED", `Symbolic links are not supported: ${parent}`);
+        if (!stat.isDirectory())
+          fail("PATH_PARENT_INVALID", `Path parent is not a directory: ${parent}`);
         break;
       } catch (error) {
         if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
@@ -469,10 +539,16 @@ const missingParentDirectories = async (root: string, files: readonly PlannedFil
       parent = path.posix.dirname(parent);
     }
   }
-  return [...missing.values()].sort((left, right) => left.split("/").length - right.split("/").length);
+  return [...missing.values()].sort(
+    (left, right) => left.split("/").length - right.split("/").length,
+  );
 };
 
-const createDirectories = async (root: string, directories: readonly string[], createdOutput: string[]): Promise<void> => {
+const createDirectories = async (
+  root: string,
+  directories: readonly string[],
+  createdOutput: string[],
+): Promise<void> => {
   const created: string[] = [];
   try {
     for (const relativePath of directories) {
@@ -502,7 +578,10 @@ const createDirectories = async (root: string, directories: readonly string[], c
   }
 };
 
-export const removeEmptyDirectories = async (root: string, directories: readonly string[]): Promise<void> => {
+export const removeEmptyDirectories = async (
+  root: string,
+  directories: readonly string[],
+): Promise<void> => {
   const sorted = [...new Set(directories)].sort(
     (left, right) => right.split("/").length - left.split("/").length,
   );
@@ -512,7 +591,12 @@ export const removeEmptyDirectories = async (root: string, directories: readonly
       await rmdir(absolute);
     } catch (error) {
       const code = (error as NodeJS.ErrnoException).code;
-      if (code !== "ENOENT" && code !== "ENOTEMPTY" && code !== "EEXIST" && code !== "SYMLINK_UNSUPPORTED") {
+      if (
+        code !== "ENOENT" &&
+        code !== "ENOTEMPTY" &&
+        code !== "EEXIST" &&
+        code !== "SYMLINK_UNSUPPORTED"
+      ) {
         throw error;
       }
     }
@@ -570,7 +654,10 @@ const restoreMovedSources = async (
   backups: ReadonlyMap<string, string>,
   installed: ReadonlyMap<string, string>,
 ): Promise<void> => {
-  await assertNoAlternateDataStreams(plan.projectRoot, activeFiles.map(({ path }) => path));
+  await assertNoAlternateDataStreams(
+    plan.projectRoot,
+    activeFiles.map(({ path }) => path),
+  );
   for (const file of [...activeFiles].reverse()) {
     const key = pathKey(file.path);
     const target = absolutePath(plan.projectRoot, file.path);
@@ -581,11 +668,14 @@ const restoreMovedSources = async (
       if (current !== null) {
         const installedIdentity = installed.get(key);
         if (
-          !installedIdentity
-          || fileIdentities.get(current) !== installedIdentity
-          || !fileStatesEqual(current, stateAt(file, to))
+          !installedIdentity ||
+          fileIdentities.get(current) !== installedIdentity ||
+          !fileStatesEqual(current, stateAt(file, to))
         ) {
-          fail("FILE_CHANGED", `A user file appeared while restoring ${file.path}; backup was preserved at ${backup}`);
+          fail(
+            "FILE_CHANGED",
+            `A user file appeared while restoring ${file.path}; backup was preserved at ${backup}`,
+          );
         }
         displaced = siblingArtifact(plan.projectRoot, file.path, "rollback");
         await assertStableParent(plan.projectRoot, file.path);
@@ -606,9 +696,9 @@ const restoreMovedSources = async (
     } else if (stateAt(file, from) === null && current !== null) {
       const installedIdentity = installed.get(key);
       if (
-        !installedIdentity
-        || fileIdentities.get(current) !== installedIdentity
-        || !fileStatesEqual(current, stateAt(file, to))
+        !installedIdentity ||
+        fileIdentities.get(current) !== installedIdentity ||
+        !fileStatesEqual(current, stateAt(file, to))
       ) {
         fail("FILE_CHANGED", `A user file replaced the created path during rollback: ${file.path}`);
       }
@@ -630,7 +720,8 @@ export const transitionFilePlan = async (
   createdDirectoriesOutput: string[] = [],
 ): Promise<string[]> => {
   const canonical = await canonicalProjectRoot(plan.projectRoot);
-  if (canonical !== plan.projectRoot) fail("PROJECT_ROOT_CHANGED", "The project root changed after planning");
+  if (canonical !== plan.projectRoot)
+    fail("PROJECT_ROOT_CHANGED", "The project root changed after planning");
 
   const verifySource = async (): Promise<Map<string, FileState | null>> => {
     const current = await currentStates(plan);
@@ -658,12 +749,13 @@ export const transitionFilePlan = async (
   try {
     for (const file of plan.files) {
       const target = stateAt(file, to);
-      if (target !== null) staged.set(pathKey(file.path), await stageFile(plan.projectRoot, file.path, target));
+      if (target !== null)
+        staged.set(pathKey(file.path), await stageFile(plan.projectRoot, file.path, target));
     }
     const current = await verifySource();
-    activeFiles = plan.files.filter((file) => (
-      !fileStatesEqual(current.get(pathKey(file.path)) ?? null, stateAt(file, to))
-    ));
+    activeFiles = plan.files.filter(
+      (file) => !fileStatesEqual(current.get(pathKey(file.path)) ?? null, stateAt(file, to)),
+    );
     for (const file of activeFiles) {
       const source = stateAt(file, from);
       if (source === null) continue;
@@ -678,14 +770,17 @@ export const transitionFilePlan = async (
         fail("FILE_CHANGED", `File changed while it was being secured for update: ${file.path}`);
       }
     }
-    const backupPaths = [...backups.values()].map((backup) => slash(path.relative(plan.projectRoot, backup)));
+    const backupPaths = [...backups.values()].map((backup) =>
+      slash(path.relative(plan.projectRoot, backup)),
+    );
     await assertNoAlternateDataStreams(plan.projectRoot, backupPaths);
     for (const file of activeFiles) {
       const temporary = staged.get(pathKey(file.path));
       if (!temporary) continue;
       const stagedState = await readAbsoluteFileState(temporary, file.path);
       const stagedIdentity = stagedState && fileIdentities.get(stagedState);
-      if (!stagedIdentity) fail("FILE_IDENTITY_UNAVAILABLE", `Cannot identify staged file: ${file.path}`);
+      if (!stagedIdentity)
+        fail("FILE_IDENTITY_UNAVAILABLE", `Cannot identify staged file: ${file.path}`);
       await assertStableParent(plan.projectRoot, file.path);
       await link(temporary, absolutePath(plan.projectRoot, file.path));
       installed.set(pathKey(file.path), stagedIdentity);
@@ -695,7 +790,10 @@ export const transitionFilePlan = async (
     }
     await cleanupTemporaryFiles(staged.values());
     staged.clear();
-    await assertNoAlternateDataStreams(plan.projectRoot, [...backupPaths, ...plan.files.map(({ path }) => path)]);
+    await assertNoAlternateDataStreams(plan.projectRoot, [
+      ...backupPaths,
+      ...plan.files.map(({ path }) => path),
+    ]);
     for (const file of activeFiles) {
       const backup = backups.get(pathKey(file.path));
       if (!backup) continue;

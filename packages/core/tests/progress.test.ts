@@ -33,7 +33,6 @@ test("does not render for JSON or non-interactive output", () => {
   expect(write).not.toHaveBeenCalled();
 });
 
-
 test("styles interactive status while preserving redirected output and NO_COLOR", () => {
   const tty = { isTTY: true, hasColors: () => true } as unknown as NodeJS.WriteStream;
   const pipe = { isTTY: false } as NodeJS.WriteStream;
@@ -47,7 +46,12 @@ test("styles interactive status while preserving redirected output and NO_COLOR"
     process.env.NO_COLOR = "1";
     expect(statusText("Failed", "error", tty)).toBe("✖ Failed");
     delete process.env.NO_COLOR;
-    expect(statusText("Done", "success", { isTTY: true, hasColors: () => false } as unknown as NodeJS.WriteStream)).toBe("✓ Done");
+    expect(
+      statusText("Done", "success", {
+        isTTY: true,
+        hasColors: () => false,
+      } as unknown as NodeJS.WriteStream),
+    ).toBe("✓ Done");
     process.env.TERM = "dumb";
     expect(statusText("Done", "success", tty)).toBe("✓ Done");
   } finally {
@@ -57,7 +61,6 @@ test("styles interactive status while preserving redirected output and NO_COLOR"
     else process.env.NO_COLOR = previous;
   }
 });
-
 
 test("does not render progress in a dumb terminal", () => {
   vi.stubEnv("TERM", "dumb");

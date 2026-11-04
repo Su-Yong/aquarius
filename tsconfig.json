@@ -6,19 +6,11 @@
     "strict": true,
     "noEmit": true,
     "resolveJsonModule": true,
-    "types": [
-      "node"
-    ],
+    "types": ["node"],
     "paths": {
-      "@aquarius/core": [
-        "./packages/core/src/index.ts"
-      ],
-      "@aquarius/core/internal": [
-        "./packages/core/src/internal.ts"
-      ],
-      "@aquarius/rules": [
-        "./packages/rules/src/index.ts"
-      ]
+      "@aquarius/core": ["./packages/core/src/index.ts"],
+      "@aquarius/core/internal": ["./packages/core/src/internal.ts"],
+      "@aquarius/rules": ["./packages/rules/src/index.ts"]
     }
   }
 }

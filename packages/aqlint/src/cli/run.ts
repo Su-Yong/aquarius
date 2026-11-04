@@ -62,17 +62,20 @@ export const runCli = async (
     process.once("SIGTERM", abort);
     let execution: LintExecutionResult;
     try {
-      execution = await executeLint({
-        cwd: process.cwd(),
-        configPath: values.config,
-        paths: positionals,
-        ignorePaths: values["ignore-path"],
-        ignorePatterns: values["ignore-pattern"],
-        noIgnore: values["no-ignore"],
-        noErrorOnUnmatchedPattern: values["no-error-on-unmatched-pattern"],
-        signal: controller.signal,
-        onProgress: progress.update,
-      }, builtinPlugins);
+      execution = await executeLint(
+        {
+          cwd: process.cwd(),
+          configPath: values.config,
+          paths: positionals,
+          ignorePaths: values["ignore-path"],
+          ignorePatterns: values["ignore-pattern"],
+          noIgnore: values["no-ignore"],
+          noErrorOnUnmatchedPattern: values["no-error-on-unmatched-pattern"],
+          signal: controller.signal,
+          onProgress: progress.update,
+        },
+        builtinPlugins,
+      );
     } finally {
       progress.stop();
       process.removeListener("SIGINT", abort);
@@ -82,7 +85,13 @@ export const runCli = async (
     else printHuman(execution);
     return execution.exitCode;
   } catch (cause) {
-    console.error(statusText(safeText(`aqlint: ${cause instanceof Error ? cause.message : String(cause)}`), "error", process.stderr));
+    console.error(
+      statusText(
+        safeText(`aqlint: ${cause instanceof Error ? cause.message : String(cause)}`),
+        "error",
+        process.stderr,
+      ),
+    );
     console.error("Run aqlint --help for usage.");
     return 2;
   }

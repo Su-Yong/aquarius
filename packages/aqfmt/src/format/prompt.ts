@@ -11,7 +11,8 @@ export const buildFormatPrompt = (
   rules: readonly PreparedRule[],
   policy: PathPolicy,
   writeScope: JsonObject,
-): string => buildTaskPrompt(formatInstructions, rules, policy, {
-  task: "format",
-  writeScope,
-});
+): string =>
+  buildTaskPrompt(formatInstructions, rules, policy, {
+    task: "format",
+    writeScope,
+  });

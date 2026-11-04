@@ -31,12 +31,15 @@ const createProject = async (extra: Record<string, unknown> = {}): Promise<strin
   roots.push(root);
   await mkdir(join(root, "src"));
   await writeFile(join(root, "src", "sample.any"), source);
-  await writeFile(join(root, ".aqlintrc.jsonc"), JSON.stringify({
-    files: ["src/**"],
-    plugins: ["fixture"],
-    rules: [{ rule: "fixture/first" }],
-    ...extra,
-  }));
+  await writeFile(
+    join(root, ".aqlintrc.jsonc"),
+    JSON.stringify({
+      files: ["src/**"],
+      plugins: ["fixture"],
+      rules: [{ rule: "fixture/first" }],
+      ...extra,
+    }),
+  );
   return root;
 };
 
@@ -55,7 +58,10 @@ const bridge = (result: unknown): AiBridge => ({
 afterEach(async () => {
   for (const root of roots.splice(0)) {
     const candidate = resolve(root);
-    if (dirname(candidate) !== resolve(tmpdir()) || !basename(candidate).startsWith("aqlint-test-")) {
+    if (
+      dirname(candidate) !== resolve(tmpdir()) ||
+      !basename(candidate).startsWith("aqlint-test-")
+    ) {
       throw new Error("Unexpected cleanup path.");
     }
     await rm(candidate, { recursive: true, force: true });
@@ -66,10 +72,17 @@ describe("lint execution", () => {
   test("reports actual analysis stages", async () => {
     const root = await createProject();
     const onProgress = vi.fn();
-    const run = await executeLint({ cwd: root, onProgress }, { fixture: plugin }, bridge(lintReply()));
+    const run = await executeLint(
+      { cwd: root, onProgress },
+      { fixture: plugin },
+      bridge(lintReply()),
+    );
     expect(run.exitCode).toBe(0);
     expect(onProgress.mock.calls.map(([stage]) => stage)).toEqual([
-      "Preparing rules", "Selecting files", "Analyzing files with AI", "Checking results",
+      "Preparing rules",
+      "Selecting files",
+      "Analyzing files with AI",
+      "Checking results",
     ]);
   });
 
@@ -82,19 +95,29 @@ describe("lint execution", () => {
       locations: [{ path: "src/sample.any", line: 1, column: 1 }],
       evidence: [{ path: "README.md", line: 1, message: "Contract evidence" }],
     };
-    const valid = await executeLint({ cwd: root }, { fixture: plugin }, bridge({
-      ...lintReply(),
-      diagnostics: [diagnostic],
-    }));
+    const valid = await executeLint(
+      { cwd: root },
+      { fixture: plugin },
+      bridge({
+        ...lintReply(),
+        diagnostics: [diagnostic],
+      }),
+    );
     expect(valid.result.diagnostics).toHaveLength(1);
 
-    const invalid = await executeLint({ cwd: root }, { fixture: plugin }, bridge({
-      ...lintReply(),
-      diagnostics: [{
-        ...diagnostic,
-        locations: [...diagnostic.locations, { path: "README.md", line: 1, column: 1 }],
-      }],
-    }));
+    const invalid = await executeLint(
+      { cwd: root },
+      { fixture: plugin },
+      bridge({
+        ...lintReply(),
+        diagnostics: [
+          {
+            ...diagnostic,
+            locations: [...diagnostic.locations, { path: "README.md", line: 1, column: 1 }],
+          },
+        ],
+      }),
+    );
     expect(invalid.exitCode).toBe(2);
     expect(invalid.result.diagnostics).toEqual([]);
   });
@@ -108,19 +131,19 @@ describe("lint execution", () => {
     });
     expect(ai.run).not.toHaveBeenCalled();
 
-    await writeFile(join(root, ".aqlintrc.jsonc"), JSON.stringify({
-      rules: [{ rule: "missing/rule", severity: "off" }],
-    }));
+    await writeFile(
+      join(root, ".aqlintrc.jsonc"),
+      JSON.stringify({
+        rules: [{ rule: "missing/rule", severity: "off" }],
+      }),
+    );
     expect((await executeLint({ cwd: root }, {}, ai)).exitCode).toBe(0);
     expect(ai.run).not.toHaveBeenCalled();
   });
 
   test("preserves valid findings, exact duplicate contributors, and invalid item errors", async () => {
     const root = await createProject({
-      rules: [
-        { rule: "fixture/first", severity: "warn" },
-        { rule: "fixture/second" },
-      ],
+      rules: [{ rule: "fixture/first", severity: "warn" }, { rule: "fixture/second" }],
     });
     const diagnostic = {
       message: "Same proven issue",
@@ -151,20 +174,28 @@ describe("lint execution", () => {
 
   test("unknown conclusions do not fail and missing completion does", async () => {
     const root = await createProject();
-    const unknown = await executeLint({ cwd: root }, { fixture: plugin }, bridge({
-      ...lintReply(),
-      unknowns: [{
-        ruleIds: ["fixture/first"],
-        message: "External contract is unavailable.",
-        locations: [],
-      }],
-    }));
+    const unknown = await executeLint(
+      { cwd: root },
+      { fixture: plugin },
+      bridge({
+        ...lintReply(),
+        unknowns: [
+          {
+            ruleIds: ["fixture/first"],
+            message: "External contract is unavailable.",
+            locations: [],
+          },
+        ],
+      }),
+    );
     expect(unknown.exitCode).toBe(0);
     expect(unknown.result.unknowns).toHaveLength(1);
 
     const incomplete = await executeLint({ cwd: root }, { fixture: plugin }, bridge(lintReply([])));
     expect(incomplete.exitCode).toBe(2);
-    expect(incomplete.result.errors.some(({ code }) => code === "INCOMPLETE_AI_RESPONSE")).toBe(true);
+    expect(incomplete.result.errors.some(({ code }) => code === "INCOMPLETE_AI_RESPONSE")).toBe(
+      true,
+    );
   });
 
   test("invalid shape is not retried and configured warning severity exits successfully", async () => {
@@ -173,15 +204,21 @@ describe("lint execution", () => {
     expect((await executeLint({ cwd: root }, { fixture: plugin }, invalid)).exitCode).toBe(2);
     expect(invalid.run).toHaveBeenCalledTimes(1);
 
-    const run = await executeLint({ cwd: root }, { fixture: plugin }, bridge({
-      ...lintReply(),
-      diagnostics: [{
-        ruleIds: ["fixture/first"],
-        message: "Warning",
-        locations: [{ path: "src/sample.any", line: 1, column: 1 }],
-        evidence: [{ path: "src/sample.any", line: 1, message: "Evidence" }],
-      }],
-    }));
+    const run = await executeLint(
+      { cwd: root },
+      { fixture: plugin },
+      bridge({
+        ...lintReply(),
+        diagnostics: [
+          {
+            ruleIds: ["fixture/first"],
+            message: "Warning",
+            locations: [{ path: "src/sample.any", line: 1, column: 1 }],
+            evidence: [{ path: "src/sample.any", line: 1, message: "Evidence" }],
+          },
+        ],
+      }),
+    );
     expect(run.exitCode).toBe(0);
     expect(run.result.diagnostics[0]!.severity).toBe("warn");
   });
@@ -196,14 +233,21 @@ describe("lint execution", () => {
     expect(partial.exitCode).toBe(2);
     expect(partial.result.errors.length).toBeGreaterThan(0);
 
-    await writeFile(join(root, ".aqlintrc.jsonc"), JSON.stringify({
-      files: ["src/**"],
-      plugins: ["fixture"],
-      rules: [{ rule: "fixture/first" }],
-      ai: { timeoutMs: 25 },
-    }));
+    await writeFile(
+      join(root, ".aqlintrc.jsonc"),
+      JSON.stringify({
+        files: ["src/**"],
+        plugins: ["fixture"],
+        rules: [{ rule: "fixture/first" }],
+        ai: { timeoutMs: 25 },
+      }),
+    );
     const slow = vi.fn(() => new Promise<unknown>(() => {}));
-    const timedOut = await executeLint({ cwd: root }, { fixture: plugin }, { id: "slow", run: slow });
+    const timedOut = await executeLint(
+      { cwd: root },
+      { fixture: plugin },
+      { id: "slow", run: slow },
+    );
     expect(timedOut.exitCode).toBe(2);
     expect(timedOut.result.errors[0]!.code).toBe("AI_TIMEOUT");
     expect(slow).toHaveBeenCalledTimes(1);
@@ -213,28 +257,30 @@ describe("lint execution", () => {
 
 test("human CLI preserves per-rule severity, locations, and evidence", async () => {
   const root = await createProject({
-    rules: [
-      { rule: "fixture/first" },
-      { rule: "fixture/second", severity: "warn" },
-    ],
+    rules: [{ rule: "fixture/first" }, { rule: "fixture/second", severity: "warn" }],
     ai: { adapter: "./bridge.mjs" },
   });
   const reply = {
     ...lintReply(["fixture/first", "fixture/second"]),
-    diagnostics: [{
-      ruleIds: ["fixture/first", "fixture/second"],
-      message: "Two-site issue",
-      locations: [
-        { path: "src/sample.any", line: 1, column: 1 },
-        { path: "src/sample.any", line: 2, column: 3 },
-      ],
-      evidence: [
-        { path: "src/sample.any", line: 1, message: "First evidence" },
-        { path: "src/sample.any", line: 2, message: "Second evidence" },
-      ],
-    }],
+    diagnostics: [
+      {
+        ruleIds: ["fixture/first", "fixture/second"],
+        message: "Two-site issue",
+        locations: [
+          { path: "src/sample.any", line: 1, column: 1 },
+          { path: "src/sample.any", line: 2, column: 3 },
+        ],
+        evidence: [
+          { path: "src/sample.any", line: 1, message: "First evidence" },
+          { path: "src/sample.any", line: 2, message: "Second evidence" },
+        ],
+      },
+    ],
   };
-  await writeFile(join(root, "bridge.mjs"), `export default { id: "fixture", run: async () => (${JSON.stringify(reply)}) };`);
+  await writeFile(
+    join(root, "bridge.mjs"),
+    `export default { id: "fixture", run: async () => (${JSON.stringify(reply)}) };`,
+  );
   const cwd = vi.spyOn(process, "cwd").mockReturnValue(root);
   const logs = vi.spyOn(console, "log").mockImplementation(() => {});
   const errors = vi.spyOn(console, "error").mockImplementation(() => {});
@@ -254,22 +300,27 @@ test("human CLI preserves per-rule severity, locations, and evidence", async () 
   }
 });
 
-
 const findingReply = () => ({
   ...lintReply(),
-  diagnostics: [{
-    ruleIds: ["fixture/first"],
-    message: "Mutation issue",
-    locations: [{ path: "src/sample.any", line: 1, column: 1 }],
-    evidence: [{ path: "src/sample.any", line: 1, message: "Mutation evidence" }],
-  }],
+  diagnostics: [
+    {
+      ruleIds: ["fixture/first"],
+      message: "Mutation issue",
+      locations: [{ path: "src/sample.any", line: 1, column: 1 }],
+      evidence: [{ path: "src/sample.any", line: 1, message: "Mutation evidence" }],
+    },
+  ],
 });
 const fixReply = (path = "src/sample.any", oldText = "first line") => ({
   changes: [{ path, oldText, newText: "corrected line", ruleIds: ["fixture/first"] }],
 });
 const fixingBridge = (finalReply: unknown = lintReply()): AiBridge => ({
   id: "fixture",
-  run: vi.fn().mockResolvedValueOnce(findingReply()).mockResolvedValueOnce(fixReply()).mockResolvedValueOnce(finalReply),
+  run: vi
+    .fn()
+    .mockResolvedValueOnce(findingReply())
+    .mockResolvedValueOnce(fixReply())
+    .mockResolvedValueOnce(finalReply),
 });
 
 describe("lint fixes", () => {
@@ -279,22 +330,53 @@ describe("lint fixes", () => {
       plugins: ["@aquarius/rules"],
       rules: [{ rule: ruleId }],
     });
-    await writeFile(join(root, "src/sample.any"),
-      "// Return sorted values without modifying the caller's input.\nfunction sortedCopy(input) { return input.sort((a, b) => a - b); }\n");
-    const ai = { id: "fixture", run: vi.fn()
-      .mockResolvedValueOnce({ ...lintReply([ruleId]), diagnostics: [{
-        ruleIds: [ruleId], message: "Sorting mutates borrowed input.",
-        locations: [{ path: "src/sample.any", line: 2, column: 37 }],
-        evidence: [{ path: "src/sample.any", line: 1, message: "The contract requires preserving caller input." }],
-      }] })
-      .mockResolvedValueOnce({ changes: [{
-        path: "src/sample.any", oldText: "return input.sort", newText: "return [...input].sort", ruleIds: [ruleId],
-      }] })
-      .mockResolvedValueOnce(lintReply([ruleId])) };
-    const result = await executeLint({ cwd: root, fix: true }, { "@aquarius/rules": builtinRules }, ai);
+    await writeFile(
+      join(root, "src/sample.any"),
+      "// Return sorted values without modifying the caller's input.\nfunction sortedCopy(input) { return input.sort((a, b) => a - b); }\n",
+    );
+    const ai = {
+      id: "fixture",
+      run: vi
+        .fn()
+        .mockResolvedValueOnce({
+          ...lintReply([ruleId]),
+          diagnostics: [
+            {
+              ruleIds: [ruleId],
+              message: "Sorting mutates borrowed input.",
+              locations: [{ path: "src/sample.any", line: 2, column: 37 }],
+              evidence: [
+                {
+                  path: "src/sample.any",
+                  line: 1,
+                  message: "The contract requires preserving caller input.",
+                },
+              ],
+            },
+          ],
+        })
+        .mockResolvedValueOnce({
+          changes: [
+            {
+              path: "src/sample.any",
+              oldText: "return input.sort",
+              newText: "return [...input].sort",
+              ruleIds: [ruleId],
+            },
+          ],
+        })
+        .mockResolvedValueOnce(lintReply([ruleId])),
+    };
+    const result = await executeLint(
+      { cwd: root, fix: true },
+      { "@aquarius/rules": builtinRules },
+      ai,
+    );
     expect(result.exitCode).toBe(0);
     const corrected = await readFile(join(root, "src/sample.any"), "utf8");
-    const behavior = runInNewContext(`${corrected}\nconst values = [3, 1, 2]; JSON.stringify({ result: sortedCopy(values), input: values });`);
+    const behavior = runInNewContext(
+      `${corrected}\nconst values = [3, 1, 2]; JSON.stringify({ result: sortedCopy(values), input: values });`,
+    );
     expect(JSON.parse(behavior)).toEqual({ result: [1, 2, 3], input: [3, 1, 2] });
   });
 
@@ -302,15 +384,24 @@ describe("lint fixes", () => {
     const root = await createProject();
     const ai = fixingBridge();
     const fixed = await executeLint({ cwd: root, fix: true }, { fixture: plugin }, ai);
-    expect(fixed).toEqual({ result: { ...lintReplyResult(), changedFiles: ["src/sample.any"] }, exitCode: 0 });
-    expect(await readFile(join(root, "src/sample.any"), "utf8")).toBe("corrected line\nsecond line\n");
+    expect(fixed).toEqual({
+      result: { ...lintReplyResult(), changedFiles: ["src/sample.any"] },
+      exitCode: 0,
+    });
+    expect(await readFile(join(root, "src/sample.any"), "utf8")).toBe(
+      "corrected line\nsecond line\n",
+    );
     expect(ai.run).toHaveBeenCalledTimes(3);
     const prompt = vi.mocked(ai.run).mock.calls[1]![0].prompt;
     expect(prompt).toContain('"task": "lint-fix"');
     expect(prompt).toContain("Do not perform formatting-only changes");
 
     await writeFile(join(root, "src/sample.any"), source);
-    const remaining = await executeLint({ cwd: root, fix: true }, { fixture: plugin }, fixingBridge(findingReply()));
+    const remaining = await executeLint(
+      { cwd: root, fix: true },
+      { fixture: plugin },
+      fixingBridge(findingReply()),
+    );
     expect(remaining.exitCode).toBe(1);
     expect(remaining.result.changedFiles).toEqual(["src/sample.any"]);
     expect(remaining.result.diagnostics).toHaveLength(1);
@@ -323,16 +414,23 @@ describe("lint fixes", () => {
     expect(ai.run).toHaveBeenCalledTimes(1);
     expect(await readFile(join(root, "src/sample.any"), "utf8")).toBe(source);
     const clean = bridge(lintReply());
-    expect((await executeLint({ cwd: root, fix: true }, { fixture: plugin }, clean)).exitCode).toBe(0);
+    expect((await executeLint({ cwd: root, fix: true }, { fixture: plugin }, clean)).exitCode).toBe(
+      0,
+    );
     expect(clean.run).toHaveBeenCalledTimes(1);
     const invalid = bridge({ ...findingReply(), completedRuleIds: [] });
-    expect((await executeLint({ cwd: root, fix: true }, { fixture: plugin }, invalid)).exitCode).toBe(2);
+    expect(
+      (await executeLint({ cwd: root, fix: true }, { fixture: plugin }, invalid)).exitCode,
+    ).toBe(2);
     expect(invalid.run).toHaveBeenCalledTimes(1);
   });
 
   test("empty proposals leave unresolved findings and source unchanged", async () => {
     const root = await createProject();
-    const ai = { id: "fixture", run: vi.fn().mockResolvedValueOnce(findingReply()).mockResolvedValueOnce({ changes: [] }) };
+    const ai = {
+      id: "fixture",
+      run: vi.fn().mockResolvedValueOnce(findingReply()).mockResolvedValueOnce({ changes: [] }),
+    };
     const result = await executeLint({ cwd: root, fix: true }, { fixture: plugin }, ai);
     expect(result.exitCode).toBe(1);
     expect(result.result.changedFiles).toEqual([]);
@@ -351,7 +449,13 @@ describe("lint fixes", () => {
     await writeFile(join(root, "src/ignored.any"), source);
     await writeFile(join(root, "src/other.any"), source);
     await writeFile(join(root, "README.md"), source);
-    const ai = { id: "fixture", run: vi.fn().mockResolvedValueOnce(findingReply()).mockResolvedValueOnce(fixReply(path, oldText)) };
+    const ai = {
+      id: "fixture",
+      run: vi
+        .fn()
+        .mockResolvedValueOnce(findingReply())
+        .mockResolvedValueOnce(fixReply(path, oldText)),
+    };
     const result = await executeLint({ cwd: root, fix: true }, { fixture: plugin }, ai);
     expect(result.exitCode).toBe(2);
     expect(result.result.errors.some((error) => error.code === code)).toBe(true);
@@ -362,12 +466,16 @@ describe("lint fixes", () => {
 
   test("refuses stale input without overwriting a concurrent edit", async () => {
     const root = await createProject();
-    const ai = { id: "fixture", run: vi.fn()
-      .mockResolvedValueOnce(findingReply())
-      .mockImplementationOnce(async () => {
-        await writeFile(join(root, "src/sample.any"), "user edit\n");
-        return fixReply();
-      }) };
+    const ai = {
+      id: "fixture",
+      run: vi
+        .fn()
+        .mockResolvedValueOnce(findingReply())
+        .mockImplementationOnce(async () => {
+          await writeFile(join(root, "src/sample.any"), "user edit\n");
+          return fixReply();
+        }),
+    };
     const result = await executeLint({ cwd: root, fix: true }, { fixture: plugin }, ai);
     expect(result.exitCode).toBe(2);
     expect(result.result.errors.some(({ code }) => code === "SOURCE_CHANGED")).toBe(true);
@@ -376,15 +484,22 @@ describe("lint fixes", () => {
 
   test("reports applied files and execution error if final verification fails", async () => {
     const root = await createProject();
-    const ai = { id: "fixture", run: vi.fn()
-      .mockResolvedValueOnce(findingReply()).mockResolvedValueOnce(fixReply())
-      .mockRejectedValueOnce(new Error("recheck unavailable")) };
+    const ai = {
+      id: "fixture",
+      run: vi
+        .fn()
+        .mockResolvedValueOnce(findingReply())
+        .mockResolvedValueOnce(fixReply())
+        .mockRejectedValueOnce(new Error("recheck unavailable")),
+    };
     const result = await executeLint({ cwd: root, fix: true }, { fixture: plugin }, ai);
     expect(result.exitCode).toBe(2);
     expect(result.result.changedFiles).toEqual(["src/sample.any"]);
     expect(result.result.diagnostics).toEqual([]);
     expect(result.result.errors[0]!.message).toContain("recheck unavailable");
-    expect(await readFile(join(root, "src/sample.any"), "utf8")).toBe("corrected line\nsecond line\n");
+    expect(await readFile(join(root, "src/sample.any"), "utf8")).toBe(
+      "corrected line\nsecond line\n",
+    );
   });
 });
 
@@ -392,40 +507,61 @@ const lintReplyResult = (): LintResult => ({ diagnostics: [], unknowns: [], erro
 
 test("fix CLI uses configured bridge and prints JSON with final diagnostics", async () => {
   const root = await createProject({ ai: { adapter: "./bridge.mjs" } });
-  await writeFile(join(root, "bridge.mjs"), [
-    'import { readFile } from "node:fs/promises";',
-    'import { join } from "node:path";',
-    'export default { id: "fixture", run: async (input) => {',
-    'if (input.prompt.includes("lint-fix")) return ' + JSON.stringify(fixReply()) + ';',
-    'const text = await readFile(join(input.projectRoot, "src/sample.any"), "utf8");',
-    'return text.includes("corrected line") ? ' + JSON.stringify(lintReply()) + ' : ' + JSON.stringify(findingReply()) + ';',
-    '} };',
-  ].join("\n"));
+  await writeFile(
+    join(root, "bridge.mjs"),
+    [
+      'import { readFile } from "node:fs/promises";',
+      'import { join } from "node:path";',
+      'export default { id: "fixture", run: async (input) => {',
+      'if (input.prompt.includes("lint-fix")) return ' + JSON.stringify(fixReply()) + ";",
+      'const text = await readFile(join(input.projectRoot, "src/sample.any"), "utf8");',
+      'return text.includes("corrected line") ? ' +
+        JSON.stringify(lintReply()) +
+        " : " +
+        JSON.stringify(findingReply()) +
+        ";",
+      "} };",
+    ].join("\n"),
+  );
   const cwd = vi.spyOn(process, "cwd").mockReturnValue(root);
   const logs = vi.spyOn(console, "log").mockImplementation(() => {});
   const errors = vi.spyOn(console, "error").mockImplementation(() => {});
   try {
-    expect(await runCli("0.1.0", { fixture: plugin }, ["--fix", "--format", "json", "src/sample.any"])).toBe(0);
-    expect(JSON.parse(logs.mock.calls[0]![0])).toEqual({ ...lintReplyResult(), changedFiles: ["src/sample.any"] });
+    expect(
+      await runCli("0.1.0", { fixture: plugin }, ["--fix", "--format", "json", "src/sample.any"]),
+    ).toBe(0);
+    expect(JSON.parse(logs.mock.calls[0]![0])).toEqual({
+      ...lintReplyResult(),
+      changedFiles: ["src/sample.any"],
+    });
     expect(errors).not.toHaveBeenCalled();
-    expect(await readFile(join(root, "src/sample.any"), "utf8")).toBe("corrected line\nsecond line\n");
+    expect(await readFile(join(root, "src/sample.any"), "utf8")).toBe(
+      "corrected line\nsecond line\n",
+    );
   } finally {
-    cwd.mockRestore(); logs.mockRestore(); errors.mockRestore();
+    cwd.mockRestore();
+    logs.mockRestore();
+    errors.mockRestore();
   }
 });
 
 test("JSON CLI output stays structured and contains no terminal styling", async () => {
   const root = await createProject({ ai: { adapter: "./bridge.mjs" } });
-  await writeFile(join(root, "bridge.mjs"), `export default { id: "fixture", run: async () => (${JSON.stringify(findingReply())}) };`);
+  await writeFile(
+    join(root, "bridge.mjs"),
+    `export default { id: "fixture", run: async () => (${JSON.stringify(findingReply())}) };`,
+  );
   const cwd = vi.spyOn(process, "cwd").mockReturnValue(root);
   const logs = vi.spyOn(console, "log").mockImplementation(() => {});
   try {
-    expect(await runCli("0.1.0", { fixture: plugin }, ["--format", "json", "src/sample.any"])).toBe(1);
+    expect(await runCli("0.1.0", { fixture: plugin }, ["--format", "json", "src/sample.any"])).toBe(
+      1,
+    );
     const output = String(logs.mock.calls[0]![0]);
     expect(output).not.toContain("\x1b");
     expect(JSON.parse(output).diagnostics).toHaveLength(1);
   } finally {
-    cwd.mockRestore(); logs.mockRestore();
+    cwd.mockRestore();
+    logs.mockRestore();
   }
 });
-

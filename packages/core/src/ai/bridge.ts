@@ -40,10 +40,13 @@ export const callBridge = async (
   let rejectAbort: (() => void) | undefined;
   try {
     const cancelled = new Promise<never>((_resolve, reject) => {
-      rejectAbort = () => reject(new AquariusError(
-        timedOut ? "AI_TIMEOUT" : "AI_ABORTED",
-        timedOut ? "AI execution exceeded its time limit." : "AI execution was cancelled.",
-      ));
+      rejectAbort = () =>
+        reject(
+          new AquariusError(
+            timedOut ? "AI_TIMEOUT" : "AI_ABORTED",
+            timedOut ? "AI execution exceeded its time limit." : "AI execution was cancelled.",
+          ),
+        );
       controller.signal.addEventListener("abort", rejectAbort, { once: true });
       if (controller.signal.aborted) rejectAbort();
     });

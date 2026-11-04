@@ -15,16 +15,20 @@ const yamlRuleBaseShape = {
   defaultOptions: jsonObjectSchema.optional(),
 };
 
-const lintYamlRuleSchema = z.object({
-  ...yamlRuleBaseShape,
-  defaultSeverity: z.enum(["warn", "error"]),
-  prompt: lintInstructionsSchema,
-}).strict();
+const lintYamlRuleSchema = z
+  .object({
+    ...yamlRuleBaseShape,
+    defaultSeverity: z.enum(["warn", "error"]),
+    prompt: lintInstructionsSchema,
+  })
+  .strict();
 
-const formatYamlRuleSchema = z.object({
-  ...yamlRuleBaseShape,
-  prompt: formatInstructionsSchema,
-}).strict();
+const formatYamlRuleSchema = z
+  .object({
+    ...yamlRuleBaseShape,
+    prompt: formatInstructionsSchema,
+  })
+  .strict();
 
 export const lintRuleFromYaml = (text: string): LintRule => {
   const source = parseYaml(text, lintYamlRuleSchema);
@@ -89,7 +93,10 @@ const validateRuleId = (id: string): void => {
   }
 };
 
-const validateDefaultOptions = (schema: JsonObject | undefined, defaults: JsonObject | undefined): void => {
+const validateDefaultOptions = (
+  schema: JsonObject | undefined,
+  defaults: JsonObject | undefined,
+): void => {
   if (defaults && !schema) invalid("defaultOptions requires optionsSchema");
 };
 
@@ -111,19 +118,23 @@ const renderValue = (value: unknown, options: Readonly<JsonObject>): unknown => 
   if (typeof value === "string") return renderString(value, options);
   if (Array.isArray(value)) return value.map((item) => renderValue(item, options));
   if (isPlainObject(value)) {
-    return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, renderValue(item, options)]));
+    return Object.fromEntries(
+      Object.entries(value).map(([key, item]) => [key, renderValue(item, options)]),
+    );
   }
   return value;
 };
 
-const renderString = (template: string, options: Readonly<JsonObject>): string => template.replace(
-  /{{\s*([^{}]+?)\s*}}/g,
-  (_match, expression: string) => {
+const renderString = (template: string, options: Readonly<JsonObject>): string =>
+  template.replace(/{{\s*([^{}]+?)\s*}}/g, (_match, expression: string) => {
     const path = expression.trim().split(".");
     let value: unknown = options;
     for (const part of path.slice(1)) {
       if (!isPlainObject(value) || !Object.hasOwn(value, part)) {
-        throw new AquariusError("YAML_TEMPLATE_MISSING", `Missing template option: ${path.join(".")}`);
+        throw new AquariusError(
+          "YAML_TEMPLATE_MISSING",
+          `Missing template option: ${path.join(".")}`,
+        );
       }
       value = value[part];
     }
@@ -133,10 +144,12 @@ const renderString = (template: string, options: Readonly<JsonObject>): string =
       if (json === undefined) throw new Error("value is not JSON-serializable");
       return json;
     } catch (error) {
-      throw new AquariusError("YAML_TEMPLATE_INVALID", `Cannot render ${path.join(".")}: ${errorMessage(error)}`);
+      throw new AquariusError(
+        "YAML_TEMPLATE_INVALID",
+        `Cannot render ${path.join(".")}: ${errorMessage(error)}`,
+      );
     }
-  },
-);
+  });
 
 const validateTemplateSyntax = (template: string): void => {
   const token = /{{\s*([^{}]+?)\s*}}/g;
@@ -147,7 +160,8 @@ const validateTemplateSyntax = (template: string): void => {
     }
     return "";
   });
-  if (remainder.includes("{{") || remainder.includes("}}")) invalid("template contains a malformed placeholder");
+  if (remainder.includes("{{") || remainder.includes("}}"))
+    invalid("template contains a malformed placeholder");
 };
 
 const isPlainObject = (value: unknown): value is JsonObject => {
@@ -160,4 +174,5 @@ const invalid: (message: string) => never = (message) => {
   throw new AquariusError("YAML_RULE_INVALID", message);
 };
 
-const errorMessage = (error: unknown): string => error instanceof Error ? error.message : String(error);
+const errorMessage = (error: unknown): string =>
+  error instanceof Error ? error.message : String(error);

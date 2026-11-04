@@ -15,7 +15,8 @@ const hasLocalPackage = async (specifier: string, baseDirectory: string): Promis
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
     }
     try {
-      if (JSON.parse(await readFile(path.join(directory, "package.json"), "utf8")).name === name) return true;
+      if (JSON.parse(await readFile(path.join(directory, "package.json"), "utf8")).name === name)
+        return true;
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
     }
@@ -30,20 +31,25 @@ export const importProjectModule = async (
   baseDirectory: string,
   fallback?: unknown,
 ): Promise<unknown> => {
-  const parent = pathToFileURL(path.join(path.resolve(baseDirectory), "__aquarius_module_resolver__.mjs")).href;
+  const parent = pathToFileURL(
+    path.join(path.resolve(baseDirectory), "__aquarius_module_resolver__.mjs"),
+  ).href;
   let resolved: string;
   try {
     resolved = resolveModule(
-      path.isAbsolute(specifier) || path.win32.isAbsolute(specifier) ? pathToFileURL(specifier).href : specifier,
+      path.isAbsolute(specifier) || path.win32.isAbsolute(specifier)
+        ? pathToFileURL(specifier).href
+        : specifier,
       parent,
     );
   } catch (error) {
-    const isPackage = !specifier.startsWith(".") && !specifier.includes(":") && !path.isAbsolute(specifier);
+    const isPackage =
+      !specifier.startsWith(".") && !specifier.includes(":") && !path.isAbsolute(specifier);
     if (
-      fallback !== undefined
-      && isPackage
-      && (error as NodeJS.ErrnoException).code === "ERR_MODULE_NOT_FOUND"
-      && !(await hasLocalPackage(specifier, baseDirectory))
+      fallback !== undefined &&
+      isPackage &&
+      (error as NodeJS.ErrnoException).code === "ERR_MODULE_NOT_FOUND" &&
+      !(await hasLocalPackage(specifier, baseDirectory))
     ) {
       return fallback;
     }

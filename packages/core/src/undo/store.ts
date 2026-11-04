@@ -33,7 +33,11 @@ const exists = async (file: string): Promise<boolean> => {
   }
 };
 
-const runGit = async (root: string, arguments_: readonly string[], input?: Uint8Array): Promise<Buffer> => {
+const runGit = async (
+  root: string,
+  arguments_: readonly string[],
+  input?: Uint8Array,
+): Promise<Buffer> => {
   return await new Promise<Buffer>((resolve, reject) => {
     const child = spawn("git", ["-C", root, ...arguments_], {
       stdio: ["pipe", "pipe", "pipe"],
@@ -53,7 +57,12 @@ const runGit = async (root: string, arguments_: readonly string[], input?: Uint8
       if (settled) return;
       settled = true;
       if (code === 0) resolve(Buffer.concat(stdout));
-      else reject(new Error(Buffer.concat(stderr).toString("utf8").trim() || `git exited with status ${code}`));
+      else
+        reject(
+          new Error(
+            Buffer.concat(stderr).toString("utf8").trim() || `git exited with status ${code}`,
+          ),
+        );
     });
     child.stdin.on("error", () => undefined);
     child.stdin.end(input ? Buffer.from(input) : undefined);
@@ -186,7 +195,10 @@ export class GitUndoStore {
       recovery = await open(this.recoveryLockPath, "wx", 0o600);
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === "EEXIST") {
-        fail("UNDO_BUSY", `Another aqfmt process is recovering the transaction lock: ${this.recoveryLockPath}`);
+        fail(
+          "UNDO_BUSY",
+          `Another aqfmt process is recovering the transaction lock: ${this.recoveryLockPath}`,
+        );
       }
       throw error;
     }
@@ -196,7 +208,10 @@ export class GitUndoStore {
       const appeared = await createOwnedLock();
       if (appeared) return appeared;
       if (await this.hasPending()) {
-        fail("UNDO_INCOMPLETE", `An incomplete aqfmt transaction must be recovered first: ${this.pendingPath}`);
+        fail(
+          "UNDO_INCOMPLETE",
+          `An incomplete aqfmt transaction must be recovered first: ${this.pendingPath}`,
+        );
       }
       let owner = Number.NaN;
       try {
@@ -213,12 +228,14 @@ export class GitUndoStore {
       } catch (caught) {
         alive = (caught as NodeJS.ErrnoException).code !== "ESRCH";
       }
-      if (alive) fail("UNDO_BUSY", `Another aqfmt file transaction owns the lock: ${this.lockPath}`);
+      if (alive)
+        fail("UNDO_BUSY", `Another aqfmt file transaction owns the lock: ${this.lockPath}`);
       await unlink(this.lockPath).catch((caught: NodeJS.ErrnoException) => {
         if (caught.code !== "ENOENT") throw caught;
       });
       const reclaimed = await createOwnedLock();
-      if (!reclaimed) fail("UNDO_BUSY", `Another aqfmt process acquired the transaction lock: ${this.lockPath}`);
+      if (!reclaimed)
+        fail("UNDO_BUSY", `Another aqfmt process acquired the transaction lock: ${this.lockPath}`);
       return reclaimed;
     } finally {
       await recovery.close().catch(() => undefined);
@@ -239,13 +256,19 @@ export class GitUndoStore {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") failure ??= error;
     }
     if (failure) {
-      throw new AquariusError("UNDO_LOCK_RELEASE_FAILED", `Could not release aqfmt transaction lock: ${String(failure)}`);
+      throw new AquariusError(
+        "UNDO_LOCK_RELEASE_FAILED",
+        `Could not release aqfmt transaction lock: ${String(failure)}`,
+      );
     }
   }
 
   private async hashObject(content: Uint8Array): Promise<string> {
-    const oid = (await runGit(this.projectRoot, ["hash-object", "-w", "--stdin"], content)).toString("utf8").trim();
-    if (!/^[0-9a-f]{40,64}$/.test(oid)) fail("GIT_UNDO_FAILED", "git hash-object returned an invalid object ID");
+    const oid = (await runGit(this.projectRoot, ["hash-object", "-w", "--stdin"], content))
+      .toString("utf8")
+      .trim();
+    if (!/^[0-9a-f]{40,64}$/.test(oid))
+      fail("GIT_UNDO_FAILED", "git hash-object returned an invalid object ID");
     return oid;
   }
 
@@ -264,7 +287,9 @@ export class GitUndoStore {
 
   private async readRef(ref: string): Promise<string | undefined> {
     try {
-      const oid = (await runGit(this.projectRoot, ["rev-parse", "--verify", ref])).toString("utf8").trim();
+      const oid = (await runGit(this.projectRoot, ["rev-parse", "--verify", ref]))
+        .toString("utf8")
+        .trim();
       return /^[0-9a-f]{40,64}$/.test(oid) ? oid : undefined;
     } catch {
       return undefined;
@@ -272,26 +297,40 @@ export class GitUndoStore {
   }
 
   private async updateRefs(commands: string): Promise<void> {
-    await runGit(this.projectRoot, ["update-ref", "--stdin"], Buffer.from(`start\n${commands}prepare\ncommit\n`));
+    await runGit(
+      this.projectRoot,
+      ["update-ref", "--stdin"],
+      Buffer.from(`start\n${commands}prepare\ncommit\n`),
+    );
   }
 
   private async manifestTree(manifest: UndoManifest): Promise<string> {
-    const entries: { name: string; blob: string }[] = [{
-      name: "manifest.json",
-      blob: await this.hashObject(Buffer.from(`${JSON.stringify(manifest, null, 2)}\n`)),
-    }];
+    const entries: { name: string; blob: string }[] = [
+      {
+        name: "manifest.json",
+        blob: await this.hashObject(Buffer.from(`${JSON.stringify(manifest, null, 2)}\n`)),
+      },
+    ];
     for (const [index, file] of manifest.files.entries()) {
-      if (file.before) entries.push({ name: `${index.toString().padStart(6, "0")}-before`, blob: file.before.blob });
-      if (file.after) entries.push({ name: `${index.toString().padStart(6, "0")}-after`, blob: file.after.blob });
+      if (file.before)
+        entries.push({
+          name: `${index.toString().padStart(6, "0")}-before`,
+          blob: file.before.blob,
+        });
+      if (file.after)
+        entries.push({ name: `${index.toString().padStart(6, "0")}-after`, blob: file.after.blob });
     }
     const treeInput = entries.map(({ name, blob }) => `100644 blob ${blob}\t${name}\n`).join("");
-    const tree = (await runGit(this.projectRoot, ["mktree"], Buffer.from(treeInput))).toString("utf8").trim();
-    if (!/^[0-9a-f]{40,64}$/.test(tree)) fail("GIT_UNDO_FAILED", "git mktree returned an invalid object ID");
+    const tree = (await runGit(this.projectRoot, ["mktree"], Buffer.from(treeInput)))
+      .toString("utf8")
+      .trim();
+    if (!/^[0-9a-f]{40,64}$/.test(tree))
+      fail("GIT_UNDO_FAILED", "git mktree returned an invalid object ID");
     return tree;
   }
 
   async hasPending(): Promise<boolean> {
-    return await exists(this.pendingPath) || (await this.readRef(this.pendingRef)) !== undefined;
+    return (await exists(this.pendingPath)) || (await this.readRef(this.pendingRef)) !== undefined;
   }
 
   async pinPending(manifest: UndoManifest): Promise<string> {
@@ -301,7 +340,9 @@ export class GitUndoStore {
   }
 
   async movePendingRefToLast(tree: string): Promise<void> {
-    await this.updateRefs(`update ${this.manifestRef} ${tree}\ndelete ${this.pendingRef} ${tree}\n`);
+    await this.updateRefs(
+      `update ${this.manifestRef} ${tree}\ndelete ${this.pendingRef} ${tree}\n`,
+    );
   }
 
   async deletePendingRef(): Promise<void> {
@@ -310,29 +351,45 @@ export class GitUndoStore {
   }
 
   private async moveLastRefToPending(last: string): Promise<void> {
-    await this.updateRefs(`update ${this.pendingRef} ${last}\ndelete ${this.manifestRef} ${last}\n`);
+    await this.updateRefs(
+      `update ${this.pendingRef} ${last}\ndelete ${this.manifestRef} ${last}\n`,
+    );
   }
 
   private async restorePendingRefToLast(pending: string): Promise<void> {
-    await this.updateRefs(`update ${this.manifestRef} ${pending}\ndelete ${this.pendingRef} ${pending}\n`);
+    await this.updateRefs(
+      `update ${this.manifestRef} ${pending}\ndelete ${this.pendingRef} ${pending}\n`,
+    );
   }
 
   private async readManifest(): Promise<string> {
     const last = await this.readRef(this.manifestRef);
     if (!last) fail("UNDO_NOT_FOUND", "There is no aqfmt change to undo");
     try {
-      return (await runGit(this.projectRoot, ["show", `${this.manifestRef}:manifest.json`])).toString("utf8");
+      return (
+        await runGit(this.projectRoot, ["show", `${this.manifestRef}:manifest.json`])
+      ).toString("utf8");
     } catch (error) {
-      throw new AquariusError("UNDO_RECORD_INVALID", `Cannot read the pinned undo manifest: ${String(error)}`);
+      throw new AquariusError(
+        "UNDO_RECORD_INVALID",
+        `Cannot read the pinned undo manifest: ${String(error)}`,
+      );
     }
   }
 
-  async begin(plan: FileChangePlan, createdDirectories: readonly string[]): Promise<GitUndoTransaction> {
-    if (plan.projectRoot !== this.projectRoot) fail("PROJECT_ROOT_CHANGED", "Undo store and file plan roots differ");
+  async begin(
+    plan: FileChangePlan,
+    createdDirectories: readonly string[],
+  ): Promise<GitUndoTransaction> {
+    if (plan.projectRoot !== this.projectRoot)
+      fail("PROJECT_ROOT_CHANGED", "Undo store and file plan roots differ");
     const lock = await this.acquireLock();
     try {
       if (await this.hasPending()) {
-        fail("UNDO_INCOMPLETE", `An incomplete aqfmt transaction must be recovered first: ${this.pendingPath}`);
+        fail(
+          "UNDO_INCOMPLETE",
+          `An incomplete aqfmt transaction must be recovered first: ${this.pendingPath}`,
+        );
       }
       const files: StoredFile[] = [];
       for (const file of plan.files) {
@@ -363,7 +420,10 @@ export class GitUndoStore {
     const lock = await this.acquireLock();
     try {
       if (await this.hasPending()) {
-        fail("UNDO_INCOMPLETE", `An incomplete aqfmt transaction must be recovered first: ${this.pendingPath}`);
+        fail(
+          "UNDO_INCOMPLETE",
+          `An incomplete aqfmt transaction must be recovered first: ${this.pendingPath}`,
+        );
       }
       const raw = await this.readManifest();
       let decoded: unknown;
@@ -437,7 +497,9 @@ export const createGitUndoStore = async (root: string): Promise<GitUndoStore | n
   let inside: string;
   let gitDirectory: string;
   try {
-    inside = (await runGit(projectRoot, ["rev-parse", "--is-inside-work-tree"])).toString("utf8").trim();
+    inside = (await runGit(projectRoot, ["rev-parse", "--is-inside-work-tree"]))
+      .toString("utf8")
+      .trim();
     gitDirectory = (await runGit(projectRoot, ["rev-parse", "--path-format=absolute", "--git-dir"]))
       .toString("utf8")
       .trim();
@@ -446,15 +508,25 @@ export const createGitUndoStore = async (root: string): Promise<GitUndoStore | n
   }
   if (inside !== "true" || !gitDirectory) return null;
   const canonicalGitDirectory = await realpath(gitDirectory);
-  const store = new GitUndoStore(projectRoot, path.join(canonicalGitDirectory, "aquarius", "aqfmt-undo"));
+  const store = new GitUndoStore(
+    projectRoot,
+    path.join(canonicalGitDirectory, "aquarius", "aqfmt-undo"),
+  );
   if (await store.hasPending()) {
-    fail("UNDO_INCOMPLETE", `An incomplete aqfmt transaction must be recovered first: ${store.pendingPath}`);
+    fail(
+      "UNDO_INCOMPLETE",
+      `An incomplete aqfmt transaction must be recovered first: ${store.pendingPath}`,
+    );
   }
   return store;
 };
 
 export const undoLastFileChanges = async (root: string): Promise<string[]> => {
   const store = await createGitUndoStore(root);
-  if (!store) fail("UNDO_UNAVAILABLE", "Git undo is unavailable because the project is not in a Git worktree");
+  if (!store)
+    fail(
+      "UNDO_UNAVAILABLE",
+      "Git undo is unavailable because the project is not in a Git worktree",
+    );
   return await store.undo();
 };

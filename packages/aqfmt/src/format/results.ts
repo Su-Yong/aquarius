@@ -40,7 +40,10 @@ export const normalizeFormatResponse = (
       for (const path of paths) {
         normalizedPath(path);
         if (!policy.canWrite(path)) {
-          throw new AquariusError("CHANGE_OUTSIDE_SCOPE", `Change is outside the selected scope: ${path}`);
+          throw new AquariusError(
+            "CHANGE_OUTSIDE_SCOPE",
+            `Change is outside the selected scope: ${path}`,
+          );
         }
       }
       changes.push(change);

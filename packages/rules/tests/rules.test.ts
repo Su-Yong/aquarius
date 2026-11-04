@@ -28,7 +28,8 @@ describe("provided rules", () => {
     expect(disabled.exceptions).toEqual([]);
     expect(enabled.exceptions).toHaveLength(1);
     expect(rule.defaultOptions).toEqual({ allowOwnershipTransfer: false });
-    expect(rule.optionsSchema?.safeParse({ allowOwnershipTransfer: false, unknown: true }).success).toBe(false);
+    expect(
+      rule.optionsSchema?.safeParse({ allowOwnershipTransfer: false, unknown: true }).success,
+    ).toBe(false);
   });
 });
-

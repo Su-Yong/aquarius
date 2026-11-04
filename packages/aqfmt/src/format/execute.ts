@@ -16,11 +16,7 @@ import { createGitUndoStore, undoLastFileChanges } from "../undo/store";
 import { buildFormatPrompt } from "./prompt";
 import { normalizeFormatResponse } from "./results";
 import { formatResponseJsonSchema } from "./schemas";
-import type {
-  FormatExecutionOptions,
-  FormatExecutionResult,
-  FormatResult,
-} from "./types";
+import type { FormatExecutionOptions, FormatExecutionResult, FormatResult } from "./types";
 
 const emptyResult = (): FormatResult => ({ changedFiles: [], warnings: [], errors: [] });
 
@@ -33,7 +29,10 @@ export const executeFormat = async (
 
   try {
     if (options.undo && (options.check || options.paths?.length)) {
-      throw new AquariusError("INVALID_ARGUMENTS", "--undo cannot be combined with --check or target paths.");
+      throw new AquariusError(
+        "INVALID_ARGUMENTS",
+        "--undo cannot be combined with --check or target paths.",
+      );
     }
 
     const config = await loadConfig("format", { cwd: options.cwd, configPath: options.configPath });
@@ -67,25 +66,32 @@ export const executeFormat = async (
     if (options.signal?.aborted) throw new AquariusError("AI_ABORTED", "Execution was cancelled.");
 
     const baseline = await captureBaseline(config.projectRoot, policy.targets);
-    const bridge = suppliedBridge ?? await resolveBridge(config);
+    const bridge = suppliedBridge ?? (await resolveBridge(config));
     const cwdRelative = relative(config.projectRoot, config.cwd).replaceAll("\\", "/");
-    const pathsRelativeTo = !options.paths?.length && (cwdRelative === ".." || cwdRelative.startsWith("../") || isAbsolute(cwdRelative))
-      ? "."
-      : cwdRelative || ".";
+    const pathsRelativeTo =
+      !options.paths?.length &&
+      (cwdRelative === ".." || cwdRelative.startsWith("../") || isAbsolute(cwdRelative))
+        ? "."
+        : cwdRelative || ".";
     const prompt = buildFormatPrompt(prepared.rules, policy, {
       files: config.files,
       paths: options.paths?.length ? options.paths : ["."],
       pathsRelativeTo,
     });
     options.onProgress?.("Formatting files with AI");
-    const raw = await callBridge(bridge, {
-      projectRoot: await realpath(config.projectRoot),
-      readableFiles: policy.readableFiles,
-      ignore: policy.ignoreRules,
-      prompt,
-      outputSchema: formatResponseJsonSchema,
-      options: config.ai.options,
-    }, config.ai.timeoutMs, options.signal);
+    const raw = await callBridge(
+      bridge,
+      {
+        projectRoot: await realpath(config.projectRoot),
+        readableFiles: policy.readableFiles,
+        ignore: policy.ignoreRules,
+        prompt,
+        outputSchema: formatResponseJsonSchema,
+        options: config.ai.options,
+      },
+      config.ai.timeoutMs,
+      options.signal,
+    );
     if (options.signal?.aborted) throw new AquariusError("AI_ABORTED", "Execution was cancelled.");
 
     options.onProgress?.("Checking changes");
@@ -97,7 +103,12 @@ export const executeFormat = async (
     };
     if (response.errors.length) return { result, exitCode: 2 };
 
-    const plan = await planFileChanges(config.projectRoot, response.changes, policy.canWrite, baseline);
+    const plan = await planFileChanges(
+      config.projectRoot,
+      response.changes,
+      policy.canWrite,
+      baseline,
+    );
     if (options.check) {
       result.wouldChangeFiles = plan.files.map((file) => file.path);
       return { result, exitCode: result.errors.length ? 2 : plan.files.length ? 1 : 0 };

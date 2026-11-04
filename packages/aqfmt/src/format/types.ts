@@ -30,4 +30,3 @@ export interface FormatExecutionResult {
   result: FormatResult;
   exitCode: number;
 }
-

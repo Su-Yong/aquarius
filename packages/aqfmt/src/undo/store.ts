@@ -1,1 +1,6 @@
-export { GitUndoTransaction, GitUndoStore, createGitUndoStore, undoLastFileChanges } from "@aquarius/core/internal";
+export {
+  GitUndoTransaction,
+  GitUndoStore,
+  createGitUndoStore,
+  undoLastFileChanges,
+} from "@aquarius/core/internal";

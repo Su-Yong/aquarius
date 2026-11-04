@@ -35,11 +35,15 @@ export interface RuleBase {
 
 export interface LintRule extends RuleBase {
   defaultSeverity: ActiveSeverity;
-  buildPrompt: (input: { options: Readonly<JsonObject> }) => LintInstructions | Promise<LintInstructions>;
+  buildPrompt: (input: {
+    options: Readonly<JsonObject>;
+  }) => LintInstructions | Promise<LintInstructions>;
 }
 
 export interface FormatRule extends RuleBase {
-  buildPrompt: (input: { options: Readonly<JsonObject> }) => FormatInstructions | Promise<FormatInstructions>;
+  buildPrompt: (input: {
+    options: Readonly<JsonObject>;
+  }) => FormatInstructions | Promise<FormatInstructions>;
 }
 
 export interface RulePlugin {

@@ -2,6 +2,10 @@ import { defineProject } from "vitest/config";
 
 export default defineProject({
   root: import.meta.dirname,
-  test: { name: "core", environment: "node", include: ["tests/**/*.test.{ts,mjs}"], testTimeout: 30_000 },
+  test: {
+    name: "core",
+    environment: "node",
+    include: ["tests/**/*.test.{ts,mjs}"],
+    testTimeout: 30_000,
+  },
 });
-

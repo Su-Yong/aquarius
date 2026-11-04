@@ -2,7 +2,7 @@ import { chmod, mkdtemp, mkdir, readFile, realpath, rm, symlink, writeFile } fro
 import { tmpdir } from "node:os";
 import { delimiter, dirname, isAbsolute, join, resolve } from "node:path";
 import { afterEach, describe, expect, test } from "vitest";
-import { codexBridge, buildCodexConfigOverrides, createCodexSnapshot, resolveCodexExecutable } from "../src/ai/codex";
+import { codexBridge, buildCodexConfigOverrides, createCodexSnapshot, resolveCodexExecutable, runExec } from "../src/ai/codex";
 
 const temporaryDirectories: string[] = [];
 
@@ -101,6 +101,48 @@ describe("Codex readable snapshot", () => {
 });
 
 describe("Codex invocation policy", () => {
+  test.skipIf(process.platform === "win32")("accepts a recovered error but rejects a final failure", async () => {
+    const root = await temporaryDirectory("events");
+    const executable = join(root, "codex");
+    const resultPath = join(root, "result.json");
+    const input = {
+      projectRoot: root,
+      readableFiles: [],
+      ignore: [],
+      prompt: "Return an empty object.",
+      outputSchema: { type: "object" },
+      options: {},
+      signal: new AbortController().signal,
+    };
+
+    const runWithEvents = async (events: object[]) => {
+      const script = `#!${process.execPath}\n` +
+        `const fs = require("node:fs");\n` +
+        `process.stdin.resume();\n` +
+        `process.stdin.on("end", () => {\n` +
+        `  fs.writeFileSync(${JSON.stringify(resultPath)}, "{}");\n` +
+        `  for (const event of ${JSON.stringify(events)}) console.log(JSON.stringify(event));\n` +
+        `});\n`;
+      await writeFile(executable, script, { mode: 0o755 });
+      return runExec(executable, input, {}, root, root, join(root, "schema.json"), resultPath, []);
+    };
+
+    await expect(runWithEvents([{ type: "error" }, { type: "turn.completed" }])).resolves.toEqual({});
+    await expect(runWithEvents([{ type: "error" }, { type: "turn.failed" }]))
+      .rejects.toMatchObject({ code: "CODEX_EXECUTION_FAILED" });
+    await expect(runWithEvents([{
+      type: "turn.failed",
+      error: { message: JSON.stringify({ error: { code: "model_not_found" } }) },
+    }])).rejects.toMatchObject({
+      code: "CODEX_EXECUTION_FAILED",
+      message: expect.stringContaining("configured Codex model is unavailable"),
+    });
+    await expect(runWithEvents([{ type: "error" }]))
+      .rejects.toMatchObject({ code: "CODEX_EXECUTION_FAILED" });
+    await expect(runWithEvents([{ type: "error" }, { type: "item.completed", item: { type: "file_change" } }]))
+      .rejects.toMatchObject({ code: "CODEX_TOOL_VIOLATION" });
+  });
+
   test("uses invocation-only permission settings without a legacy sandbox flag", () => {
     const view = join(tmpdir(), "aquarius-view");
     const source = join(tmpdir(), "aquarius-source");

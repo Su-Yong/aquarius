@@ -39,7 +39,6 @@ const DISABLED_FEATURES = [
   "browser_use",
   "browser_use_external",
   "computer_use",
-  "daemon_auto_start",
   "hooks",
   "image_generation",
   "in_app_browser",
@@ -604,7 +603,7 @@ const containsPath = (value: unknown, paths: readonly string[]): boolean => {
   return false;
 };
 
-const runExec = async (
+export const runExec = async (
   executable: string,
   input: BridgeInput,
   options: CodexOptions,
@@ -643,6 +642,7 @@ const runExec = async (
   child.stderr.resume();
   const reader = createInterface({ input: child.stdout });
   let eventFailure: AquariusError | undefined;
+  let reportedError = false;
 
   reader.on("line", (line) => {
     if (eventFailure) return;
@@ -658,8 +658,25 @@ const runExec = async (
     if (item && typeof item.type === "string" && FORBIDDEN_EVENT_ITEMS.has(item.type)) {
       eventFailure = new AquariusError("CODEX_TOOL_VIOLATION", "Codex attempted a disabled tool or file change.");
       terminate(child);
-    } else if (event.type === "turn.failed" || event.type === "error") {
-      eventFailure = new AquariusError("CODEX_EXECUTION_FAILED", "Codex reported an execution failure.");
+    } else if (event.type === "turn.failed") {
+      const message = asRecord(event.error)?.message;
+      let errorCode: unknown;
+      if (typeof message === "string") {
+        try {
+          errorCode = asRecord(asRecord(JSON.parse(message))?.error)?.code;
+        } catch {
+          // Codex can report failures as plain text rather than JSON.
+        }
+      }
+      if (errorCode === "model_not_found") {
+        eventFailure = new AquariusError("CODEX_EXECUTION_FAILED", "The configured Codex model is unavailable for this account. Choose a supported model in Codex or Aquarius configuration.");
+      } else {
+        eventFailure = new AquariusError("CODEX_EXECUTION_FAILED", "Codex reported an execution failure.");
+      }
+    } else if (event.type === "error") {
+      reportedError = true;
+    } else if (event.type === "turn.completed") {
+      reportedError = false;
     }
   });
 
@@ -671,6 +688,7 @@ const runExec = async (
     });
     if (input.signal.aborted) fail("CODEX_ABORTED", "Codex execution was aborted.");
     if (eventFailure) throw eventFailure;
+    if (reportedError) fail("CODEX_EXECUTION_FAILED", "Codex reported an execution failure.");
     if (exitCode !== 0) fail("CODEX_EXECUTION_FAILED", `Codex exited unsuccessfully (${exitCode ?? "signal"}).`);
 
     let result: unknown;

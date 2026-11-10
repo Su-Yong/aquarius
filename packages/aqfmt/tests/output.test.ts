@@ -15,6 +15,7 @@ test("styles formatter warnings by field on a terminal", () => {
         exitCode: 0,
         result: {
           changedFiles: [],
+          skippedRules: [],
           errors: [],
           warnings: [
             {
@@ -38,6 +39,7 @@ test("styles formatter warnings by field on a terminal", () => {
         exitCode: 0,
         result: {
           changedFiles: [],
+          skippedRules: [],
           errors: [],
           warnings: [{ code: "NOTICE", ruleIds: [], message: "Details", paths: ["src/file.ts"] }],
         },
@@ -53,6 +55,7 @@ test("styles formatter warnings by field on a terminal", () => {
         exitCode: 0,
         result: {
           changedFiles: [],
+          skippedRules: [],
           errors: [],
           warnings: [
             {
@@ -90,6 +93,7 @@ test("uses status markers for formatter results only on terminals", () => {
         exitCode: 1,
         result: {
           changedFiles: [],
+          skippedRules: [],
           wouldChangeFiles: ["a.ts"],
           restoredFiles: ["b.ts"],
           warnings: [],
@@ -102,7 +106,10 @@ test("uses status markers for formatter results only on terminals", () => {
     Object.defineProperty(process.stdout, "isTTY", { configurable: true, value: false });
     log.mockClear();
     printHuman(
-      { exitCode: 0, result: { changedFiles: ["a.ts"], warnings: [], errors: [] } },
+      {
+        exitCode: 0,
+        result: { changedFiles: ["a.ts"], skippedRules: [], warnings: [], errors: [] },
+      },
       false,
     );
     expect(log.mock.calls.flat()).toEqual(["Formatted a.ts"]);

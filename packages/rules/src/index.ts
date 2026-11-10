@@ -1,4 +1,5 @@
 import type { RulePlugin } from "@aquarius/core";
+import { allRulesPreset } from "./presets";
 import { nameCompoundConditions } from "./format/name-compound-conditions";
 import { preferEarlyReturn } from "./format/prefer-early-return";
 import { separateResponsibilities } from "./format/separate-responsibilities";
@@ -33,7 +34,37 @@ import { usePublicEntry } from "./lint/use-public-entry";
 
 export const aquariusRules: RulePlugin = {
   namespace: "aquarius",
-  lintRules: [noInputMutation, usePublicEntry, releaseOnExit, ...architectureRules, ...section02Rules, ...section03Rules, ...section04Rules, ...section05Rules, ...section06Rules, ...section07Rules, ...section08Rules, ...stateRules, ...errorRules, ...asyncRules, ...resourceRules, ...persistenceRules, ...queryRules, ...distributedRules, ...cacheRules, ...securityRules, ...privacyRules, ...httpRules, ...eventRules, ...section21Rules, ...section22Rules, ...section23Rules, ...section24Rules, ...section25Rules],
+  presets: { all: allRulesPreset },
+  lintRules: [
+    noInputMutation,
+    usePublicEntry,
+    releaseOnExit,
+    ...architectureRules,
+    ...section02Rules,
+    ...section03Rules,
+    ...section04Rules,
+    ...section05Rules,
+    ...section06Rules,
+    ...section07Rules,
+    ...section08Rules,
+    ...stateRules,
+    ...errorRules,
+    ...asyncRules,
+    ...resourceRules,
+    ...persistenceRules,
+    ...queryRules,
+    ...distributedRules,
+    ...cacheRules,
+    ...securityRules,
+    ...privacyRules,
+    ...httpRules,
+    ...eventRules,
+    ...section21Rules,
+    ...section22Rules,
+    ...section23Rules,
+    ...section24Rules,
+    ...section25Rules,
+  ],
   formatRules: [preferEarlyReturn, nameCompoundConditions, separateResponsibilities],
 };
 

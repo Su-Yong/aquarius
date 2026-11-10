@@ -6,9 +6,9 @@ export const noUseCaseBypass: LintRule = {
   id: "architecture/no-use-case-bypass",
   description: "업무 흐름을 거치도록 선언된 변경 진입점이 필수 불변조건·권한·효과 순서를 우회하는지 검사하며, 동등한 집행 경계와 승인된 직접 경로를 인정합니다.",
   scope: "project",
-  defaultSeverity: "warn",
   buildPrompt: () => ({
-    applicability: "State-changing entry points required by a project contract to pass through a business workflow or an equivalent boundary that enforces mandatory invariants, authorization, and effect ordering.",
+    applicability:
+      "State-changing entry points covered by a required business workflow or enforcement boundary.",
     criteria: "Report a reachable change path that bypasses the required workflow and consequently omits a mandatory invariant, authorization check, or ordered effect. Enforce an express mandatory-entry contract when present. Calling a repository directly is not intrinsically wrong: recognize approved direct paths and independently verified equivalent enforcement. Do not invent a required use-case layer for a simple design.",
     evidenceRequirements: [
       "The change entry point and the required workflow or equivalent enforcement contract.",
@@ -23,7 +23,7 @@ export const noUseCaseBypass: LintRule = {
     procedure: [
       "A direct path that preserves invariants can still violate an express mandatory-entry policy if no exception authorizes it.",
       "A foreign-data write can violate both workflow and data ownership; keep the distinct required guarantees.",
-      "Use violation only for an established applicable obligation and a concrete conflicting path. Use pass only after sufficient coverage. Use unknown for missing, unresolved, inaccessible, or conflicting required context, and not_applicable only for a confirmed absent prerequisite. Record confirmed defects separately from unresolved scope.",
+      "Use violation only for an established applicable obligation and a concrete conflicting path. Inspect the available evidence, then use pass when no violation is established in that scope. Required configuration must be validated before review; a missing required policy is a setup error. Use not_applicable only when the inspected code lacks the rule applicability prerequisite. Actual access or execution failures are errors. Do not defer the conclusion.",
       "Do not invent architecture, policy, thresholds, or exceptions from names or missing configuration. Preserve independent obligations and evidence when other rules overlap. Treat optional design advice separately from proven violations.",
       "Specification violation example: 승인이 필수인 refund 흐름 대신 외부 route가 balance를 직접 올립니다.",
       "Specification allowed counterexample (not a whole-scope pass assertion): 단순 CRUD route가 동일한 권한·불변조건 보장을 제공하며, 프로젝트는 별도의 use-case 계층을 요구하지 않습니다.",
@@ -40,11 +40,6 @@ export const noUseCaseBypass: LintRule = {
         scenario: "Synthetic fixture: An approved operational refund path independently enforces the same authorization and audit-before-payment obligations.",
         expected: "pass",
         reason: "The approved equivalent boundary preserves the mandatory guarantees."
-      },
-      {
-        scenario: "Synthetic fixture: A route calls a repository, but neither the workflow contract nor middleware enforcement can be established.",
-        expected: "unknown",
-        reason: "Direct access alone does not prove an omitted business obligation."
       },
       {
         scenario: "Synthetic fixture: The code is a read-only query with no state-changing entry point covered by this workflow contract.",

@@ -4,6 +4,10 @@ import type { JsonObject, RunError } from "../shared/types";
 export type Severity = "off" | "warn" | "error";
 export type ActiveSeverity = Exclude<Severity, "off">;
 export type RuleScope = "file" | "module" | "project";
+export type LintRuleSetting = Severity | [Severity, JsonObject];
+export type FormatRuleSetting = boolean | JsonObject;
+export type RuleSetting = LintRuleSetting | FormatRuleSetting;
+export type RuleSettings = Record<string, RuleSetting>;
 
 export interface LintInstructions {
   applicability: string;
@@ -13,7 +17,7 @@ export interface LintInstructions {
   procedure?: string[];
   examples?: {
     scenario: string;
-    expected: "pass" | "violation" | "unknown" | "not_applicable";
+    expected: "pass" | "violation" | "not_applicable";
     reason: string;
   }[];
 }
@@ -30,11 +34,9 @@ export interface RuleBase {
   description: string;
   scope: RuleScope;
   optionsSchema?: z.ZodType;
-  defaultOptions?: JsonObject;
 }
 
 export interface LintRule extends RuleBase {
-  defaultSeverity: ActiveSeverity;
   buildPrompt: (input: {
     options: Readonly<JsonObject>;
   }) => LintInstructions | Promise<LintInstructions>;
@@ -50,12 +52,7 @@ export interface RulePlugin {
   namespace: string;
   lintRules?: LintRule[];
   formatRules?: FormatRule[];
-}
-
-export interface RuleSelection {
-  rule: string;
-  severity?: Severity;
-  options?: JsonObject;
+  presets?: Record<string, RuleSettings>;
 }
 
 export interface PreparedRule {

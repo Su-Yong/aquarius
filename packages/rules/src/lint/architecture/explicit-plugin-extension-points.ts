@@ -6,9 +6,8 @@ export const explicitPluginExtensionPoints: LintRule = {
   id: "architecture/explicit-plugin-extension-points",
   description: "지원하기로 한 플러그인의 등록·선택·호출·실패·권한·수명 계약을 확인하고, 실제 확장 경로가 이를 지키는지 검사합니다.",
   scope: "project",
-  defaultSeverity: "warn",
   buildPrompt: () => ({
-    applicability: "Extension mechanisms the project commits to supporting, with registration, selection, invocation, failure, authority, or lifetime obligations established by their public contract.",
+    applicability: "Project-supported plugin or extension mechanisms.",
     criteria: "Report a supported plugin path that violates the applicable registration, selection, invocation, failure, permission, or lifetime contract. Trace the actual plugin registry and dispatch, including replacement and teardown. A callback or dynamic import does not by itself imply a public plugin system, and do not demand every possible extension capability. Policy gaps at a real required boundary are separate design questions; verified contract breaches remain violations.",
     evidenceRequirements: [
       "The supported extension point and the specific public guarantee.",
@@ -23,7 +22,7 @@ export const explicitPluginExtensionPoints: LintRule = {
     procedure: [
       "Do not infer plugin authority from text supplied by the plugin; use the host-authorized contract.",
       "Preserve a resource-release or security-boundary obligation distinct from the extension API promise.",
-      "Use violation only for an established applicable obligation and a concrete conflicting path. Use pass only after sufficient coverage. Use unknown for missing, unresolved, inaccessible, or conflicting required context, and not_applicable only for a confirmed absent prerequisite. Record confirmed defects separately from unresolved scope.",
+      "Use violation only for an established applicable obligation and a concrete conflicting path. Inspect the available evidence, then use pass when no violation is established in that scope. Required configuration must be validated before review; a missing required policy is a setup error. Use not_applicable only when the inspected code lacks the rule applicability prerequisite. Actual access or execution failures are errors. Do not defer the conclusion.",
       "Do not invent architecture, policy, thresholds, or exceptions from names or missing configuration. Preserve independent obligations and evidence when other rules overlap. Treat optional design advice separately from proven violations.",
       "Specification violation example: 플러그인 unload를 약속했지만 등록한 리스너의 제거 정보가 없어, 플러그인 교체 후에도 이전 구현이 호출됩니다.",
       "Specification allowed counterexample (not a whole-scope pass assertion): 내부 단일 구현에는 플러그인 지원 계약이 없으며, 필요할 때 함수 인자로 간단히 확장합니다.",
@@ -40,11 +39,6 @@ export const explicitPluginExtensionPoints: LintRule = {
         scenario: "Synthetic fixture: The host records each plugin failure, continues the remaining plugins, and disposes each registered instance exactly as promised.",
         expected: "pass",
         reason: "The inspected dispatch and lifecycle match the published guarantees."
-      },
-      {
-        scenario: "Synthetic fixture: An extension registry is visible but supported lifetime and error behavior are unavailable and callers do not establish them.",
-        expected: "unknown",
-        reason: "The required extension guarantees cannot be established."
       },
       {
         scenario: "Synthetic fixture: A private local callback is not a supported extension mechanism and no plugin guarantee applies.",

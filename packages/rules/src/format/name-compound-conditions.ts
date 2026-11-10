@@ -6,7 +6,7 @@ export const nameCompoundConditions: FormatRule = {
   scope: "file",
   buildPrompt: () => ({
     applicability:
-      "A compound condition whose intent becomes clearer through a well-named local value or predicate.",
+      "Compound conditions with multiple logical clauses.",
     transformation:
       "Extract an appropriately named condition or predicate where it clarifies the existing intent. Avoid redundant names for already clear simple conditions.",
     constraints: [

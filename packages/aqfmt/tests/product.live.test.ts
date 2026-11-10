@@ -34,7 +34,8 @@ liveTest(
           files: ["format/**"],
           ignore: ["ignored/**"],
           plugins: ["@aquarius/rules"],
-          rules: [{ rule: "aquarius/style/prefer-early-return" }],
+          ai: { adapter: "codex" },
+          rules: { "aquarius/style/prefer-early-return": true },
         }),
       );
       const expectedReturns = await labelResults(source);
@@ -50,6 +51,7 @@ liveTest(
 
       expect(execution.status, execution.stderr).toBe(0);
       expect(output.errors).toEqual([]);
+      expect(output.skippedRules).toEqual([]);
       expect(output.changedFiles).toEqual(["format/label.js"]);
       expect(transformed).not.toBe(source);
       expect(transformed).not.toMatch(/\}\s*else\s*\{/u);
@@ -63,6 +65,7 @@ liveTest(
       );
       expect(undo.status, undo.stderr).toBe(0);
       expect(undoOutput.errors).toEqual([]);
+      expect(undoOutput.skippedRules).toEqual([]);
       expect(undoOutput.restoredFiles).toEqual(["format/label.js"]);
       expect(await readFile(join(root, "format", "label.js"), "utf8")).toBe(source);
       expect(await readFile(join(root, "ignored", "private.txt"), "utf8")).toBe(ignored);

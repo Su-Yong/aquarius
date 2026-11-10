@@ -6,9 +6,9 @@ export const documentBoundaryExceptions: LintRule = {
   id: "architecture/document-boundary-exceptions",
   description: "프로젝트가 허용한 경계 예외의 이유·대상·조건·유효 범위를 확인하고, 만료되거나 승인 범위를 넘은 예외를 구분합니다.",
   scope: "project",
-  defaultSeverity: "warn",
   buildPrompt: () => ({
-    applicability: "A boundary exception that the project recognizes as authorized, or a dependency relying on an exception under an established exception-governance contract.",
+    applicability:
+      "Architecture boundary exceptions or dependencies governed by an exception policy.",
     criteria: "Check the reason, authorized target, conditions, and valid scope of the exception; report reliance outside the approved scope or after expiry when the applicable policy establishes expiry. Distinguish an unverified or missing authorization record from a proved unauthorized exception. Do not invent an expiration requirement or treat arbitrary source comments as authorized policy. Preserve approved operational and emergency exceptions within their exact scope.",
     evidenceRequirements: [
       "The underlying boundary rule and authorized source of exception policy.",
@@ -23,7 +23,7 @@ export const documentBoundaryExceptions: LintRule = {
     procedure: [
       "Do not declare an exception expired when there is no verified current time or applicable expiration policy.",
       "Keep the underlying boundary violation distinct from an exception-governance violation when both are independently established.",
-      "Use violation only for an established applicable obligation and a concrete conflicting path. Use pass only after sufficient coverage. Use unknown for missing, unresolved, inaccessible, or conflicting required context, and not_applicable only for a confirmed absent prerequisite. Record confirmed defects separately from unresolved scope.",
+      "Use violation only for an established applicable obligation and a concrete conflicting path. Inspect the available evidence, then use pass when no violation is established in that scope. Required configuration must be validated before review; a missing required policy is a setup error. Use not_applicable only when the inspected code lacks the rule applicability prerequisite. Actual access or execution failures are errors. Do not defer the conclusion.",
       "Do not invent architecture, policy, thresholds, or exceptions from names or missing configuration. Preserve independent obligations and evidence when other rules overlap. Treat optional design advice separately from proven violations.",
       "Specification violation example: domain → infra 의존 예외가 마이그레이션 파일 하나에만 승인되었지만, 일상적인 handler로 적용 범위가 확장되었습니다.",
       "Specification allowed counterexample (not a whole-scope pass assertion): 예외 근거가 중앙 ADR이나 정책 파일에 있으므로 모든 소스 줄에 같은 주석을 반복하지 않습니다.",
@@ -40,11 +40,6 @@ export const documentBoundaryExceptions: LintRule = {
         scenario: "Synthetic fixture: Migration M42 performs the approved write within its authorized scope and required safeguards.",
         expected: "pass",
         reason: "The actual dependency satisfies the exception conditions."
-      },
-      {
-        scenario: "Synthetic fixture: A comment says approved, but its approval source or applicable validity cannot be verified.",
-        expected: "unknown",
-        reason: "A claim of authority is not proof of authorization or a proved violation."
       },
       {
         scenario: "Synthetic fixture: No boundary exception is claimed or required in the complete inspected scope.",

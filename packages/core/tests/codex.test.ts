@@ -3,6 +3,7 @@ import {
   mkdtemp,
   mkdir,
   readFile,
+  readdir,
   realpath,
   rm,
   symlink,
@@ -133,6 +134,121 @@ describe("Codex readable snapshot", () => {
 
 describe("Codex invocation policy", () => {
   test.skipIf(process.platform === "win32")(
+    "delivers large task instructions in the snapshot without overwriting repository files",
+    async () => {
+      const root = await temporaryDirectory("large-task");
+      const executable = join(root, "codex");
+      const resultPath = join(root, "result.json");
+      const capturedPrompt = join(root, "stdin.txt");
+      const existing = join(root, ".aquarius-task-existing");
+      await mkdir(existing);
+      await writeFile(join(existing, "instructions.txt"), "repository-owned\n");
+      const script = `#!${process.execPath}
+const fs = require("node:fs");
+let prompt = "";
+process.stdin.setEncoding("utf8");
+process.stdin.on("data", (chunk) => {
+  prompt += chunk;
+});
+process.stdin.on("end", () => {
+  fs.writeFileSync(${JSON.stringify(capturedPrompt)}, prompt);
+  fs.writeFileSync(${JSON.stringify(resultPath)}, "{}");
+  console.error("Recovered TLS warning: invalid peer certificate (UnknownIssuer)");
+  console.log(JSON.stringify({ type: "turn.completed" }));
+});
+`;
+      await writeFile(executable, script, { mode: 0o755 });
+      const prompt = "Large rule instructions 한글\n".repeat(60_000);
+      expect(prompt.length).toBeGreaterThan(1_048_576);
+      await expect(
+        runExec(
+          executable,
+          {
+            projectRoot: root,
+            readableFiles: [],
+            ignore: [],
+            prompt,
+            ruleResources: { directory: root, files: [] },
+            outputSchema: { type: "object" },
+            options: {},
+            signal: new AbortController().signal,
+          },
+          {},
+          root,
+          root,
+          join(root, "schema.json"),
+          resultPath,
+          [],
+        ),
+      ).resolves.toEqual({});
+
+      const tasks = (await readdir(root)).filter(
+        (name) => name.startsWith(".aquarius-task-") && name !== ".aquarius-task-existing",
+      );
+      expect(tasks).toHaveLength(1);
+      expect(await readFile(join(root, tasks[0]!, "instructions.txt"), "utf8")).toBe(prompt);
+      const sent = await readFile(capturedPrompt, "utf8");
+      expect(sent.length).toBeLessThan(2_048);
+      expect(sent).toContain(`${tasks[0]}/instructions.txt`);
+      expect(sent).toContain("not a target");
+      expect(await readFile(join(existing, "instructions.txt"), "utf8")).toBe("repository-owned\n");
+    },
+  );
+
+  test.skipIf(process.platform === "win32")(
+    "reports input-size rejection without exposing arbitrary stderr",
+    async () => {
+      const root = await temporaryDirectory("stderr");
+      const executable = join(root, "codex");
+      const runWithStderr = async (stderr: string) => {
+        await writeFile(
+          executable,
+          `#!${process.execPath}
+process.stdin.resume();
+process.stdin.on("end", () => {
+  process.stderr.write(${JSON.stringify(stderr)});
+  process.exitCode = 1;
+});
+`,
+          { mode: 0o755 },
+        );
+        return runExec(
+          executable,
+          {
+            projectRoot: root,
+            readableFiles: [],
+            ignore: [],
+            prompt: "Fixture instructions.",
+            ruleResources: { directory: root, files: [] },
+            outputSchema: { type: "object" },
+            options: {},
+            signal: new AbortController().signal,
+          },
+          {},
+          root,
+          root,
+          join(root, "schema.json"),
+          join(root, "result.json"),
+          [],
+        );
+      };
+
+      await expect(
+        runWithStderr(
+          "Error: Input exceeds the maximum length of 1048576 characters. secret-value",
+        ),
+      ).rejects.toMatchObject({
+        code: "CODEX_INPUT_TOO_LARGE",
+        message: "Codex rejected an input longer than 1048576 characters.",
+      });
+      await expect(runWithStderr("Unexpected failure: secret-value")).rejects.toMatchObject({
+        code: "CODEX_EXECUTION_FAILED",
+        message: "Codex exited unsuccessfully (1).",
+      });
+    },
+  );
+
+  test.skipIf(process.platform === "win32")(
     "accepts a recovered error but rejects a final failure",
     async () => {
       const root = await temporaryDirectory("events");
@@ -143,6 +259,7 @@ describe("Codex invocation policy", () => {
         readableFiles: [],
         ignore: [],
         prompt: "Return an empty object.",
+        ruleResources: { directory: root, files: [] },
         outputSchema: { type: "object" },
         options: {},
         signal: new AbortController().signal,
@@ -285,6 +402,7 @@ describe("Codex invocation policy", () => {
         readableFiles: [],
         ignore: [],
         prompt: "Return an empty object.",
+        ruleResources: { directory: root, files: [] },
         outputSchema: { type: "object" },
         options: { executable: process.execPath },
         signal: controller.signal,

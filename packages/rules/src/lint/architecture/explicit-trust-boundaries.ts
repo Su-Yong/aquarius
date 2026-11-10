@@ -6,9 +6,9 @@ export const explicitTrustBoundaries: LintRule = {
   id: "architecture/explicit-trust-boundaries",
   description: "외부·낮은 신뢰 데이터와 권한이 보호 영역으로 들어오는 경계를 식별하고, 필요한 검증·변환·집행 책임을 실제 경로와 연결합니다.",
   scope: "project",
-  defaultSeverity: "warn",
   buildPrompt: () => ({
-    applicability: "A concrete path where external or lower-trust data, identity, or authority enters a protected operation or trust region.",
+    applicability:
+      "External or lower-trust data, identity, or authority crossing into a protected scope.",
     criteria: "Identify the trust transition and required validation, normalization, authorization, or enforcement responsibility, then report a reachable path that omits or defeats a required control. Establish obligations from explicit policy or applicable API/protocol/security semantics rather than demanding a document for every file. Do not treat TypeScript types, client-side validation, a function named validate, or a comment claiming trust as proof of enforcement. Preserve concrete risks even when a policy detail is missing; separate policy gaps from proven defects.",
     evidenceRequirements: [
       "The lower-trust source, protected asset/operation, and actual crossing path.",
@@ -23,7 +23,7 @@ export const explicitTrustBoundaries: LintRule = {
     procedure: [
       "Data sanitization and authorization are different guarantees; one does not establish the other.",
       "Preserve distinct injection, access-control, or data-validation obligations even when they share the same boundary.",
-      "Use violation only for an established applicable obligation and a concrete conflicting path. Use pass only after sufficient coverage. Use unknown for missing, unresolved, inaccessible, or conflicting required context, and not_applicable only for a confirmed absent prerequisite. Record confirmed defects separately from unresolved scope.",
+      "Use violation only for an established applicable obligation and a concrete conflicting path. Inspect the available evidence, then use pass when no violation is established in that scope. Required configuration must be validated before review; a missing required policy is a setup error. Use not_applicable only when the inspected code lacks the rule applicability prerequisite. Actual access or execution failures are errors. Do not defer the conclusion.",
       "Do not invent architecture, policy, thresholds, or exceptions from names or missing configuration. Preserve independent obligations and evidence when other rules overlap. Treat optional design advice separately from proven violations.",
       "Specification violation example: 웹 입력이 데이터베이스 명령으로 전달되지만, 경계 맵은 이를 내부의 신뢰된 데이터로 잘못 분류하여 검증 의무를 누락합니다.",
       "Specification allowed counterexample (not a whole-scope pass assertion): 검증을 마친 gateway → service 경로에 데이터의 출처와 검증 우회가 불가능한 조건이 명시되어 있습니다.",
@@ -40,11 +40,6 @@ export const explicitTrustBoundaries: LintRule = {
         scenario: "Synthetic fixture: All entry paths use a verified authorization boundary that binds the requested account to the authenticated principal.",
         expected: "pass",
         reason: "The required authorization is enforced before the protected operation."
-      },
-      {
-        scenario: "Synthetic fixture: A gateway is said to validate requests, but its configuration and bypass paths are unavailable.",
-        expected: "unknown",
-        reason: "The claimed upstream guarantee cannot be verified."
       },
       {
         scenario: "Synthetic fixture: The complete inspected computation uses constants only and crosses no data or authority trust boundary.",

@@ -1,4 +1,5 @@
 import { isDeepStrictEqual } from "node:util";
+import { ruleSettingSchema } from "../config/schemas";
 import { importProjectModule } from "./modules";
 import {
   formatInstructionsSchema,
@@ -12,6 +13,13 @@ import type { LoadedConfig } from "../config/types";
 import type { JsonObject, RunError } from "../shared/types";
 import type { ActiveSeverity, FormatRule, LintRule, PreparedRules, RulePlugin } from "./types";
 
+interface SelectedRule {
+  definition: LintRule | FormatRule;
+  enabled: boolean;
+  severity?: ActiveSeverity;
+  options: JsonObject;
+}
+
 export const prepareRules = async (
   config: LoadedConfig,
   builtinPlugins: Record<string, RulePlugin> = {},
@@ -19,7 +27,7 @@ export const prepareRules = async (
   const errors: RunError[] = [];
   const lintRules = new Map<string, LintRule>();
   const formatRules = new Map<string, FormatRule>();
-  const namespaces = new Set<string>();
+  const plugins = new Map<string, RulePlugin>();
 
   for (const specifier of config.plugins) {
     let plugin: RulePlugin;
@@ -35,42 +43,117 @@ export const prepareRules = async (
       );
       continue;
     }
-    registerPlugin(specifier, plugin, namespaces, lintRules, formatRules, errors);
+    registerPlugin(specifier, plugin, plugins, lintRules, formatRules, errors);
   }
 
-  const prepared: PreparedRules["rules"] = [];
-  for (const selection of config.rules) {
-    const rule =
-      config.tool === "lint" ? lintRules.get(selection.rule) : formatRules.get(selection.rule);
-    if (!rule) {
+  const sources: { name: string; rules: Record<string, unknown> }[] = [];
+  for (const reference of config.preset) {
+    const slash = reference.indexOf("/");
+    const namespace = reference.slice(0, slash);
+    const name = reference.slice(slash + 1);
+    const presets = plugins.get(namespace)?.presets;
+    if (!presets || !Object.hasOwn(presets, name)) {
+      errors.push(runError("PRESET_NOT_FOUND", `Preset is not registered: ${reference}`));
+      continue;
+    }
+    const rules = presets[name];
+    if (!isPlainObject(rules)) {
       errors.push(
-        runError("RULE_NOT_FOUND", `Rule is not registered for ${config.tool}: ${selection.rule}`, [
-          selection.rule,
-        ]),
+        runError("PRESET_INVALID", `Preset ${reference} must be an object of rule settings`),
       );
       continue;
     }
-    if (config.tool === "lint" && selection.severity === "off") continue;
+    sources.push({ name: reference, rules });
+  }
+  sources.push({ name: "rules", rules: config.rules });
 
+  const selections = new Map<string, SelectedRule>();
+  for (const source of sources) {
+    for (const [id, value] of Object.entries(source.rules)) {
+      const definition = lintRules.get(id) ?? formatRules.get(id);
+      if (!definition) {
+        errors.push(
+          runError("RULE_NOT_FOUND", `${source.name}: Rule is not registered: ${id}`, [id]),
+        );
+        continue;
+      }
+
+      const parsed = ruleSettingSchema.safeParse(value);
+      if (!parsed.success) {
+        errors.push(
+          runError(
+            "RULE_SETTING_INVALID",
+            `${source.name}: ${id}: ${formatRuleZodIssues(parsed.error)}`,
+            [id],
+          ),
+        );
+        continue;
+      }
+
+      const setting = parsed.data;
+      const kind = lintRules.has(id) ? "lint" : "format";
+      const lintSetting = typeof setting === "string" || Array.isArray(setting);
+      if (lintSetting !== (kind === "lint")) {
+        errors.push(
+          runError(
+            "RULE_SETTING_INVALID",
+            `${source.name}: ${id}: Setting is not valid for a ${kind} rule`,
+            [id],
+          ),
+        );
+        continue;
+      }
+      if (kind !== config.tool) {
+        continue;
+      }
+
+      let enabled: boolean;
+      let severity: ActiveSeverity | undefined;
+      let options: JsonObject = {};
+      if (typeof setting === "string" || Array.isArray(setting)) {
+        const level = typeof setting === "string" ? setting : setting[0];
+        enabled = level !== "off";
+        severity = level === "off" ? undefined : level;
+        if (Array.isArray(setting)) {
+          options = setting[1];
+        }
+      } else {
+        enabled = setting !== false;
+        if (typeof setting === "object") {
+          options = setting;
+        }
+      }
+
+      selections.set(id, {
+        definition,
+        enabled,
+        severity,
+        options: deepMerge(selections.get(id)?.options ?? {}, options),
+      });
+    }
+  }
+
+  const prepared: PreparedRules["rules"] = [];
+  for (const [id, selection] of selections) {
+    if (!selection.enabled) {
+      continue;
+    }
     try {
-      const options = prepareOptions(rule, selection.options ?? {});
-      const instructions = await rule.buildPrompt({ options: deepFreeze(options) });
+      const options = prepareOptions(selection.definition, selection.options);
+      const instructions = await selection.definition.buildPrompt({ options: deepFreeze(options) });
       validateInstructions(config.tool, instructions);
       prepared.push({
-        id: selection.rule,
-        scope: rule.scope,
-        severity:
-          config.tool === "lint"
-            ? ((selection.severity ?? (rule as LintRule).defaultSeverity) as ActiveSeverity)
-            : undefined,
+        id,
+        scope: selection.definition.scope,
+        severity: selection.severity,
         instructions,
       });
     } catch (error) {
       errors.push(
         runError(
           error instanceof RulePreparationError ? error.code : "RULE_PROMPT_FAILED",
-          `${selection.rule}: ${errorMessage(error)}`,
-          [selection.rule],
+          `${id}: ${errorMessage(error)}`,
+          [id],
         ),
       );
     }
@@ -82,7 +165,7 @@ export const prepareRules = async (
 const registerPlugin = (
   specifier: string,
   plugin: RulePlugin,
-  namespaces: Set<string>,
+  plugins: Map<string, RulePlugin>,
   lintRules: Map<string, LintRule>,
   formatRules: Map<string, FormatRule>,
   errors: RunError[],
@@ -93,7 +176,7 @@ const registerPlugin = (
     errors.push(runError("PLUGIN_INVALID", `Plugin ${specifier} is invalid: ${detail}`));
     return;
   }
-  if (namespaces.has(plugin.namespace)) {
+  if (plugins.has(plugin.namespace)) {
     errors.push(
       runError(
         "PLUGIN_NAMESPACE_CONFLICT",
@@ -102,10 +185,10 @@ const registerPlugin = (
     );
     return;
   }
-  namespaces.add(plugin.namespace);
+  plugins.set(plugin.namespace, plugin);
 
-  registerRuleList(plugin.namespace, "lint", plugin.lintRules, lintRules, errors);
-  registerRuleList(plugin.namespace, "format", plugin.formatRules, formatRules, errors);
+  registerRuleList(plugin.namespace, "lint", plugin.lintRules, lintRules, formatRules, errors);
+  registerRuleList(plugin.namespace, "format", plugin.formatRules, formatRules, lintRules, errors);
 };
 
 const registerRuleList = <T extends LintRule | FormatRule>(
@@ -113,6 +196,7 @@ const registerRuleList = <T extends LintRule | FormatRule>(
   kind: "lint" | "format",
   input: unknown,
   registry: Map<string, T>,
+  otherRegistry: ReadonlyMap<string, LintRule | FormatRule>,
   errors: RunError[],
 ): void => {
   if (input === undefined) return;
@@ -137,11 +221,7 @@ const registerRuleList = <T extends LintRule | FormatRule>(
       continue;
     }
     const rule = parsed.data as T;
-    if (rule.defaultOptions !== undefined && rule.optionsSchema === undefined) {
-      errors.push(runError("RULE_INVALID", `${id}: defaultOptions requires optionsSchema`, [id]));
-      continue;
-    }
-    if (registry.has(id)) {
+    if (registry.has(id) || otherRegistry.has(id)) {
       errors.push(runError("RULE_CONFLICT", `Rule is already registered: ${id}`, [id]));
       continue;
     }
@@ -157,18 +237,17 @@ const prepareOptions = (rule: LintRule | FormatRule, selected: JsonObject): Json
     return {};
   }
 
-  const merged = deepMerge(rule.defaultOptions ?? {}, selected);
-  const parsed = rule.optionsSchema.safeParse(merged);
+  const parsed = rule.optionsSchema.safeParse(selected);
   if (!parsed.success) {
     throw new RulePreparationError("RULE_OPTIONS_INVALID", formatRuleZodIssues(parsed.error));
   }
-  if (!isDeepStrictEqual(parsed.data, merged)) {
+  if (!isDeepStrictEqual(parsed.data, selected)) {
     throw new RulePreparationError(
       "RULE_SCHEMA_TRANSFORMED_OPTIONS",
       "optionsSchema must validate without changing options",
     );
   }
-  return merged;
+  return selected;
 };
 
 const deepMerge = (defaults: JsonObject, selected: JsonObject): JsonObject => {

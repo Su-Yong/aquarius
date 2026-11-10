@@ -4,6 +4,8 @@ import {
   applyFileChanges,
   buildTaskPrompt,
   callBridge,
+  collectErrors,
+  errorSchema,
   planFileChanges,
   references,
 } from "@aquarius/core/internal";
@@ -12,12 +14,14 @@ import type {
   FileBaseline,
   JsonObject,
   PathPolicy,
-  PreparedRule,
+  RuleResources,
+  RunError,
   LoadedConfig,
 } from "@aquarius/core/internal";
 import type { Diagnostic } from "./types";
 
 const fixResponseSchema = z.strictObject({
+  errors: z.array(errorSchema),
   changes: z.array(
     z.strictObject({
       path: z.string(),
@@ -30,21 +34,27 @@ const fixResponseSchema = z.strictObject({
 
 export const fixDiagnostics = async (
   diagnostics: Diagnostic[],
-  rules: readonly PreparedRule[],
+  ruleResources: RuleResources,
   policy: PathPolicy,
   config: LoadedConfig,
   bridge: AiBridge,
   baseline: ReadonlyMap<string, FileBaseline>,
   signal?: AbortSignal,
-): Promise<string[]> => {
+  onProgress?: (message: string) => void,
+): Promise<{ changedFiles: string[]; errors: RunError[] }> => {
   const diagnosedRules = new Set(diagnostics.flatMap(({ rules }) => rules.map(({ rule }) => rule)));
+  const resources = {
+    directory: ruleResources.directory,
+    files: ruleResources.files.filter(({ ruleId }) => diagnosedRules.has(ruleId)),
+  };
   const prompt = buildTaskPrompt(
     [
       "Fix the supplied lint diagnostics using the configured lint rules. Preserve intended behavior, public contracts, error handling, and unrelated code. Do not perform formatting-only changes or apply formatter rules.",
       "Propose exact text replacements in existing selected target files only. oldText must occur exactly once in the original file. Replacements in the same file must not overlap. Preserve line endings. Do not create, delete, or move files.",
       "Each replacement must cite the diagnosed rule IDs it fixes. If a safe correction cannot be inferred, leave that issue unchanged. Return an empty changes array if no safe corrections are available.",
+      "Read the full detail file for every diagnosed rule before proposing its correction. Report unreadable or unavailable rule details in errors and return no changes. If no safe correction exists, return empty changes and empty errors. Do not return per-diagnostic processing statuses.",
     ],
-    rules.filter(({ id }) => diagnosedRules.has(id)),
+    resources.files,
     policy,
     {
       task: "lint-fix",
@@ -58,8 +68,10 @@ export const fixDiagnostics = async (
       readableFiles: policy.readableFiles,
       ignore: policy.ignoreRules,
       prompt,
+      ruleResources: resources,
       outputSchema: z.toJSONSchema(fixResponseSchema) as JsonObject,
       options: config.ai.options,
+      onProgress,
     },
     config.ai.timeoutMs,
     signal,
@@ -67,6 +79,11 @@ export const fixDiagnostics = async (
   if (signal?.aborted) throw new AquariusError("AI_ABORTED", "Execution was cancelled.");
   const parsed = fixResponseSchema.safeParse(raw);
   if (!parsed.success) throw new AquariusError("INVALID_FIX_RESPONSE", parsed.error.message);
+  const errors: RunError[] = [];
+  collectErrors(parsed.data.errors, diagnosedRules, errors);
+  if (errors.length) {
+    return { changedFiles: [], errors };
+  }
   const targets = new Set(policy.targets);
   const changes = parsed.data.changes.map((change) => {
     references(change.ruleIds, diagnosedRules);
@@ -100,5 +117,5 @@ export const fixDiagnostics = async (
   );
   if (signal?.aborted) throw new AquariusError("AI_ABORTED", "Execution was cancelled.");
   // Lint fixes use transactional recovery without replacing aqfmt's Git undo history.
-  return (await applyFileChanges(plan, null)).changedFiles;
+  return { changedFiles: (await applyFileChanges(plan, null)).changedFiles, errors };
 };

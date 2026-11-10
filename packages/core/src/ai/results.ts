@@ -1,12 +1,17 @@
 import { isAbsolute } from "node:path";
 import { z } from "zod";
 import { AquariusError, toRunError } from "../shared/errors";
-import type { RunError } from "../shared/types";
+import type { RunError, SkippedRule } from "../shared/types";
 
 export const errorSchema = z.strictObject({
   code: z.string(),
   message: z.string(),
   ruleIds: z.array(z.string()),
+});
+
+export const skippedRuleSchema = z.strictObject({
+  ruleId: z.string(),
+  reason: z.string(),
 });
 
 export const parseResultItem = <T>(schema: z.ZodType<T>, value: unknown, name: string): T => {
@@ -32,7 +37,12 @@ export const resultEnvelope = (value: unknown, arrays: string[]): Record<string,
   return parsed.data;
 };
 
-export const references = (value: unknown, known: Set<string>, allowEmpty = false): string[] => {
+export const references = (
+  value: unknown,
+  known: Set<string>,
+  allowEmpty = false,
+  skipped?: ReadonlySet<string>,
+): string[] => {
   const parsed = z.array(z.string()).safeParse(value);
   if (
     !parsed.success ||
@@ -43,6 +53,12 @@ export const references = (value: unknown, known: Set<string>, allowEmpty = fals
     throw new AquariusError(
       "INVALID_RULE_REFERENCE",
       "AI result contains an unknown, repeated, or missing rule reference.",
+    );
+  }
+  if (parsed.data.some((id) => skipped?.has(id))) {
+    throw new AquariusError(
+      "CONFLICTING_RULE_RESULT",
+      "A rule reported as not applicable also has a finding or change.",
     );
   }
   return parsed.data;
@@ -85,7 +101,14 @@ export const collectErrors = (items: unknown[], known: Set<string>, output: RunE
   }
 };
 
-export const checkCompletion = (items: unknown[], known: Set<string>, errors: RunError[]): void => {
+export const checkCompletion = (
+  items: unknown[],
+  skippedItems: unknown[],
+  known: Set<string>,
+  errors: RunError[],
+): SkippedRule[] => {
+  const projectFailed = errors.some(({ ruleIds }) => ruleIds.length === 0);
+  const failed = new Set(errors.flatMap((entry) => entry.ruleIds));
   let completed: string[];
   try {
     completed = references(items, known, true);
@@ -93,13 +116,51 @@ export const checkCompletion = (items: unknown[], known: Set<string>, errors: Ru
     errors.push(toRunError(cause, "INVALID_COMPLETION"));
     completed = [];
   }
-  const accounted = new Set([...completed, ...errors.flatMap((entry) => entry.ruleIds)]);
+  const completedSet = new Set(completed);
+  const conflicting = completed.filter((id) => failed.has(id));
+  if (conflicting.length > 0) {
+    errors.push({
+      code: "CONFLICTING_RULE_RESULT",
+      message: "A rule cannot be both completed and failed.",
+      ruleIds: conflicting,
+    });
+  }
+
+  const skipped = new Map<string, SkippedRule>();
+  const seen = new Set<string>();
+  for (const item of skippedItems) {
+    try {
+      const supplied = parseResultItem(skippedRuleSchema, item, "skipped rule");
+      references([supplied.ruleId], known);
+      if (seen.has(supplied.ruleId)) {
+        skipped.delete(supplied.ruleId);
+        throw new AquariusError(
+          "DUPLICATE_SKIPPED_RULE",
+          `More than one not-applicable result was returned for ${supplied.ruleId}.`,
+        );
+      }
+      seen.add(supplied.ruleId);
+      nonempty(supplied.reason, "Skipped rule reason");
+      if (completedSet.has(supplied.ruleId) || failed.has(supplied.ruleId)) {
+        throw new AquariusError(
+          "CONFLICTING_RULE_RESULT",
+          `A skipped rule cannot also be completed or failed: ${supplied.ruleId}.`,
+        );
+      }
+      skipped.set(supplied.ruleId, supplied);
+    } catch (cause) {
+      errors.push(toRunError(cause, "INVALID_SKIPPED_RULE"));
+    }
+  }
+
+  const accounted = new Set([...completed, ...failed, ...skipped.keys()]);
   const missing = [...known].filter((id) => !accounted.has(id));
-  if (missing.length) {
+  if (missing.length && !projectFailed) {
     errors.push({
       code: "INCOMPLETE_AI_RESPONSE",
       message: "AI did not complete all requested rules.",
       ruleIds: missing,
     });
   }
+  return [...skipped.values()];
 };

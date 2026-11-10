@@ -6,9 +6,9 @@ export const noCrossDomainInternals: LintRule = {
   id: "architecture/no-cross-domain-internals",
   description: "선언된 도메인 간 공개 계약과 승인된 예외를 기준으로 다른 도메인의 내부 구현에 직접 의존하는 경로를 검사합니다.",
   scope: "project",
-  defaultSeverity: "warn",
   buildPrompt: () => ({
-    applicability: "Dependencies crossing established domain boundaries with defined public contracts and internal implementation ownership.",
+    applicability:
+      "Dependencies crossing domain boundaries with defined public contracts and private implementation.",
     criteria: "Report a consumer from another domain that resolves to private implementation rather than an approved public contract. Resolve aliases, re-exports, package exports, and actual module ownership. Internal imports within one domain are permitted. A filename such as internal does not itself establish privacy, and a barrel does not automatically make everything public.",
     evidenceRequirements: [
       "The distinct consuming and providing domain boundaries.",
@@ -23,7 +23,7 @@ export const noCrossDomainInternals: LintRule = {
     procedure: [
       "A public re-export of an otherwise internal file can be valid when the contract authorizes the exported symbol.",
       "Existing architecture/use-public-entry checks module boundaries; retain this domain contract without silently retiring the existing rule.",
-      "Use violation only for an established applicable obligation and a concrete conflicting path. Use pass only after sufficient coverage. Use unknown for missing, unresolved, inaccessible, or conflicting required context, and not_applicable only for a confirmed absent prerequisite. Record confirmed defects separately from unresolved scope.",
+      "Use violation only for an established applicable obligation and a concrete conflicting path. Inspect the available evidence, then use pass when no violation is established in that scope. Required configuration must be validated before review; a missing required policy is a setup error. Use not_applicable only when the inspected code lacks the rule applicability prerequisite. Actual access or execution failures are errors. Do not defer the conclusion.",
       "Do not invent architecture, policy, thresholds, or exceptions from names or missing configuration. Preserve independent obligations and evidence when other rules overlap. Treat optional design advice separately from proven violations.",
       "Specification violation example: billing이 account/internal/recalculate.js를 import하지만, 도메인 계약은 account/public.js를 통한 접근만 허용합니다.",
       "Specification allowed counterexample (not a whole-scope pass assertion): 명시적으로 승인된 friend migration 모듈이 정해진 범위와 기간 안에서 내부 API를 호출합니다.",
@@ -40,11 +40,6 @@ export const noCrossDomainInternals: LintRule = {
         scenario: "Synthetic fixture: Sales uses Billing documented public invoice API and all re-exports resolve to supported symbols.",
         expected: "pass",
         reason: "The dependency stays within the supported public contract."
-      },
-      {
-        scenario: "Synthetic fixture: An alias resolves incompletely and domain ownership of the target is unknown.",
-        expected: "unknown",
-        reason: "Neither the crossed boundary nor the private target can be proven."
       },
       {
         scenario: "Synthetic fixture: Both modules belong to the same domain and no cross-domain dependency occurs.",

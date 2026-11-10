@@ -4,7 +4,7 @@ import { dirname, isAbsolute, join, matchesGlob, posix, relative, resolve, sep }
 import { globby, isDynamicPattern } from "globby";
 import createIgnore, { type Ignore } from "ignore";
 import { AquariusError } from "../shared/errors";
-import type { IgnoreRule, PathPolicy, TargetOptions } from "./types";
+import type { PathPolicy, TargetOptions } from "./types";
 import type { LoadedConfig } from "../config/types";
 
 const FORMAT_VCS_DIRECTORIES = new Set([".git", ".svn", ".jj"]);
@@ -19,6 +19,10 @@ const LOCK_FILES = new Set([
   "yarn.lock",
 ]);
 
+export const isAquariusCachePath = (path: string): boolean => {
+  return /(?:^|\/)node_modules\/\.cache\/aquarius(?:\/|$)/iu.test(path);
+};
+
 type IgnoreMatcher = { baseDirectory: string; patterns: string[]; matcher: Ignore };
 type Scope =
   | { kind: "file"; path: string; raw: string }
@@ -31,10 +35,6 @@ export const selectTargets = async (
 ): Promise<PathPolicy> => {
   const projectRoot = await realpath(config.projectRoot);
   const configIgnore = createMatcher(config.configDirectory, config.ignore);
-  const ignoreRules: IgnoreRule[] =
-    config.ignore.length === 0
-      ? []
-      : [{ baseDirectory: config.configDirectory, patterns: [...config.ignore] }];
   const manualIgnores = await loadManualIgnores(config, options);
   const gitInfoIgnore =
     config.tool === "format" ? await loadGitInfoExclude(projectRoot) : undefined;
@@ -51,7 +51,7 @@ export const selectTargets = async (
 
   const readableFiles = [...regularFiles]
     .filter((path) => !hasDirectory(path, CONTEXT_VCS_DIRECTORIES))
-    .filter((path) => !matchesIgnore(configIgnore, projectRoot, path))
+    .filter((path) => !isAquariusCachePath(path))
     .sort();
 
   const { positive, negative } = await createScopes(config, options);
@@ -98,10 +98,10 @@ export const selectTargets = async (
     projectRoot,
     targets: [...selected].sort(),
     readableFiles,
-    ignoreRules,
+    ignoreRules: [],
     isIgnored: (relativePath) => {
       const path = safeRelativePath(relativePath);
-      return !path || matchesIgnore(configIgnore, projectRoot, path);
+      return !path || hasDirectory(path, CONTEXT_VCS_DIRECTORIES) || isAquariusCachePath(path);
     },
     canWrite,
   };
@@ -250,7 +250,7 @@ const loadGitignoreMatchers = async (projectRoot: string): Promise<IgnoreMatcher
     dot: true,
     followSymbolicLinks: false,
     gitignore: false,
-    ignore: ["**/.git/**"],
+    ignore: ["**/.git/**", "**/node_modules/.cache/aquarius/**"],
     onlyFiles: true,
   });
   const rootIgnore = join(projectRoot, ".gitignore");
@@ -277,7 +277,12 @@ const discoverFiles = async (projectRoot: string): Promise<string[]> => {
       dot: true,
       followSymbolicLinks: false,
       gitignore: false,
-      ignore: ["**/.git", "**/.git/**"],
+      ignore: [
+        "**/.git",
+        "**/.git/**",
+        "**/node_modules/.cache/aquarius",
+        "**/node_modules/.cache/aquarius/**",
+      ],
       onlyFiles: true,
       unique: true,
     });
@@ -362,6 +367,9 @@ const isToolDefaultIgnored = (
   tool: LoadedConfig["tool"],
   options: TargetOptions,
 ): boolean => {
+  if (isAquariusCachePath(path)) {
+    return true;
+  }
   const parts = path.split("/");
   const name = parts.at(-1)!;
   if (tool === "lint") {

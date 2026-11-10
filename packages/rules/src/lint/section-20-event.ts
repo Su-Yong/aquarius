@@ -9,10 +9,9 @@ export const eventRules: LintRule[] = [
     id: "event/distinguish-events-and-commands",
     description: "메시지가 사실 통지인지 수행 요청인지 소비·실패·응답 계약으로 구분하고, 이름이나 전송 방식만으로 판정하지 않습니다.",
     scope: "project",
-    defaultSeverity: "warn",
     buildPrompt: () => ({
-      applicability: "사실 통지 또는 수행 요청 메시지가 생산자·소비자 사이의 의무와 실패 책임을 전달하는 경로.",
-      criteria: "메시지가 사실 통지인지 수행 요청인지 소비·실패·응답 계약으로 구분하고, 이름이나 전송 방식만으로 판정하지 않습니다. 명칭/과거형 suffix만으로 event/command를 판정할 수 없다. 이벤트가 후속 업무를 유발하는 것도 정상이며 request-reply messaging은 합법적이다. 사실 통지와 행동 요청의 계약을 구분해야 한다. 이름·과거형·전송 방식만으로 판정하지 않는다. 사실·명령의 의미와 동기·비동기 실행 방식은 독립적이다. 사실을 동기적으로 통지하는 것도 합법적이다. 적용 조건과 프로젝트·언어·런타임·API 계약에 근거한 의무가 확인되고 구체적인 경로가 이를 깨뜨릴 때만 violation으로 보고한다. 필요한 정책 자체의 누락·확인 불가는 설계 위험 또는 확인 공백으로 구분한다. 설정·문서·전용 검사기 부재를 pass나 결함의 자동 근거로 삼지 않는다. 일부 경로의 결함은 다른 경로의 unknown 때문에 지우지 않는다. 충분히 확인한 범위에서 위반이 없을 때만 pass, 필요한 근거 부족·충돌은 unknown, 적용 조건이 성립하지 않음이 확인되면 not_applicable로 구분한다.",
+      applicability: "생산자와 소비자 사이에서 사실 통지나 수행 요청 메시지를 주고받는 경로.",
+      criteria: "메시지가 사실 통지인지 수행 요청인지 소비·실패·응답 계약으로 구분하고, 이름이나 전송 방식만으로 판정하지 않습니다. 명칭/과거형 suffix만으로 event/command를 판정할 수 없다. 이벤트가 후속 업무를 유발하는 것도 정상이며 request-reply messaging은 합법적이다. 사실 통지와 행동 요청의 계약을 구분해야 한다. 이름·과거형·전송 방식만으로 판정하지 않는다. 사실·명령의 의미와 동기·비동기 실행 방식은 독립적이다. 사실을 동기적으로 통지하는 것도 합법적이다. 적용 조건과 프로젝트·언어·런타임·API 계약에 근거한 의무가 확인되고 구체적인 경로가 이를 깨뜨릴 때만 violation으로 보고한다. 필요한 정책 자체의 누락·확인 불가는 설계 위험 또는 확인 공백으로 구분한다. 설정·문서·전용 검사기 부재를 pass나 결함의 자동 근거로 삼지 않는다. 일부 경로에서 입증된 결함은 다른 경로의 자료 부족 때문에 지우지 않는다. 접근 가능한 근거를 확인한 뒤 결론을 내린다. 검사 범위에서 입증된 위반이 없으면 pass, 룰에 선언된 필수 설정이 없으면 설정 오류로 처리하고, 검사할 코드의 적용 조건이 없으면 not_applicable로 판정한다. 실제 접근·실행 실패는 검사 오류로 보고한다.",
       evidenceRequirements: [
         "사실 확정 조건·producer 권한·consumer 의무와 실패 책임",
         "요청·응답·correlation 및 발행 시점에서 실제 확정된 결과",
@@ -42,11 +41,6 @@ export const eventRules: LintRule[] = [
           reason: "이 사례의 보장과 적용 범위를 확인한 경우 허용 계약을 충족한다. 확정된 사건이 후속 명령을 유발하는 것은 정상이다. 과거형 이름이나 전송 방식만으로 판정하지 않으며 정당한 request-reply를 금지하지 않는다.",
         },
         {
-          scenario: "메시지 이름만 과거형이고 사실 확정 시점·소비자 의무가 보이지 않는다.",
-          expected: "unknown",
-          reason: "판정에 필요한 계약·실제 실행 보장이 확인되지 않았다. 확인된 별도 결함은 유지하고 부족한 근거를 구체적으로 남긴다.",
-        },
-        {
           scenario: "검사한 범위에 이 규칙의 대상 기능이 없고 다음 적용 조건이 성립하지 않음을 확인했다: 사실 통지 또는 수행 요청 메시지가 생산자·소비자 사이의 의무와 실패 책임을 전달하는 경로.",
           expected: "not_applicable",
           reason: "적용 조건의 확인된 부재이며 미검사·접근 실패·비활성 상태를 pass로 바꾸는 것이 아니다.",
@@ -58,10 +52,9 @@ export const eventRules: LintRule[] = [
     id: "event/explicit-schema-version",
     description: "이벤트 payload의 호환성·형식 식별 전략을 확인하고, envelope 표준 버전과 업무 데이터 스키마 버전을 구분합니다.",
     scope: "project",
-    defaultSeverity: "warn",
     buildPrompt: () => ({
-      applicability: "이벤트 payload를 여러 버전의 생산자·소비자 또는 보존·재생 경로가 해석하는 시스템.",
-      criteria: "이벤트 payload의 호환성·형식 식별 전략을 확인하고, envelope 표준 버전과 업무 데이터 스키마 버전을 구분합니다. CloudEvents specversion은 payload schema version이 아니다. version field 없이도 schema registry/dataschema/topic contract가 충분할 수 있다. 적용 조건과 프로젝트·언어·런타임·API 계약에 근거한 의무가 확인되고 구체적인 경로가 이를 깨뜨릴 때만 violation으로 보고한다. 필요한 정책 자체의 누락·확인 불가는 설계 위험 또는 확인 공백으로 구분한다. 설정·문서·전용 검사기 부재를 pass나 결함의 자동 근거로 삼지 않는다. 일부 경로의 결함은 다른 경로의 unknown 때문에 지우지 않는다. 충분히 확인한 범위에서 위반이 없을 때만 pass, 필요한 근거 부족·충돌은 unknown, 적용 조건이 성립하지 않음이 확인되면 not_applicable로 구분한다.",
+      applicability: "여러 배포 버전이나 보존·재생 경로에서 이벤트 payload를 읽고 쓰는 코드.",
+      criteria: "이벤트 payload의 호환성·형식 식별 전략을 확인하고, envelope 표준 버전과 업무 데이터 스키마 버전을 구분합니다. CloudEvents specversion은 payload schema version이 아니다. version field 없이도 schema registry/dataschema/topic contract가 충분할 수 있다. 적용 조건과 프로젝트·언어·런타임·API 계약에 근거한 의무가 확인되고 구체적인 경로가 이를 깨뜨릴 때만 violation으로 보고한다. 필요한 정책 자체의 누락·확인 불가는 설계 위험 또는 확인 공백으로 구분한다. 설정·문서·전용 검사기 부재를 pass나 결함의 자동 근거로 삼지 않는다. 일부 경로에서 입증된 결함은 다른 경로의 자료 부족 때문에 지우지 않는다. 접근 가능한 근거를 확인한 뒤 결론을 내린다. 검사 범위에서 입증된 위반이 없으면 pass, 룰에 선언된 필수 설정이 없으면 설정 오류로 처리하고, 검사할 코드의 적용 조건이 없으면 not_applicable로 판정한다. 실제 접근·실행 실패는 검사 오류로 보고한다.",
       evidenceRequirements: [
         "업무 payload의 형식·호환 정책과 실제 reader·writer 버전",
         "schema registry·dataschema·topic·decoder 등 형식 식별 및 변경 처리 경로",
@@ -88,11 +81,6 @@ export const eventRules: LintRule[] = [
           reason: "이 사례의 보장과 적용 범위를 확인한 경우 허용 계약을 충족한다. 명시 version 필드 외에도 schema registry·dataschema·topic 계약을 인정한다. CloudEvents specversion은 envelope 버전이며 업무 payload 버전과 구분한다.",
         },
         {
-          scenario: "payload 필드는 바뀌었지만 schema registry와 소비자 호환 정책을 확인할 수 없다.",
-          expected: "unknown",
-          reason: "판정에 필요한 계약·실제 실행 보장이 확인되지 않았다. 확인된 별도 결함은 유지하고 부족한 근거를 구체적으로 남긴다.",
-        },
-        {
           scenario: "검사한 범위에 이 규칙의 대상 기능이 없고 다음 적용 조건이 성립하지 않음을 확인했다: 이벤트 payload를 여러 버전의 생산자·소비자 또는 보존·재생 경로가 해석하는 시스템.",
           expected: "not_applicable",
           reason: "적용 조건의 확인된 부재이며 미검사·접근 실패·비활성 상태를 pass로 바꾸는 것이 아니다.",
@@ -104,10 +92,9 @@ export const eventRules: LintRule[] = [
     id: "event/stable-event-identity",
     description: "동일 사건의 재전달을 안정적으로 식별하면서 서로 다른 사건을 구분하도록, 발행 범위와 식별자 재사용 계약을 확인합니다.",
     scope: "project",
-    defaultSeverity: "warn",
     buildPrompt: () => ({
-      applicability: "동일 사건의 재전달을 식별하고 다른 사건과 구분해야 하는 발행·재시도·소비 경로.",
-      criteria: "동일 사건의 재전달을 안정적으로 식별하면서 서로 다른 사건을 구분하도록, 발행 범위와 식별자 재사용 계약을 확인합니다. event id는 operation id/correlation id와 같지 않을 수 있다. CloudEvents에서는 source+id 조합이며 redelivery에서는 안정되고 새 사건은 구별돼야 한다. 적용 조건과 프로젝트·언어·런타임·API 계약에 근거한 의무가 확인되고 구체적인 경로가 이를 깨뜨릴 때만 violation으로 보고한다. 필요한 정책 자체의 누락·확인 불가는 설계 위험 또는 확인 공백으로 구분한다. 설정·문서·전용 검사기 부재를 pass나 결함의 자동 근거로 삼지 않는다. 일부 경로의 결함은 다른 경로의 unknown 때문에 지우지 않는다. 충분히 확인한 범위에서 위반이 없을 때만 pass, 필요한 근거 부족·충돌은 unknown, 적용 조건이 성립하지 않음이 확인되면 not_applicable로 구분한다.",
+      applicability: "이벤트를 발행·재전달하거나 식별자로 구분하는 소비 경로.",
+      criteria: "동일 사건의 재전달을 안정적으로 식별하면서 서로 다른 사건을 구분하도록, 발행 범위와 식별자 재사용 계약을 확인합니다. event id는 operation id/correlation id와 같지 않을 수 있다. CloudEvents에서는 source+id 조합이며 redelivery에서는 안정되고 새 사건은 구별돼야 한다. 적용 조건과 프로젝트·언어·런타임·API 계약에 근거한 의무가 확인되고 구체적인 경로가 이를 깨뜨릴 때만 violation으로 보고한다. 필요한 정책 자체의 누락·확인 불가는 설계 위험 또는 확인 공백으로 구분한다. 설정·문서·전용 검사기 부재를 pass나 결함의 자동 근거로 삼지 않는다. 일부 경로에서 입증된 결함은 다른 경로의 자료 부족 때문에 지우지 않는다. 접근 가능한 근거를 확인한 뒤 결론을 내린다. 검사 범위에서 입증된 위반이 없으면 pass, 룰에 선언된 필수 설정이 없으면 설정 오류로 처리하고, 검사할 코드의 적용 조건이 없으면 not_applicable로 판정한다. 실제 접근·실행 실패는 검사 오류로 보고한다.",
       evidenceRequirements: [
         "사건의 발생 경계·발행 source·식별자 재사용 계약",
         "재전달에서 identity 안정성과 서로 다른 사건의 구별 및 충돌 경로",
@@ -134,11 +121,6 @@ export const eventRules: LintRule[] = [
           reason: "이 사례의 보장과 적용 범위를 확인한 경우 허용 계약을 충족한다. CloudEvents source+id처럼 계약상 범위를 합친 identity를 인정한다. event ID·operation ID·correlation ID가 반드시 같거나 전역 단일 필드일 필요는 없다.",
         },
         {
-          scenario: "ID 생성 함수는 있지만 발행 source 범위와 재전달 시 보존 여부를 알 수 없다.",
-          expected: "unknown",
-          reason: "판정에 필요한 계약·실제 실행 보장이 확인되지 않았다. 확인된 별도 결함은 유지하고 부족한 근거를 구체적으로 남긴다.",
-        },
-        {
           scenario: "검사한 범위에 이 규칙의 대상 기능이 없고 다음 적용 조건이 성립하지 않음을 확인했다: 동일 사건의 재전달을 식별하고 다른 사건과 구분해야 하는 발행·재시도·소비 경로.",
           expected: "not_applicable",
           reason: "적용 조건의 확인된 부재이며 미검사·접근 실패·비활성 상태를 pass로 바꾸는 것이 아니다.",
@@ -150,10 +132,9 @@ export const eventRules: LintRule[] = [
     id: "event/carry-business-correlation",
     description: "업무 흐름 연결에 필요한 식별 관계를 최소 정보로 유지하고, 이벤트 identity·업무 correlation·추적 context의 목적과 수명을 구분합니다.",
     scope: "project",
-    defaultSeverity: "warn",
     buildPrompt: () => ({
-      applicability: "환불·주문·승인 등 서로 다른 사건을 업무 흐름으로 연결할 필요가 확인된 메시지 경로.",
-      criteria: "업무 흐름 연결에 필요한 식별 관계를 최소 정보로 유지하고, 이벤트 identity·업무 correlation·추적 context의 목적과 수명을 구분합니다. 모든 메시지에 사용자 개인정보/전역 correlation 필드를 강제하면 불필요 노출이다. partition key·business key·trace id는 목적이 다르다. 필요한 업무 연결 관계를 유지해야 한다. event ID와 trace ID를 같은 값으로 강제하지 않는다. 여러 event가 같은 업무 작업에 속할 수 있으므로 correlation을 event ID로 대체할 수 없다. 적용 조건과 프로젝트·언어·런타임·API 계약에 근거한 의무가 확인되고 구체적인 경로가 이를 깨뜨릴 때만 violation으로 보고한다. 필요한 정책 자체의 누락·확인 불가는 설계 위험 또는 확인 공백으로 구분한다. 설정·문서·전용 검사기 부재를 pass나 결함의 자동 근거로 삼지 않는다. 일부 경로의 결함은 다른 경로의 unknown 때문에 지우지 않는다. 충분히 확인한 범위에서 위반이 없을 때만 pass, 필요한 근거 부족·충돌은 unknown, 적용 조건이 성립하지 않음이 확인되면 not_applicable로 구분한다.",
+      applicability: "여러 사건이나 메시지가 연결된 업무 흐름.",
+      criteria: "업무 흐름 연결에 필요한 식별 관계를 최소 정보로 유지하고, 이벤트 identity·업무 correlation·추적 context의 목적과 수명을 구분합니다. 모든 메시지에 사용자 개인정보/전역 correlation 필드를 강제하면 불필요 노출이다. partition key·business key·trace id는 목적이 다르다. 필요한 업무 연결 관계를 유지해야 한다. event ID와 trace ID를 같은 값으로 강제하지 않는다. 여러 event가 같은 업무 작업에 속할 수 있으므로 correlation을 event ID로 대체할 수 없다. 적용 조건과 프로젝트·언어·런타임·API 계약에 근거한 의무가 확인되고 구체적인 경로가 이를 깨뜨릴 때만 violation으로 보고한다. 필요한 정책 자체의 누락·확인 불가는 설계 위험 또는 확인 공백으로 구분한다. 설정·문서·전용 검사기 부재를 pass나 결함의 자동 근거로 삼지 않는다. 일부 경로에서 입증된 결함은 다른 경로의 자료 부족 때문에 지우지 않는다. 접근 가능한 근거를 확인한 뒤 결론을 내린다. 검사 범위에서 입증된 위반이 없으면 pass, 룰에 선언된 필수 설정이 없으면 설정 오류로 처리하고, 검사할 코드의 적용 조건이 없으면 not_applicable로 판정한다. 실제 접근·실행 실패는 검사 오류로 보고한다.",
       evidenceRequirements: [
         "필수 업무 식별 관계와 cause·event·request·trace identity의 목적·수명",
         "retry·replay·변환 경계에서 필요한 관계의 실제 전파와 개인정보 범위",
@@ -183,11 +164,6 @@ export const eventRules: LintRule[] = [
           reason: "이 사례의 보장과 적용 범위를 확인한 경우 허용 계약을 충족한다. 업무 key나 최소 식별 관계만으로 충분하면 전역 correlation 필드와 개인정보를 강제하지 않는다. trace·partition·business key의 목적을 구분한다.",
         },
         {
-          scenario: "독립적인 단발 사건에 업무 상관관계가 실제 필요한지 확인할 수 없다.",
-          expected: "unknown",
-          reason: "판정에 필요한 계약·실제 실행 보장이 확인되지 않았다. 확인된 별도 결함은 유지하고 부족한 근거를 구체적으로 남긴다.",
-        },
-        {
           scenario: "검사한 범위에 이 규칙의 대상 기능이 없고 다음 적용 조건이 성립하지 않음을 확인했다: 환불·주문·승인 등 서로 다른 사건을 업무 흐름으로 연결할 필요가 확인된 메시지 경로.",
           expected: "not_applicable",
           reason: "적용 조건의 확인된 부재이며 미검사·접근 실패·비활성 상태를 pass로 바꾸는 것이 아니다.",
@@ -199,10 +175,9 @@ export const eventRules: LintRule[] = [
     id: "event/handle-delivery-semantics",
     description: "중복·유실·재전달 가능성에 대한 메시징 계약을 소비자 구현에 반영합니다.",
     scope: "project",
-    defaultSeverity: "warn",
     buildPrompt: () => ({
-      applicability: "broker·큐·전송 계층의 중복·유실·재전달 보장이 소비자의 업무 효과에 영향을 주는 경로.",
-      criteria: "중복·유실·재전달 가능성에 대한 메시징 계약을 소비자 구현에 반영합니다. 메시징 보장과 애플리케이션 처리 보장은 다르다. broker exactly-once 주장으로 이메일/외부 DB 효과까지 안전하다고 결론내리지 않는다. 적용 조건과 프로젝트·언어·런타임·API 계약에 근거한 의무가 확인되고 구체적인 경로가 이를 깨뜨릴 때만 violation으로 보고한다. 필요한 정책 자체의 누락·확인 불가는 설계 위험 또는 확인 공백으로 구분한다. 설정·문서·전용 검사기 부재를 pass나 결함의 자동 근거로 삼지 않는다. 일부 경로의 결함은 다른 경로의 unknown 때문에 지우지 않는다. 충분히 확인한 범위에서 위반이 없을 때만 pass, 필요한 근거 부족·충돌은 unknown, 적용 조건이 성립하지 않음이 확인되면 not_applicable로 구분한다.",
+      applicability: "broker·큐·전송 계층의 메시지를 받아 업무 효과를 수행하는 소비자.",
+      criteria: "중복·유실·재전달 가능성에 대한 메시징 계약을 소비자 구현에 반영합니다. 메시징 보장과 애플리케이션 처리 보장은 다르다. broker exactly-once 주장으로 이메일/외부 DB 효과까지 안전하다고 결론내리지 않는다. 적용 조건과 프로젝트·언어·런타임·API 계약에 근거한 의무가 확인되고 구체적인 경로가 이를 깨뜨릴 때만 violation으로 보고한다. 필요한 정책 자체의 누락·확인 불가는 설계 위험 또는 확인 공백으로 구분한다. 설정·문서·전용 검사기 부재를 pass나 결함의 자동 근거로 삼지 않는다. 일부 경로에서 입증된 결함은 다른 경로의 자료 부족 때문에 지우지 않는다. 접근 가능한 근거를 확인한 뒤 결론을 내린다. 검사 범위에서 입증된 위반이 없으면 pass, 룰에 선언된 필수 설정이 없으면 설정 오류로 처리하고, 검사할 코드의 적용 조건이 없으면 not_applicable로 판정한다. 실제 접근·실행 실패는 검사 오류로 보고한다.",
       evidenceRequirements: [
         "실제 메시징 제품·설정·버전의 전달 보장과 장애 경계",
         "소비자의 처리·외부 효과·상태 저장·재전달 및 유실 허용 계약",
@@ -229,11 +204,6 @@ export const eventRules: LintRule[] = [
           reason: "이 사례의 보장과 적용 범위를 확인한 경우 허용 계약을 충족한다. 멱등 효과·검증된 트랜잭션·허용된 손실을 계약 범위에서 인정한다. broker exactly-once를 이메일·외부 DB까지 자동 확대하지 않는다.",
         },
         {
-          scenario: "broker의 exactly-once 설명만 있고 외부 효과와 트랜잭션 경계는 확인되지 않았다.",
-          expected: "unknown",
-          reason: "판정에 필요한 계약·실제 실행 보장이 확인되지 않았다. 확인된 별도 결함은 유지하고 부족한 근거를 구체적으로 남긴다.",
-        },
-        {
           scenario: "검사한 범위에 이 규칙의 대상 기능이 없고 다음 적용 조건이 성립하지 않음을 확인했다: broker·큐·전송 계층의 중복·유실·재전달 보장이 소비자의 업무 효과에 영향을 주는 경로.",
           expected: "not_applicable",
           reason: "적용 조건의 확인된 부재이며 미검사·접근 실패·비활성 상태를 pass로 바꾸는 것이 아니다.",
@@ -245,10 +215,9 @@ export const eventRules: LintRule[] = [
     id: "event/acknowledge-after-durable-work",
     description: "요구되는 처리 결과 또는 검증된 내구성 인계가 확정된 뒤 수신 확인하고, publisher confirm·consumer ack·offset commit의 보장 범위를 구분합니다.",
     scope: "project",
-    defaultSeverity: "warn",
     buildPrompt: () => ({
-      applicability: "consumer ack·offset commit이 메시지의 복구 가능성을 바꾸는 처리 경로.",
-      criteria: "요구되는 처리 결과 또는 검증된 내구성 인계가 확정된 뒤 수신 확인하고, publisher confirm·consumer ack·offset commit의 보장 범위를 구분합니다. ack 경계는 전체 업무 완료가 아니라 내구성 있는 다음 처리자에게 인계일 수 있다. publisher confirm과 consumer ack를 구분해야 한다. 적용 조건과 프로젝트·언어·런타임·API 계약에 근거한 의무가 확인되고 구체적인 경로가 이를 깨뜨릴 때만 violation으로 보고한다. 필요한 정책 자체의 누락·확인 불가는 설계 위험 또는 확인 공백으로 구분한다. 설정·문서·전용 검사기 부재를 pass나 결함의 자동 근거로 삼지 않는다. 일부 경로의 결함은 다른 경로의 unknown 때문에 지우지 않는다. 충분히 확인한 범위에서 위반이 없을 때만 pass, 필요한 근거 부족·충돌은 unknown, 적용 조건이 성립하지 않음이 확인되면 not_applicable로 구분한다.",
+      applicability: "consumer ack나 offset commit을 수행하는 메시지 처리 경로.",
+      criteria: "요구되는 처리 결과 또는 검증된 내구성 인계가 확정된 뒤 수신 확인하고, publisher confirm·consumer ack·offset commit의 보장 범위를 구분합니다. ack 경계는 전체 업무 완료가 아니라 내구성 있는 다음 처리자에게 인계일 수 있다. publisher confirm과 consumer ack를 구분해야 한다. 적용 조건과 프로젝트·언어·런타임·API 계약에 근거한 의무가 확인되고 구체적인 경로가 이를 깨뜨릴 때만 violation으로 보고한다. 필요한 정책 자체의 누락·확인 불가는 설계 위험 또는 확인 공백으로 구분한다. 설정·문서·전용 검사기 부재를 pass나 결함의 자동 근거로 삼지 않는다. 일부 경로에서 입증된 결함은 다른 경로의 자료 부족 때문에 지우지 않는다. 접근 가능한 근거를 확인한 뒤 결론을 내린다. 검사 범위에서 입증된 위반이 없으면 pass, 룰에 선언된 필수 설정이 없으면 설정 오류로 처리하고, 검사할 코드의 적용 조건이 없으면 not_applicable로 판정한다. 실제 접근·실행 실패는 검사 오류로 보고한다.",
       evidenceRequirements: [
         "요구되는 처리 결과 또는 내구성 인계의 완료 조건",
         "ack·commit·publisher confirm과 실제 내구화의 순서 및 crash window",
@@ -275,11 +244,6 @@ export const eventRules: LintRule[] = [
           reason: "이 사례의 보장과 적용 범위를 확인한 경우 허용 계약을 충족한다. 검증된 내구성 다음 처리자로 인계가 완료되면 전체 업무 완료 전 ack도 허용한다. publisher confirm과 consumer ack·offset commit의 보장 범위를 구분한다.",
         },
         {
-          scenario: "enqueue 완료가 메모리 수신인지 내구성 저장인지 문서와 구현이 없다.",
-          expected: "unknown",
-          reason: "판정에 필요한 계약·실제 실행 보장이 확인되지 않았다. 확인된 별도 결함은 유지하고 부족한 근거를 구체적으로 남긴다.",
-        },
-        {
           scenario: "검사한 범위에 이 규칙의 대상 기능이 없고 다음 적용 조건이 성립하지 않음을 확인했다: consumer ack·offset commit이 메시지의 복구 가능성을 바꾸는 처리 경로.",
           expected: "not_applicable",
           reason: "적용 조건의 확인된 부재이며 미검사·접근 실패·비활성 상태를 pass로 바꾸는 것이 아니다.",
@@ -291,10 +255,9 @@ export const eventRules: LintRule[] = [
     id: "event/explicit-ordering-requirements",
     description: "순서 보장이 필요한 범위와 순서가 달라도 되는 범위를 구분합니다.",
     scope: "project",
-    defaultSeverity: "warn",
     buildPrompt: () => ({
-      applicability: "사건 처리 순서가 결과에 영향을 주거나 aggregate·partition·key별 순서 계약이 있는 경로.",
-      criteria: "순서 보장이 필요한 범위와 순서가 달라도 되는 범위를 구분합니다. 전역 순서를 기본 요구하지 않는다. aggregate/partition/key별 ordering 계약과 소비자 parallelism이 정합해야 한다. 필요한 범위의 순서를 보존해야 한다. 모든 event에 전역 순서를 강제하지 않는다. 순서 계약의 선언과 실제로 늦게 도착한 message를 처리하는 동작은 별개다. 교환 가능한 연산 모델에는 엄격한 순서가 불필요할 수 있다. 적용 조건과 프로젝트·언어·런타임·API 계약에 근거한 의무가 확인되고 구체적인 경로가 이를 깨뜨릴 때만 violation으로 보고한다. 필요한 정책 자체의 누락·확인 불가는 설계 위험 또는 확인 공백으로 구분한다. 설정·문서·전용 검사기 부재를 pass나 결함의 자동 근거로 삼지 않는다. 일부 경로의 결함은 다른 경로의 unknown 때문에 지우지 않는다. 충분히 확인한 범위에서 위반이 없을 때만 pass, 필요한 근거 부족·충돌은 unknown, 적용 조건이 성립하지 않음이 확인되면 not_applicable로 구분한다.",
+      applicability: "여러 이벤트가 같은 업무 상태를 갱신하거나 순서 계약을 따르는 소비 경로.",
+      criteria: "순서 보장이 필요한 범위와 순서가 달라도 되는 범위를 구분합니다. 전역 순서를 기본 요구하지 않는다. aggregate/partition/key별 ordering 계약과 소비자 parallelism이 정합해야 한다. 필요한 범위의 순서를 보존해야 한다. 모든 event에 전역 순서를 강제하지 않는다. 순서 계약의 선언과 실제로 늦게 도착한 message를 처리하는 동작은 별개다. 교환 가능한 연산 모델에는 엄격한 순서가 불필요할 수 있다. 적용 조건과 프로젝트·언어·런타임·API 계약에 근거한 의무가 확인되고 구체적인 경로가 이를 깨뜨릴 때만 violation으로 보고한다. 필요한 정책 자체의 누락·확인 불가는 설계 위험 또는 확인 공백으로 구분한다. 설정·문서·전용 검사기 부재를 pass나 결함의 자동 근거로 삼지 않는다. 일부 경로에서 입증된 결함은 다른 경로의 자료 부족 때문에 지우지 않는다. 접근 가능한 근거를 확인한 뒤 결론을 내린다. 검사 범위에서 입증된 위반이 없으면 pass, 룰에 선언된 필수 설정이 없으면 설정 오류로 처리하고, 검사할 코드의 적용 조건이 없으면 not_applicable로 판정한다. 실제 접근·실행 실패는 검사 오류로 보고한다.",
       evidenceRequirements: [
         "필요한 순서 범위·연산 교환 가능성·producer sequence",
         "consumer 병렬 실행·partition 선택·replay가 순서를 유지하거나 위반하는 경로",
@@ -324,11 +287,6 @@ export const eventRules: LintRule[] = [
           reason: "이 사례의 보장과 적용 범위를 확인한 경우 허용 계약을 충족한다. 교환 가능한 delta 합산과 독립 aggregate는 전역 순서를 요구하지 않는다. timestamp만으로 신뢰할 전체 순서를 단정하지 않는다.",
         },
         {
-          scenario: "timestamp는 있지만 필요한 순서 범위와 clock 신뢰도를 알 수 없다.",
-          expected: "unknown",
-          reason: "판정에 필요한 계약·실제 실행 보장이 확인되지 않았다. 확인된 별도 결함은 유지하고 부족한 근거를 구체적으로 남긴다.",
-        },
-        {
           scenario: "검사한 범위에 이 규칙의 대상 기능이 없고 다음 적용 조건이 성립하지 않음을 확인했다: 사건 처리 순서가 결과에 영향을 주거나 aggregate·partition·key별 순서 계약이 있는 경로.",
           expected: "not_applicable",
           reason: "적용 조건의 확인된 부재이며 미검사·접근 실패·비활성 상태를 pass로 바꾸는 것이 아니다.",
@@ -340,10 +298,9 @@ export const eventRules: LintRule[] = [
     id: "event/separate-occurrence-processing-time",
     description: "사건 시각·수신 시각·처리 시각의 의미를 필요한 용도에서 구분하고, 시계 오차나 지연을 무시해 순서·신선도를 단정하지 않습니다.",
     scope: "project",
-    defaultSeverity: "warn",
     buildPrompt: () => ({
-      applicability: "업무 날짜·기간·순서·신선도·지연 계산에서 사건·수신·처리 시각의 의미가 필요한 경로.",
-      criteria: "사건 시각·수신 시각·처리 시각의 의미를 필요한 용도에서 구분하고, 시계 오차나 지연을 무시해 순서·신선도를 단정하지 않습니다. 둘 다 반드시 필드로 저장하라는 규칙은 과하다. 용도별 의미와 clock uncertainty를 구분하고 timestamp로 total order를 추정하지 않는다. 사건 시각의 의미를 보존해야 한다. 임의의 timestamp만으로 최신 값이나 전체 순서를 판정하지 않는다. 같은 기준 clock의 사건 시각인지 확인하지 못하면 timestamp 정렬을 순서의 증거로 쓸 수 없다. 먼저 시각의 의미를 구분해야 한다. 적용 조건과 프로젝트·언어·런타임·API 계약에 근거한 의무가 확인되고 구체적인 경로가 이를 깨뜨릴 때만 violation으로 보고한다. 필요한 정책 자체의 누락·확인 불가는 설계 위험 또는 확인 공백으로 구분한다. 설정·문서·전용 검사기 부재를 pass나 결함의 자동 근거로 삼지 않는다. 일부 경로의 결함은 다른 경로의 unknown 때문에 지우지 않는다. 충분히 확인한 범위에서 위반이 없을 때만 pass, 필요한 근거 부족·충돌은 unknown, 적용 조건이 성립하지 않음이 확인되면 not_applicable로 구분한다.",
+      applicability: "사건·수신·처리 시각으로 업무 날짜·기간·순서·신선도·지연을 계산하는 코드.",
+      criteria: "사건 시각·수신 시각·처리 시각의 의미를 필요한 용도에서 구분하고, 시계 오차나 지연을 무시해 순서·신선도를 단정하지 않습니다. 둘 다 반드시 필드로 저장하라는 규칙은 과하다. 용도별 의미와 clock uncertainty를 구분하고 timestamp로 total order를 추정하지 않는다. 사건 시각의 의미를 보존해야 한다. 임의의 timestamp만으로 최신 값이나 전체 순서를 판정하지 않는다. 같은 기준 clock의 사건 시각인지 확인하지 못하면 timestamp 정렬을 순서의 증거로 쓸 수 없다. 먼저 시각의 의미를 구분해야 한다. 적용 조건과 프로젝트·언어·런타임·API 계약에 근거한 의무가 확인되고 구체적인 경로가 이를 깨뜨릴 때만 violation으로 보고한다. 필요한 정책 자체의 누락·확인 불가는 설계 위험 또는 확인 공백으로 구분한다. 설정·문서·전용 검사기 부재를 pass나 결함의 자동 근거로 삼지 않는다. 일부 경로에서 입증된 결함은 다른 경로의 자료 부족 때문에 지우지 않는다. 접근 가능한 근거를 확인한 뒤 결론을 내린다. 검사 범위에서 입증된 위반이 없으면 pass, 룰에 선언된 필수 설정이 없으면 설정 오류로 처리하고, 검사할 코드의 적용 조건이 없으면 not_applicable로 판정한다. 실제 접근·실행 실패는 검사 오류로 보고한다.",
       evidenceRequirements: [
         "각 시각의 생성 단계·기준 clock·오차·업무상 의미",
         "지연·watermark·재생·과금 등 사용 위치에서 실제 선택한 시각",
@@ -373,11 +330,6 @@ export const eventRules: LintRule[] = [
           reason: "이 사례의 보장과 적용 범위를 확인한 경우 허용 계약을 충족한다. 필요한 용도에서 시각 의미를 구분하면 모든 메시지에 세 종류 필드를 강제하지 않는다. clock uncertainty를 무시해 timestamp를 total order로 보지 않는다.",
         },
         {
-          scenario: "time 필드가 어느 단계와 clock에서 생성되었는지 확인할 수 없다.",
-          expected: "unknown",
-          reason: "판정에 필요한 계약·실제 실행 보장이 확인되지 않았다. 확인된 별도 결함은 유지하고 부족한 근거를 구체적으로 남긴다.",
-        },
-        {
           scenario: "검사한 범위에 이 규칙의 대상 기능이 없고 다음 적용 조건이 성립하지 않음을 확인했다: 업무 날짜·기간·순서·신선도·지연 계산에서 사건·수신·처리 시각의 의미가 필요한 경로.",
           expected: "not_applicable",
           reason: "적용 조건의 확인된 부재이며 미검사·접근 실패·비활성 상태를 pass로 바꾸는 것이 아니다.",
@@ -389,10 +341,9 @@ export const eventRules: LintRule[] = [
     id: "event/bounded-consumer-retries",
     description: "메시지의 큐 이동·재발행·재전달을 포함한 처리 생애에서 시도·시간·부하 예산과 격리·보류 정책을 확인하여, 카운터 초기화나 재처리 순환이 다른 작업의 진행을 막지 않도록 합니다.",
     scope: "project",
-    defaultSeverity: "warn",
     buildPrompt: () => ({
       applicability: "실패 메시지가 큐 이동·재발행·재전달·redrive를 거쳐 다시 처리되는 생애.",
-      criteria: "메시지의 큐 이동·재발행·재전달을 포함한 처리 생애에서 시도·시간·부하 예산과 격리·보류 정책을 확인하여, 카운터 초기화나 재처리 순환이 다른 작업의 진행을 막지 않도록 합니다. 유한 횟수만 강제하면 transient message가 너무 빨리 영구 폐기된다. bounded per-attempt/time and poison isolation, global retry lifecycle를 같이 본다. 전체 처리 생애의 재시도 부하와 종료·격리 정책을 확인해야 한다. 큐별 local counter만으로 통과시키지 않는다. retry가 제한되어도 DLQ 전달·보존 실패로 메시지가 유실될 수 있다. DLQ가 있어도 redrive가 무한히 순환할 수 있다. 적용 조건과 프로젝트·언어·런타임·API 계약에 근거한 의무가 확인되고 구체적인 경로가 이를 깨뜨릴 때만 violation으로 보고한다. 필요한 정책 자체의 누락·확인 불가는 설계 위험 또는 확인 공백으로 구분한다. 설정·문서·전용 검사기 부재를 pass나 결함의 자동 근거로 삼지 않는다. 일부 경로의 결함은 다른 경로의 unknown 때문에 지우지 않는다. 충분히 확인한 범위에서 위반이 없을 때만 pass, 필요한 근거 부족·충돌은 unknown, 적용 조건이 성립하지 않음이 확인되면 not_applicable로 구분한다.",
+      criteria: "메시지의 큐 이동·재발행·재전달을 포함한 처리 생애에서 시도·시간·부하 예산과 격리·보류 정책을 확인하여, 카운터 초기화나 재처리 순환이 다른 작업의 진행을 막지 않도록 합니다. 유한 횟수만 강제하면 transient message가 너무 빨리 영구 폐기된다. bounded per-attempt/time and poison isolation, global retry lifecycle를 같이 본다. 전체 처리 생애의 재시도 부하와 종료·격리 정책을 확인해야 한다. 큐별 local counter만으로 통과시키지 않는다. retry가 제한되어도 DLQ 전달·보존 실패로 메시지가 유실될 수 있다. DLQ가 있어도 redrive가 무한히 순환할 수 있다. 적용 조건과 프로젝트·언어·런타임·API 계약에 근거한 의무가 확인되고 구체적인 경로가 이를 깨뜨릴 때만 violation으로 보고한다. 필요한 정책 자체의 누락·확인 불가는 설계 위험 또는 확인 공백으로 구분한다. 설정·문서·전용 검사기 부재를 pass나 결함의 자동 근거로 삼지 않는다. 일부 경로에서 입증된 결함은 다른 경로의 자료 부족 때문에 지우지 않는다. 접근 가능한 근거를 확인한 뒤 결론을 내린다. 검사 범위에서 입증된 위반이 없으면 pass, 룰에 선언된 필수 설정이 없으면 설정 오류로 처리하고, 검사할 코드의 적용 조건이 없으면 not_applicable로 판정한다. 실제 접근·실행 실패는 검사 오류로 보고한다.",
       evidenceRequirements: [
         "전체 재시도 이력·나이·시도·시간·부하 예산과 격리·보류 정책",
         "queue별 카운터 초기화·지연·재처리 순환·다른 작업 진행에 미치는 영향",
@@ -422,11 +373,6 @@ export const eventRules: LintRule[] = [
           reason: "이 사례의 보장과 적용 범위를 확인한 경우 허용 계약을 충족한다. 유효한 상위 예산과 내구성 지연·격리 보장을 인정한다. 모든 일시 실패를 고정 횟수 후 영구 폐기하도록 강제하지 않는다.",
         },
         {
-          scenario: "broker 카운터가 큐 이동과 redrive에서 유지되는지 알 수 없다.",
-          expected: "unknown",
-          reason: "판정에 필요한 계약·실제 실행 보장이 확인되지 않았다. 확인된 별도 결함은 유지하고 부족한 근거를 구체적으로 남긴다.",
-        },
-        {
           scenario: "검사한 범위에 이 규칙의 대상 기능이 없고 다음 적용 조건이 성립하지 않음을 확인했다: 실패 메시지가 큐 이동·재발행·재전달·redrive를 거쳐 다시 처리되는 생애.",
           expected: "not_applicable",
           reason: "적용 조건의 확인된 부재이며 미검사·접근 실패·비활성 상태를 pass로 바꾸는 것이 아니다.",
@@ -438,10 +384,9 @@ export const eventRules: LintRule[] = [
     id: "event/explicit-dead-letter-policy",
     description: "최종 실패를 보존·재처리해야 하는 메시지에 대해 실제 격리 전달·보존 기한·담당자·조사·수정·안전한 재처리 경로를 확인하고, 전달 실패·만료·순환과 계약상 허용된 폐기를 구분합니다.",
     scope: "project",
-    defaultSeverity: "warn",
     buildPrompt: () => ({
-      applicability: "최종 실패 메시지에 보존·조사·복구 의무가 있거나 dead-letter 처리를 채택한 경로.",
-      criteria: "최종 실패를 보존·재처리해야 하는 메시지에 대해 실제 격리 전달·보존 기한·담당자·조사·수정·안전한 재처리 경로를 확인하고, 전달 실패·만료·순환과 계약상 허용된 폐기를 구분합니다. DLQ가 없는 동기/휘발 메시징 또는 discard가 계약인 telemetry에 강제 도입하면 과설계다. 채택 여부와 failure ownership이 전제다. 실패한 message의 실제 보존과 복구 책임을 유지해야 한다. DLQ라는 이름과 설정만으로 충족되지는 않는다. 실제 격리·담당·만료·안전한 redrive는 retry 횟수 상한보다 넓은 운영 의무다. 적용 조건과 프로젝트·언어·런타임·API 계약에 근거한 의무가 확인되고 구체적인 경로가 이를 깨뜨릴 때만 violation으로 보고한다. 필요한 정책 자체의 누락·확인 불가는 설계 위험 또는 확인 공백으로 구분한다. 설정·문서·전용 검사기 부재를 pass나 결함의 자동 근거로 삼지 않는다. 일부 경로의 결함은 다른 경로의 unknown 때문에 지우지 않는다. 충분히 확인한 범위에서 위반이 없을 때만 pass, 필요한 근거 부족·충돌은 unknown, 적용 조건이 성립하지 않음이 확인되면 not_applicable로 구분한다.",
+      applicability: "보존·복구가 필요한 실패 메시지 또는 dead-letter를 다루는 경로.",
+      criteria: "최종 실패를 보존·재처리해야 하는 메시지에 대해 실제 격리 전달·보존 기한·담당자·조사·수정·안전한 재처리 경로를 확인하고, 전달 실패·만료·순환과 계약상 허용된 폐기를 구분합니다. DLQ가 없는 동기/휘발 메시징 또는 discard가 계약인 telemetry에 강제 도입하면 과설계다. 채택 여부와 failure ownership이 전제다. 실패한 message의 실제 보존과 복구 책임을 유지해야 한다. DLQ라는 이름과 설정만으로 충족되지는 않는다. 실제 격리·담당·만료·안전한 redrive는 retry 횟수 상한보다 넓은 운영 의무다. 적용 조건과 프로젝트·언어·런타임·API 계약에 근거한 의무가 확인되고 구체적인 경로가 이를 깨뜨릴 때만 violation으로 보고한다. 필요한 정책 자체의 누락·확인 불가는 설계 위험 또는 확인 공백으로 구분한다. 설정·문서·전용 검사기 부재를 pass나 결함의 자동 근거로 삼지 않는다. 일부 경로에서 입증된 결함은 다른 경로의 자료 부족 때문에 지우지 않는다. 접근 가능한 근거를 확인한 뒤 결론을 내린다. 검사 범위에서 입증된 위반이 없으면 pass, 룰에 선언된 필수 설정이 없으면 설정 오류로 처리하고, 검사할 코드의 적용 조건이 없으면 not_applicable로 판정한다. 실제 접근·실행 실패는 검사 오류로 보고한다.",
       evidenceRequirements: [
         "필수 보존·복구·승인된 폐기 및 보존 기한의 기준",
         "실제 격리 전달 성공·권한·만료·담당자·조사·안전한 redrive와 순환",
@@ -471,11 +416,6 @@ export const eventRules: LintRule[] = [
           reason: "이 사례의 보장과 적용 범위를 확인한 경우 허용 계약을 충족한다. 손실·폐기가 계약인 telemetry와 내구성 보존이 필요 없는 동기·휘발 메시지에 DLQ 도입을 강제하지 않는다. 설정 이름만으로 전달 성공을 가정하지 않는다.",
         },
         {
-          scenario: "DLQ 이름은 있으나 queue 종류·전달 권한·보존 기한과 담당자를 확인하지 못했다.",
-          expected: "unknown",
-          reason: "판정에 필요한 계약·실제 실행 보장이 확인되지 않았다. 확인된 별도 결함은 유지하고 부족한 근거를 구체적으로 남긴다.",
-        },
-        {
           scenario: "검사한 범위에 이 규칙의 대상 기능이 없고 다음 적용 조건이 성립하지 않음을 확인했다: 최종 실패 메시지에 보존·조사·복구 의무가 있거나 dead-letter 처리를 채택한 경로.",
           expected: "not_applicable",
           reason: "적용 조건의 확인된 부재이며 미검사·접근 실패·비활성 상태를 pass로 바꾸는 것이 아니다.",
@@ -487,10 +427,9 @@ export const eventRules: LintRule[] = [
     id: "event/replay-safe-consumers",
     description: "운영 재전달과 의도된 과거 재생을 구분해 projection 재구성은 허용하고, 외부 부작용의 중복 실행은 replay 목적에 맞게 제어합니다.",
     scope: "project",
-    defaultSeverity: "warn",
     buildPrompt: () => ({
-      applicability: "소비자가 운영 재전달 또는 의도된 과거 이벤트 replay를 처리하며 projection·외부 효과를 생성하는 경로.",
-      criteria: "운영 재전달과 의도된 과거 재생을 구분해 projection 재구성은 허용하고, 외부 부작용의 중복 실행은 replay 목적에 맞게 제어합니다. transport redelivery dedup와 historical replay는 의도가 다르다. 새 projection rebuild에서 모든 과거 event를 skip하면 복구를 망친다. 적용 조건과 프로젝트·언어·런타임·API 계약에 근거한 의무가 확인되고 구체적인 경로가 이를 깨뜨릴 때만 violation으로 보고한다. 필요한 정책 자체의 누락·확인 불가는 설계 위험 또는 확인 공백으로 구분한다. 설정·문서·전용 검사기 부재를 pass나 결함의 자동 근거로 삼지 않는다. 일부 경로의 결함은 다른 경로의 unknown 때문에 지우지 않는다. 충분히 확인한 범위에서 위반이 없을 때만 pass, 필요한 근거 부족·충돌은 unknown, 적용 조건이 성립하지 않음이 확인되면 not_applicable로 구분한다.",
+      applicability: "재전달이나 과거 이벤트 재생으로 상태를 갱신하거나 외부 효과를 수행하는 소비자.",
+      criteria: "운영 재전달과 의도된 과거 재생을 구분해 projection 재구성은 허용하고, 외부 부작용의 중복 실행은 replay 목적에 맞게 제어합니다. transport redelivery dedup와 historical replay는 의도가 다르다. 새 projection rebuild에서 모든 과거 event를 skip하면 복구를 망친다. 적용 조건과 프로젝트·언어·런타임·API 계약에 근거한 의무가 확인되고 구체적인 경로가 이를 깨뜨릴 때만 violation으로 보고한다. 필요한 정책 자체의 누락·확인 불가는 설계 위험 또는 확인 공백으로 구분한다. 설정·문서·전용 검사기 부재를 pass나 결함의 자동 근거로 삼지 않는다. 일부 경로에서 입증된 결함은 다른 경로의 자료 부족 때문에 지우지 않는다. 접근 가능한 근거를 확인한 뒤 결론을 내린다. 검사 범위에서 입증된 위반이 없으면 pass, 룰에 선언된 필수 설정이 없으면 설정 오류로 처리하고, 검사할 코드의 적용 조건이 없으면 not_applicable로 판정한다. 실제 접근·실행 실패는 검사 오류로 보고한다.",
       evidenceRequirements: [
         "운영 redelivery와 역사 재생의 목적·대상·effect 계약",
         "projection 재구축·중복 제거 namespace·외부 부작용 제어의 실제 실행 경로",
@@ -517,11 +456,6 @@ export const eventRules: LintRule[] = [
           reason: "이 사례의 보장과 적용 범위를 확인한 경우 허용 계약을 충족한다. 새 projection 재구성에서는 필요한 과거 사건을 다시 적용하도록 허용한다. 전송 중복 제거와 historical replay를 같은 의미로 취급하지 않는다.",
         },
         {
-          scenario: "replay 모드 flag는 있으나 목적·effect 범위·중복 제거 저장소 선택을 확인하지 못했다.",
-          expected: "unknown",
-          reason: "판정에 필요한 계약·실제 실행 보장이 확인되지 않았다. 확인된 별도 결함은 유지하고 부족한 근거를 구체적으로 남긴다.",
-        },
-        {
           scenario: "검사한 범위에 이 규칙의 대상 기능이 없고 다음 적용 조건이 성립하지 않음을 확인했다: 소비자가 운영 재전달 또는 의도된 과거 이벤트 replay를 처리하며 projection·외부 효과를 생성하는 경로.",
           expected: "not_applicable",
           reason: "적용 조건의 확인된 부재이며 미검사·접근 실패·비활성 상태를 pass로 바꾸는 것이 아니다.",
@@ -533,10 +467,9 @@ export const eventRules: LintRule[] = [
     id: "event/no-hidden-synchronous-dependency",
     description: "비동기 전달 계약을 가진 이벤트 경계가 소비자의 즉시 실행·완료를 암묵적으로 요구하지 않도록 검사합니다.",
     scope: "project",
-    defaultSeverity: "warn",
     buildPrompt: () => ({
-      applicability: "비동기 전달을 약속한 이벤트 경계의 producer가 소비자 실행·완료에 의존하는 경우.",
-      criteria: "비동기 전달 계약을 가진 이벤트 경계가 소비자의 즉시 실행·완료를 암묵적으로 요구하지 않도록 검사합니다. Node EventEmitter는 정상적으로 동기 listeners를 호출한다. 비동기 전달을 약속한 경계에만 적용하고 동기 bus를 단순 금지하지 않는다. 적용 조건과 프로젝트·언어·런타임·API 계약에 근거한 의무가 확인되고 구체적인 경로가 이를 깨뜨릴 때만 violation으로 보고한다. 필요한 정책 자체의 누락·확인 불가는 설계 위험 또는 확인 공백으로 구분한다. 설정·문서·전용 검사기 부재를 pass나 결함의 자동 근거로 삼지 않는다. 일부 경로의 결함은 다른 경로의 unknown 때문에 지우지 않는다. 충분히 확인한 범위에서 위반이 없을 때만 pass, 필요한 근거 부족·충돌은 unknown, 적용 조건이 성립하지 않음이 확인되면 not_applicable로 구분한다.",
+      applicability: "비동기 전달 계약이 있는 이벤트 발행 경로.",
+      criteria: "비동기 전달 계약을 가진 이벤트 경계가 소비자의 즉시 실행·완료를 암묵적으로 요구하지 않도록 검사합니다. Node EventEmitter는 정상적으로 동기 listeners를 호출한다. 비동기 전달을 약속한 경계에만 적용하고 동기 bus를 단순 금지하지 않는다. 적용 조건과 프로젝트·언어·런타임·API 계약에 근거한 의무가 확인되고 구체적인 경로가 이를 깨뜨릴 때만 violation으로 보고한다. 필요한 정책 자체의 누락·확인 불가는 설계 위험 또는 확인 공백으로 구분한다. 설정·문서·전용 검사기 부재를 pass나 결함의 자동 근거로 삼지 않는다. 일부 경로에서 입증된 결함은 다른 경로의 자료 부족 때문에 지우지 않는다. 접근 가능한 근거를 확인한 뒤 결론을 내린다. 검사 범위에서 입증된 위반이 없으면 pass, 룰에 선언된 필수 설정이 없으면 설정 오류로 처리하고, 검사할 코드의 적용 조건이 없으면 not_applicable로 판정한다. 실제 접근·실행 실패는 검사 오류로 보고한다.",
       evidenceRequirements: [
         "경계의 동기·비동기 전달·완료 계약과 실제 bus 구현",
         "producer의 다음 동작이 소비자의 즉시 변경 결과를 요구하는 코드 경로",
@@ -563,11 +496,6 @@ export const eventRules: LintRule[] = [
           reason: "이 사례의 보장과 적용 범위를 확인한 경우 허용 계약을 충족한다. Node EventEmitter 같은 명시적인 동기 bus와 정당한 request-reply는 허용한다. 이벤트라는 이름만으로 비동기를 추정하지 않는다.",
         },
         {
-          scenario: "emit helper의 실제 구현과 전달·완료 의미를 확인할 수 없다.",
-          expected: "unknown",
-          reason: "판정에 필요한 계약·실제 실행 보장이 확인되지 않았다. 확인된 별도 결함은 유지하고 부족한 근거를 구체적으로 남긴다.",
-        },
-        {
           scenario: "검사한 범위에 이 규칙의 대상 기능이 없고 다음 적용 조건이 성립하지 않음을 확인했다: 비동기 전달을 약속한 이벤트 경계의 producer가 소비자 실행·완료에 의존하는 경우.",
           expected: "not_applicable",
           reason: "적용 조건의 확인된 부재이며 미검사·접근 실패·비활성 상태를 pass로 바꾸는 것이 아니다.",
@@ -579,10 +507,9 @@ export const eventRules: LintRule[] = [
     id: "event/persist-long-running-workflow-state",
     description: "재시작 후 이어져야 하는 업무의 진행·결과·중복 방지 정보를 내구화하거나 검증된 재구성 방식으로 복원합니다.",
     scope: "project",
-    defaultSeverity: "warn",
     buildPrompt: () => ({
-      applicability: "실행 시간 길이와 무관하게 crash·재시작 후 업무 진행을 이어야 하는 흐름.",
-      criteria: "재시작 후 이어져야 하는 업무의 진행·결과·중복 방지 정보를 내구화하거나 검증된 재구성 방식으로 복원합니다. 장기라는 시간 길이보다 crash/restart 후 이어야 하는 계약이 핵심이다. 모두 직접 DB state machine을 만들라는 요구는 아니고 durable runtime/재계산도 인정한다. 재시작 후 계약상 필요한 진행 상태를 복구해야 한다. 메모리 밖에 저장했다는 이유만으로 내구성을 가정하지 않는다. 진행 상태가 내구성을 가져도 replay가 외부 효과를 중복시킬 수 있다. 반대로 효과의 재실행이 안전해도 진행 상태가 사라질 수 있다. 적용 조건과 프로젝트·언어·런타임·API 계약에 근거한 의무가 확인되고 구체적인 경로가 이를 깨뜨릴 때만 violation으로 보고한다. 필요한 정책 자체의 누락·확인 불가는 설계 위험 또는 확인 공백으로 구분한다. 설정·문서·전용 검사기 부재를 pass나 결함의 자동 근거로 삼지 않는다. 일부 경로의 결함은 다른 경로의 unknown 때문에 지우지 않는다. 충분히 확인한 범위에서 위반이 없을 때만 pass, 필요한 근거 부족·충돌은 unknown, 적용 조건이 성립하지 않음이 확인되면 not_applicable로 구분한다.",
+      applicability: "중단·재시작 뒤 업무 진행을 이어야 하는 워크플로.",
+      criteria: "재시작 후 이어져야 하는 업무의 진행·결과·중복 방지 정보를 내구화하거나 검증된 재구성 방식으로 복원합니다. 장기라는 시간 길이보다 crash/restart 후 이어야 하는 계약이 핵심이다. 모두 직접 DB state machine을 만들라는 요구는 아니고 durable runtime/재계산도 인정한다. 재시작 후 계약상 필요한 진행 상태를 복구해야 한다. 메모리 밖에 저장했다는 이유만으로 내구성을 가정하지 않는다. 진행 상태가 내구성을 가져도 replay가 외부 효과를 중복시킬 수 있다. 반대로 효과의 재실행이 안전해도 진행 상태가 사라질 수 있다. 적용 조건과 프로젝트·언어·런타임·API 계약에 근거한 의무가 확인되고 구체적인 경로가 이를 깨뜨릴 때만 violation으로 보고한다. 필요한 정책 자체의 누락·확인 불가는 설계 위험 또는 확인 공백으로 구분한다. 설정·문서·전용 검사기 부재를 pass나 결함의 자동 근거로 삼지 않는다. 일부 경로에서 입증된 결함은 다른 경로의 자료 부족 때문에 지우지 않는다. 접근 가능한 근거를 확인한 뒤 결론을 내린다. 검사 범위에서 입증된 위반이 없으면 pass, 룰에 선언된 필수 설정이 없으면 설정 오류로 처리하고, 검사할 코드의 적용 조건이 없으면 not_applicable로 판정한다. 실제 접근·실행 실패는 검사 오류로 보고한다.",
       evidenceRequirements: [
         "재시작 후 재개해야 할 진행·결과·중복 방지·외부 결정의 계약",
         "내구 history·checkpoint·입력 재구성·버전 라우팅과 복구의 완전성",
@@ -612,11 +539,6 @@ export const eventRules: LintRule[] = [
           reason: "이 사례의 보장과 적용 범위를 확인한 경우 허용 계약을 충족한다. durable runtime 또는 검증된 재구성으로 필요한 상태를 복원하면 직접 DB state machine을 강제하지 않는다. 메모리 밖 저장만으로 내구성을 증명하지 않는다.",
         },
         {
-          scenario: "재계산 가능하다는 주장만 있고 재생 불가능한 외부 결정이 저장되는지 알 수 없다.",
-          expected: "unknown",
-          reason: "판정에 필요한 계약·실제 실행 보장이 확인되지 않았다. 확인된 별도 결함은 유지하고 부족한 근거를 구체적으로 남긴다.",
-        },
-        {
           scenario: "검사한 범위에 이 규칙의 대상 기능이 없고 다음 적용 조건이 성립하지 않음을 확인했다: 실행 시간 길이와 무관하게 crash·재시작 후 업무 진행을 이어야 하는 흐름.",
           expected: "not_applicable",
           reason: "적용 조건의 확인된 부재이며 미검사·접근 실패·비활성 상태를 pass로 바꾸는 것이 아니다.",
@@ -628,10 +550,9 @@ export const eventRules: LintRule[] = [
     id: "event/explicit-compensation-contract",
     description: "다단계 업무의 되돌릴 수 있는 효과·비가역 지점·보상·수동 조정과 그 실패·재시도 계약을 명시합니다.",
     scope: "project",
-    defaultSeverity: "warn",
     buildPrompt: () => ({
-      applicability: "여러 단계의 업무 효과가 부분 완료되며 보상·재시도·수동 조정이 필요한 흐름.",
-      criteria: "다단계 업무의 되돌릴 수 있는 효과·비가역 지점·보상·수동 조정과 그 실패·재시도 계약을 명시합니다. 보상은 원상복구와 동치가 아니고 되돌릴 수 없는 단계·보상 자체 실패·중복 호출이 존재한다. blanket rollback 처방 금지다. 비가역 효과와 보상 실패까지 책임을 정의해야 한다. 무조건 역순 실행이나 완전한 원상 복구를 요구하는 것은 아니다. 보상은 이미 관측된 부분 상태를 없었던 일로 만들지 않는다. 허용된 saga 계약과 원자성이 필수인 작업을 구분한다. 적용 조건과 프로젝트·언어·런타임·API 계약에 근거한 의무가 확인되고 구체적인 경로가 이를 깨뜨릴 때만 violation으로 보고한다. 필요한 정책 자체의 누락·확인 불가는 설계 위험 또는 확인 공백으로 구분한다. 설정·문서·전용 검사기 부재를 pass나 결함의 자동 근거로 삼지 않는다. 일부 경로의 결함은 다른 경로의 unknown 때문에 지우지 않는다. 충분히 확인한 범위에서 위반이 없을 때만 pass, 필요한 근거 부족·충돌은 unknown, 적용 조건이 성립하지 않음이 확인되면 not_applicable로 구분한다.",
+      applicability: "여러 단계의 업무 효과가 부분 완료될 수 있는 흐름.",
+      criteria: "다단계 업무의 되돌릴 수 있는 효과·비가역 지점·보상·수동 조정과 그 실패·재시도 계약을 명시합니다. 보상은 원상복구와 동치가 아니고 되돌릴 수 없는 단계·보상 자체 실패·중복 호출이 존재한다. blanket rollback 처방 금지다. 비가역 효과와 보상 실패까지 책임을 정의해야 한다. 무조건 역순 실행이나 완전한 원상 복구를 요구하는 것은 아니다. 보상은 이미 관측된 부분 상태를 없었던 일로 만들지 않는다. 허용된 saga 계약과 원자성이 필수인 작업을 구분한다. 적용 조건과 프로젝트·언어·런타임·API 계약에 근거한 의무가 확인되고 구체적인 경로가 이를 깨뜨릴 때만 violation으로 보고한다. 필요한 정책 자체의 누락·확인 불가는 설계 위험 또는 확인 공백으로 구분한다. 설정·문서·전용 검사기 부재를 pass나 결함의 자동 근거로 삼지 않는다. 일부 경로에서 입증된 결함은 다른 경로의 자료 부족 때문에 지우지 않는다. 접근 가능한 근거를 확인한 뒤 결론을 내린다. 검사 범위에서 입증된 위반이 없으면 pass, 룰에 선언된 필수 설정이 없으면 설정 오류로 처리하고, 검사할 코드의 적용 조건이 없으면 not_applicable로 판정한다. 실제 접근·실행 실패는 검사 오류로 보고한다.",
       evidenceRequirements: [
         "단계별 commit·비가역 효과·허용 중간 상태·원자성 요구",
         "보상 권한·실패·중복·재시도·수동 해결과 최종 완료 판단 경로",
@@ -661,11 +582,6 @@ export const eventRules: LintRule[] = [
           reason: "이 사례의 보장과 적용 범위를 확인한 경우 허용 계약을 충족한다. 승인된 saga와 수동 조정을 허용하며 보상을 원자적 rollback이나 완전 원상복구로 취급하지 않는다. 무조건 역순 실행을 강제하지 않는다.",
         },
         {
-          scenario: "업무가 원자성을 요구하는지 사후 조정을 허용하는지 계약을 확인할 수 없다.",
-          expected: "unknown",
-          reason: "판정에 필요한 계약·실제 실행 보장이 확인되지 않았다. 확인된 별도 결함은 유지하고 부족한 근거를 구체적으로 남긴다.",
-        },
-        {
           scenario: "검사한 범위에 이 규칙의 대상 기능이 없고 다음 적용 조건이 성립하지 않음을 확인했다: 여러 단계의 업무 효과가 부분 완료되며 보상·재시도·수동 조정이 필요한 흐름.",
           expected: "not_applicable",
           reason: "적용 조건의 확인된 부재이며 미검사·접근 실패·비활성 상태를 pass로 바꾸는 것이 아니다.",
@@ -677,10 +593,9 @@ export const eventRules: LintRule[] = [
     id: "event/handle-late-out-of-order-events",
     description: "늦거나 순서가 바뀐 이벤트를 업무의 버전·순서·합성 계약에 맞게 처리하고, 필요한 과거 사실을 단순 최신값 비교로 버리지 않습니다.",
     scope: "project",
-    defaultSeverity: "warn",
     buildPrompt: () => ({
-      applicability: "늦거나 순서가 바뀐 메시지가 버전·snapshot·delta·순서·합성 계약에 영향을 주는 소비자.",
-      criteria: "늦거나 순서가 바뀐 이벤트를 업무의 버전·순서·합성 계약에 맞게 처리하고, 필요한 과거 사실을 단순 최신값 비교로 버리지 않습니다. timestamp-last-write-wins는 delta event·잘못된 clock에서 유효하지 않다. 최신성/commutativity/sequence gap에 따라 재정렬·합성·거절을 구분한다. 적용 조건과 프로젝트·언어·런타임·API 계약에 근거한 의무가 확인되고 구체적인 경로가 이를 깨뜨릴 때만 violation으로 보고한다. 필요한 정책 자체의 누락·확인 불가는 설계 위험 또는 확인 공백으로 구분한다. 설정·문서·전용 검사기 부재를 pass나 결함의 자동 근거로 삼지 않는다. 일부 경로의 결함은 다른 경로의 unknown 때문에 지우지 않는다. 충분히 확인한 범위에서 위반이 없을 때만 pass, 필요한 근거 부족·충돌은 unknown, 적용 조건이 성립하지 않음이 확인되면 not_applicable로 구분한다.",
+      applicability: "지연되거나 순서가 바뀐 이벤트를 받을 수 있는 소비자.",
+      criteria: "늦거나 순서가 바뀐 이벤트를 업무의 버전·순서·합성 계약에 맞게 처리하고, 필요한 과거 사실을 단순 최신값 비교로 버리지 않습니다. timestamp-last-write-wins는 delta event·잘못된 clock에서 유효하지 않다. 최신성/commutativity/sequence gap에 따라 재정렬·합성·거절을 구분한다. 적용 조건과 프로젝트·언어·런타임·API 계약에 근거한 의무가 확인되고 구체적인 경로가 이를 깨뜨릴 때만 violation으로 보고한다. 필요한 정책 자체의 누락·확인 불가는 설계 위험 또는 확인 공백으로 구분한다. 설정·문서·전용 검사기 부재를 pass나 결함의 자동 근거로 삼지 않는다. 일부 경로에서 입증된 결함은 다른 경로의 자료 부족 때문에 지우지 않는다. 접근 가능한 근거를 확인한 뒤 결론을 내린다. 검사 범위에서 입증된 위반이 없으면 pass, 룰에 선언된 필수 설정이 없으면 설정 오류로 처리하고, 검사할 코드의 적용 조건이 없으면 not_applicable로 판정한다. 실제 접근·실행 실패는 검사 오류로 보고한다.",
       evidenceRequirements: [
         "업무상 버전·sequence gap·clock·교환 가능성 및 필요한 과거 사실의 의미",
         "재정렬·버퍼·합성·거절 또는 최신값 선택의 실제 적용 경로",
@@ -707,11 +622,6 @@ export const eventRules: LintRule[] = [
           reason: "이 사례의 보장과 적용 범위를 확인한 경우 허용 계약을 충족한다. 계약에 맞는 최신 snapshot 선택, 교환 가능한 delta 합성, 필요한 재정렬을 인정한다. timestamp last-write-wins를 모든 이벤트에 적용하지 않는다.",
         },
         {
-          scenario: "event timestamp만 있고 값이 snapshot인지 delta인지와 clock 의미가 확인되지 않았다.",
-          expected: "unknown",
-          reason: "판정에 필요한 계약·실제 실행 보장이 확인되지 않았다. 확인된 별도 결함은 유지하고 부족한 근거를 구체적으로 남긴다.",
-        },
-        {
           scenario: "검사한 범위에 이 규칙의 대상 기능이 없고 다음 적용 조건이 성립하지 않음을 확인했다: 늦거나 순서가 바뀐 메시지가 버전·snapshot·delta·순서·합성 계약에 영향을 주는 소비자.",
           expected: "not_applicable",
           reason: "적용 조건의 확인된 부재이며 미검사·접근 실패·비활성 상태를 pass로 바꾸는 것이 아니다.",
@@ -721,12 +631,11 @@ export const eventRules: LintRule[] = [
   },
   {
     id: "event/preserve-durable-workflow-replay-compatibility",
-    description: "결정론적 기록 재생을 쓰는 워크플로의 코드 변경이 호환 유지 대상 기록 및 런타임의 명령 일치·버전 라우팅·패치 계약과 맞는지 확인합니다. 해당 런타임과 기록 근거가 없는 경우에는 적용 대상 아님 또는 판단 불가로 구분합니다. 신규 검토 후보이며 자동 수정은 제안하지 않습니다.",
+    description: "결정론적 기록 재생을 쓰는 워크플로의 코드 변경이 호환 유지 대상 기록 및 런타임의 명령 일치·버전 라우팅·패치 계약과 맞는지 확인합니다. 해당 런타임이 사용되지 않으면 비적용으로 처리하고, 사용된다면 접근 가능한 기록과 코드에서 입증된 위반 여부를 결정합니다. 신규 검토 후보이며 자동 수정은 제안하지 않습니다.",
     scope: "project",
-    defaultSeverity: "warn",
     buildPrompt: () => ({
-      applicability: "결정론적 기록 재생을 요구하는 runtime·SDK·버전이 확인되고 호환 유지 대상 실행에 코드 변경을 배포하는 경우에만 선택적으로 적용한다.",
-      criteria: "결정론적 기록 재생을 쓰는 워크플로의 코드 변경이 호환 유지 대상 기록 및 런타임의 명령 일치·버전 라우팅·패치 계약과 맞는지 확인합니다. 해당 런타임과 기록 근거가 없는 경우에는 적용 대상 아님 또는 판단 불가로 구분합니다. 신규 검토 후보이며 자동 수정은 제안하지 않습니다. 신규 검토 후보이며 report-only(보고 전용)다. 자동 수정·코드 교체·patch API 자동 삽입을 제안하지 않는다. Do not propose or apply automatic fixes. 새 실행 테스트 통과만으로 기존 history 호환성을 확정하지 않는다. 런타임 자체가 해당하지 않음이 확인되면 not_applicable, runtime·history·routing 근거가 부족하면 unknown으로 구분한다. 적용 조건과 프로젝트·언어·런타임·API 계약에 근거한 의무가 확인되고 구체적인 경로가 이를 깨뜨릴 때만 violation으로 보고한다. 필요한 정책 자체의 누락·확인 불가는 설계 위험 또는 확인 공백으로 구분한다. 설정·문서·전용 검사기 부재를 pass나 결함의 자동 근거로 삼지 않는다. 일부 경로의 결함은 다른 경로의 unknown 때문에 지우지 않는다. 충분히 확인한 범위에서 위반이 없을 때만 pass, 필요한 근거 부족·충돌은 unknown, 적용 조건이 성립하지 않음이 확인되면 not_applicable로 구분한다.",
+      applicability: "결정론적 기록 재생 런타임에서 실행 중이거나 보존된 워크플로의 코드를 변경하는 경우.",
+      criteria: "결정론적 기록 재생을 쓰는 워크플로의 코드 변경이 호환 유지 대상 기록 및 런타임의 명령 일치·버전 라우팅·패치 계약과 맞는지 확인합니다. 해당 런타임이 사용되지 않으면 비적용으로 처리하고, 사용된다면 접근 가능한 기록과 코드에서 입증된 위반 여부를 결정합니다. 신규 검토 후보이며 자동 수정은 제안하지 않습니다. 신규 검토 후보이며 report-only(보고 전용)다. 자동 수정·코드 교체·patch API 자동 삽입을 제안하지 않는다. Do not propose or apply automatic fixes. 새 실행 테스트 통과만으로 기존 history 호환성을 확정하지 않는다. 런타임 자체가 해당하지 않음이 확인되면 not_applicable, runtime·history·routing 근거가 부족하면 unknown으로 구분한다. 적용 조건과 프로젝트·언어·런타임·API 계약에 근거한 의무가 확인되고 구체적인 경로가 이를 깨뜨릴 때만 violation으로 보고한다. 필요한 정책 자체의 누락·확인 불가는 설계 위험 또는 확인 공백으로 구분한다. 설정·문서·전용 검사기 부재를 pass나 결함의 자동 근거로 삼지 않는다. 일부 경로에서 입증된 결함은 다른 경로의 자료 부족 때문에 지우지 않는다. 접근 가능한 근거를 확인한 뒤 결론을 내린다. 검사 범위에서 입증된 위반이 없으면 pass, 룰에 선언된 필수 설정이 없으면 설정 오류로 처리하고, 검사할 코드의 적용 조건이 없으면 not_applicable로 판정한다. 실제 접근·실행 실패는 검사 오류로 보고한다.",
       evidenceRequirements: [
         "확인된 deterministic replay runtime·SDK·버전과 명령 일치 규약",
         "호환 유지 대상의 실제 또는 대표 history·새 코드 명령 생성·배포 버전 라우팅·patch 계약",
@@ -745,17 +654,12 @@ export const eventRules: LintRule[] = [
         {
           scenario: "유지해야 할 history가 timer 다음 activity를 기록했는데 같은 실행을 새 코드의 activity 다음 timer 순서로 라우팅하며 runtime의 일치 규약을 위반한다.",
           expected: "violation",
-          reason: "적용 계약과 이 사례의 실행 경로가 확인되면 다음 의무를 위반한다: 결정론적 기록 재생을 쓰는 워크플로의 코드 변경이 호환 유지 대상 기록 및 런타임의 명령 일치·버전 라우팅·패치 계약과 맞는지 확인합니다. 해당 런타임과 기록 근거가 없는 경우에는 적용 대상 아님 또는 판단 불가로 구분합니다. 신규 검토 후보이며 자동 수정은 제안하지 않습니다.",
+          reason: "적용 계약과 이 사례의 실행 경로가 확인되면 다음 의무를 위반한다: 결정론적 기록 재생을 쓰는 워크플로의 코드 변경이 호환 유지 대상 기록 및 런타임의 명령 일치·버전 라우팅·패치 계약과 맞는지 확인합니다. 해당 런타임이 사용되지 않으면 비적용으로 처리하고, 사용된다면 접근 가능한 기록과 코드에서 입증된 위반 여부를 결정합니다. 신규 검토 후보이며 자동 수정은 제안하지 않습니다.",
         },
         {
           scenario: "기존 실행은 호환되는 이전 코드에 라우팅하고 새로운 명령 순서는 새 실행에만 적용한다.",
           expected: "pass",
           reason: "이 사례의 보장과 적용 범위를 확인한 경우 허용 계약을 충족한다. 구버전 실행의 구버전 코드 라우팅, 검증된 patch, 이전 실행 종료 대기, 새 실행에만 적용하는 변경을 인정한다. 일반 이벤트 소비자의 데이터 재전달에는 적용하지 않는다.",
-        },
-        {
-          scenario: "runtime은 결정론적 replay를 요구하지만 대표 history와 배포 routing이 없어 기존 실행 호환성을 판단할 수 없다.",
-          expected: "unknown",
-          reason: "판정에 필요한 계약·실제 실행 보장이 확인되지 않았다. 확인된 별도 결함은 유지하고 부족한 근거를 구체적으로 남긴다.",
         },
         {
           scenario: "일반 이벤트 소비자에 데이터를 재전달하며 결정론적 history replay runtime을 사용하지 않음을 확인했다.",

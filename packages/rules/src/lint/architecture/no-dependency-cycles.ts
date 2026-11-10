@@ -6,9 +6,9 @@ export const noDependencyCycles: LintRule = {
   id: "architecture/no-dependency-cycles",
   description: "프로젝트가 금지한 의존 순환과 실제 초기화·실행 계약을 깨는 순환을 구분해 검사하며, 허용된 지연 참조를 순환 존재만으로 결함 처리하지 않습니다.",
   scope: "project",
-  defaultSeverity: "warn",
   buildPrompt: () => ({
-    applicability: "A resolved dependency graph subject to a no-cycle policy, or a cycle whose initialization or execution semantics can establish an actual obligation.",
+    applicability:
+      "Module dependencies that may form cycles or are subject to a no-cycle policy.",
     criteria: "Report a cycle forbidden by the applicable policy, or a cycle with a concrete initialization or execution path that breaks an established contract. Preserve the distinction between structural prohibition and observed semantic failure. A strongly connected component alone is not proof of a defect when the policy permits cycles. Account for ESM live bindings, CommonJS partial exports, dynamic imports, lazy references, and the inspected host and resolver.",
     evidenceRequirements: [
       "A complete resolved cycle with each edge and reference kind.",
@@ -23,7 +23,7 @@ export const noDependencyCycles: LintRule = {
     procedure: [
       "A policy forbidding all cycles still applies to a safe lazy cycle; safety does not override that explicit policy.",
       "Preserve distinct evidence for a dependency-direction violation even when it participates in the same cycle.",
-      "Use violation only for an established applicable obligation and a concrete conflicting path. Use pass only after sufficient coverage. Use unknown for missing, unresolved, inaccessible, or conflicting required context, and not_applicable only for a confirmed absent prerequisite. Record confirmed defects separately from unresolved scope.",
+      "Use violation only for an established applicable obligation and a concrete conflicting path. Inspect the available evidence, then use pass when no violation is established in that scope. Required configuration must be validated before review; a missing required policy is a setup error. Use not_applicable only when the inspected code lacks the rule applicability prerequisite. Actual access or execution failures are errors. Do not defer the conclusion.",
       "Do not invent architecture, policy, thresholds, or exceptions from names or missing configuration. Preserve independent obligations and evidence when other rules overlap. Treat optional design advice separately from proven violations.",
       "Specification violation example: ESM의 a 모듈이 최상위 코드에서 b 모듈의 아직 초기화되지 않은 let 값을 읽어, import가 ReferenceError로 실패합니다.",
       "Specification allowed counterexample (not a whole-scope pass assertion): a ↔ b의 순환이 함수만 연결하고 모듈 평가가 끝난 뒤 호출되어 정상 동작합니다. 프로젝트에도 순환 금지 정책이 없습니다.",
@@ -40,11 +40,6 @@ export const noDependencyCycles: LintRule = {
         scenario: "Synthetic fixture: Cycles are permitted; two modules register deferred callbacks and tests and execution order establish no pre-initialization reads.",
         expected: "pass",
         reason: "The permitted cycle preserves the relevant initialization contract."
-      },
-      {
-        scenario: "Synthetic fixture: A dynamic import in the apparent cycle cannot be resolved, and initialization order is unavailable.",
-        expected: "unknown",
-        reason: "The cycle and its effects cannot be established."
       },
       {
         scenario: "Synthetic fixture: The complete relevant graph is acyclic.",

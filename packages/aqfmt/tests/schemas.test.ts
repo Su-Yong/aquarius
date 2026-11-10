@@ -9,6 +9,7 @@ import { parseUndoManifest } from "../src/undo/schema";
 test("format response schema is strict and produces the AI JSON schema", () => {
   const response = {
     completedRuleIds: ["style/early-return"],
+    skippedRules: [],
     changes: [
       {
         op: "replace",
@@ -23,6 +24,15 @@ test("format response schema is strict and produces the AI JSON schema", () => {
   };
 
   expect(formatResponseSchema.safeParse(response).success).toBe(true);
+  const { skippedRules: _skippedRules, ...missingSkippedRules } = response;
+  expect(formatResponseSchema.safeParse(missingSkippedRules).success).toBe(false);
+  expect(
+    formatResponseSchema.safeParse({
+      ...response,
+      completedRuleIds: [],
+      skippedRules: [{ ruleId: "style/early-return", reason: "No matching conditional exists." }],
+    }).success,
+  ).toBe(true);
   expect(formatResponseSchema.safeParse({ ...response, unexpected: true }).success).toBe(false);
   expect(formatResponseJsonSchema).toMatchObject({ type: "object", additionalProperties: false });
 });

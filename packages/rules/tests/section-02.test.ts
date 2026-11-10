@@ -1,4 +1,5 @@
 import { describe, expect, test } from "vitest";
+import { allRulesPreset } from "../src/presets";
 import { prepareRules } from "../../core/src/rules/prepare";
 import type { LoadedConfig } from "../../core/src/config/types";
 import { section02Rules } from "../src/lint/section-02";
@@ -19,7 +20,7 @@ const ids = [
   "module/no-source-build-output-mixing",
   "module/semantic-module-names",
   "module/no-ambiguous-reexports",
-  "module/consistent-import-identity"
+  "module/consistent-import-identity",
 ];
 
 const config = (selected: LoadedConfig["rules"]): LoadedConfig => ({
@@ -31,6 +32,7 @@ const config = (selected: LoadedConfig["rules"]): LoadedConfig => ({
   ignore: [],
   plugins: ["section"],
   ai: { adapter: "codex", options: {}, timeoutMs: 30_000 },
+  preset: [],
   rules: selected,
 });
 const plugins = { section: { namespace: "aquarius", lintRules: rules } };
@@ -39,11 +41,14 @@ describe("section 02 rule definitions", () => {
   test("preserves the canonical independent IDs and report-only defaults", () => {
     expect(rules.map((rule) => rule.id)).toEqual(ids);
     expect(new Set(ids).size).toBe(ids.length);
-    expect(rules.every((rule) => rule.defaultSeverity === "warn")).toBe(true);
+    expect(ids.every((id) => allRulesPreset[`aquarius/${id}`] === "warn")).toBe(true);
   });
 
   test("prepares every rule through the existing engine API", async () => {
-    const prepared = await prepareRules(config(ids.map((id) => ({ rule: `aquarius/${id}` }))), plugins);
+    const selections = Object.fromEntries(
+      ids.map((id) => [`aquarius/${id}`, allRulesPreset[`aquarius/${id}`]]),
+    );
+    const prepared = await prepareRules(config(selections), plugins);
     expect(prepared.errors).toEqual([]);
     expect(prepared.rules.map((rule) => rule.id)).toEqual(ids.map((id) => `aquarius/${id}`));
     for (const rule of rules) {
@@ -54,32 +59,38 @@ describe("section 02 rule definitions", () => {
       expect(prompt.exceptions?.length).toBeGreaterThan(0);
       expect(prompt.procedure?.join(" ")).toContain("비활성화");
       expect(prompt.examples?.some((example) => example.expected === "pass")).toBe(true);
-      expect(prompt.examples?.some((example) => example.expected === "unknown")).toBe(true);
+      expect(prompt.examples?.map((example) => example.expected)).not.toContain("unknown");
       expect(prompt.criteria).toContain("보고 전용");
     }
   });
 
-  test("selection is explicit and an off neighbor does not suppress an active rule", async () => {
-    expect(await prepareRules(config([]), plugins)).toEqual({ rules: [], errors: [] });
-    for (let index = 0; index < ids.length; index += 1) {
-      const current = ids[index]!;
-      const neighbor = ids[(index + 1) % ids.length]!;
-      const alone = await prepareRules(config([{ rule: `aquarius/${current}` }]), plugins);
-      const withOff = await prepareRules(config([
-        { rule: `aquarius/${neighbor}`, severity: "off" },
-        { rule: `aquarius/${current}` },
-      ]), plugins);
-      expect(withOff).toEqual(alone);
-      expect(alone.errors).toEqual([]);
-      expect(alone.rules).toHaveLength(1);
+  test("registration leaves rules inactive and off disables only the selected rule", async () => {
+    expect(await prepareRules(config({}), plugins)).toEqual({ rules: [], errors: [] });
+    const selections = Object.fromEntries(
+      ids.map((id) => [`aquarius/${id}`, allRulesPreset[`aquarius/${id}`]]),
+    );
+    const active = await prepareRules(config(selections), plugins);
+    expect(active.errors).toEqual([]);
+    expect(active.rules.map(({ id }) => id)).toEqual(ids.map((id) => `aquarius/${id}`));
+
+    for (const disabled of ids) {
+      const withOff = await prepareRules(
+        config({ ...selections, [`aquarius/${disabled}`]: "off" }),
+        plugins,
+      );
+      expect(withOff.errors).toEqual([]);
+      expect(withOff.rules).toEqual(active.rules.filter(({ id }) => id !== `aquarius/${disabled}`));
     }
   });
 
   test("rejects invented options without dropping other selected rules", async () => {
-    const prepared = await prepareRules(config([
-      { rule: `aquarius/${ids[0]}`, options: { invented: true } },
-      { rule: `aquarius/${ids[1]}` },
-    ]), plugins);
+    const prepared = await prepareRules(
+      config({
+        [`aquarius/${ids[0]}`]: ["warn", { invented: true }],
+        [`aquarius/${ids[1]}`]: "warn",
+      }),
+      plugins,
+    );
     expect(prepared.errors.map((error) => error.code)).toEqual(["RULE_OPTIONS_INVALID"]);
     expect(prepared.rules.map((rule) => rule.id)).toEqual([`aquarius/${ids[1]}`]);
   });
@@ -147,7 +158,9 @@ describe("section 02 semantic boundaries", () => {
   });
 
   test("module/no-server-code-in-client-bundle", async () => {
-    const rule = rules.find((candidate) => candidate.id === "module/no-server-code-in-client-bundle")!;
+    const rule = rules.find(
+      (candidate) => candidate.id === "module/no-server-code-in-client-bundle",
+    )!;
     const prompt = await rule.buildPrompt({ options: {} });
     const text = JSON.stringify(prompt);
     expect(text).toContain("실제 client bundle");
@@ -164,5 +177,4 @@ describe("section 02 semantic boundaries", () => {
     expect(text).toContain("worker");
     expect(text).toContain("실제 해석");
   });
-
 });

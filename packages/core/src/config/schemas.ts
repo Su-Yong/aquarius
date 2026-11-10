@@ -5,33 +5,38 @@ const nonEmptyStringSchema = z.string().refine((value) => value.trim() !== "", {
 });
 
 const jsonObjectSchema = z.record(z.string(), z.json());
+const severitySchema = z.enum(["off", "warn", "error"]);
 
-export const ruleSelectionSchema = z
-  .object({
-    rule: nonEmptyStringSchema,
-    severity: z.enum(["off", "warn", "error"]).optional(),
-    options: jsonObjectSchema.optional(),
-  })
-  .strict();
+export const ruleSettingSchema = z.union([
+  severitySchema,
+  z.tuple([severitySchema, jsonObjectSchema]),
+  z.boolean(),
+  jsonObjectSchema,
+]);
+
+export const ruleSettingsSchema = z.record(nonEmptyStringSchema, ruleSettingSchema);
 
 export const projectConfigSchema = z
   .object({
     files: z.array(nonEmptyStringSchema).optional(),
     ignore: z.array(nonEmptyStringSchema).optional(),
     plugins: z.array(nonEmptyStringSchema).optional(),
+    preset: z.array(nonEmptyStringSchema).optional(),
     ai: z
       .object({
-        adapter: nonEmptyStringSchema.optional(),
+        adapter: nonEmptyStringSchema,
         options: jsonObjectSchema.optional(),
         timeoutMs: z
           .number()
           .int({ message: "must be a positive integer" })
           .positive({ message: "must be a positive integer" })
           .optional(),
+        fileBatchSize: z.number().int().positive().optional(),
+        maxConcurrency: z.number().int().positive().optional(),
       })
       .strict()
       .optional(),
-    rules: z.array(ruleSelectionSchema).optional(),
+    rules: ruleSettingsSchema.optional(),
   })
   .strict();
 

@@ -6,9 +6,9 @@ export const isolatePlatformSpecificCode: LintRule = {
   id: "architecture/isolate-platform-specific-code",
   description: "공통 실행 대상으로 선언된 코드가 지원 환경에서 사용할 수 없는 플랫폼 API에 도달하거나 구현을 잘못 노출하는지 검사하며, 검증된 조건 분기·어댑터·진입점 분리를 인정합니다.",
   scope: "project",
-  defaultSeverity: "warn",
   buildPrompt: () => ({
-    applicability: "Code declared shared across specified execution environments, together with the actual entry points, resolver, bundler, and platform APIs available in those environments.",
+    applicability:
+      "Code intended to run across multiple supported platforms or execution environments.",
     criteria: "Report a reachable platform API unavailable in a supported environment, or a wrongly exposed implementation that violates the declared portability contract. Account for module-evaluation effects, conditional exports, build-time selection, dead-code elimination guarantees, and runtime guards. A guard after a failing top-level import does not isolate that import. Do not demand portability beyond the declared support set.",
     evidenceRequirements: [
       "The declared supported environments, versions, and relevant entry/resolution configuration.",
@@ -23,7 +23,7 @@ export const isolatePlatformSpecificCode: LintRule = {
     procedure: [
       "An unreachable guarded call can be safe, but an unconditional unsupported import may fail before that guard.",
       "Keep an independent environment-configuration or import-boundary defect when portability evidence does not subsume it.",
-      "Use violation only for an established applicable obligation and a concrete conflicting path. Use pass only after sufficient coverage. Use unknown for missing, unresolved, inaccessible, or conflicting required context, and not_applicable only for a confirmed absent prerequisite. Record confirmed defects separately from unresolved scope.",
+      "Use violation only for an established applicable obligation and a concrete conflicting path. Inspect the available evidence, then use pass when no violation is established in that scope. Required configuration must be validated before review; a missing required policy is a setup error. Use not_applicable only when the inspected code lacks the rule applicability prerequisite. Actual access or execution failures are errors. Do not defer the conclusion.",
       "Do not invent architecture, policy, thresholds, or exceptions from names or missing configuration. Preserve independent obligations and evidence when other rules overlap. Treat optional design advice separately from proven violations.",
       "Specification violation example: SSR 진입 모듈을 평가하는 동안 window.localStorage를 읽어 Node.js 실행이 실패합니다.",
       "Specification allowed counterexample (not a whole-scope pass assertion): 브라우저 전용 이벤트 경로에서만 window를 읽으며, 서버 번들에는 해당 구현이 선택되지 않습니다.",
@@ -40,11 +40,6 @@ export const isolatePlatformSpecificCode: LintRule = {
         scenario: "Synthetic fixture: Package exports select verified browser and Node entries; the browser graph contains no Node-only imports.",
         expected: "pass",
         reason: "Entry separation enforces the declared portability contract."
-      },
-      {
-        scenario: "Synthetic fixture: A process guard is present but the bundler, export conditions, and target runtimes are unavailable.",
-        expected: "unknown",
-        reason: "Resolution and reachability of the platform API remain unverified."
       },
       {
         scenario: "Synthetic fixture: The package explicitly supports Node only and the inspected API is supported by that declared Node version.",

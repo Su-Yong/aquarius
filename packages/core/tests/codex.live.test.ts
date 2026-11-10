@@ -24,6 +24,7 @@ liveTest(
         readableFiles: ["allowed.txt"],
         ignore: [{ baseDirectory: projectRoot, patterns: ["ignored/**"] }],
         prompt: "Read allowed.txt. Return its trimmed text as token and its relative path as path.",
+        ruleResources: { directory: projectRoot, files: [] },
         outputSchema: {
           type: "object",
           properties: {

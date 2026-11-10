@@ -4,8 +4,10 @@ export { importProjectModule } from "./rules/modules";
 export { selectTargets } from "./files/targets";
 export { resolveBridge, callBridge } from "./ai/bridge";
 export { buildTaskPrompt } from "./ai/prompt";
+export { prepareRuleResources } from "./ai/rule-resources";
 export {
   errorSchema,
+  skippedRuleSchema,
   parseResultItem,
   resultEnvelope,
   references,
@@ -27,4 +29,11 @@ export { fileChangeSchema, type FileChange } from "./changes/schema";
 export * from "./undo/store";
 export * from "./undo/schema";
 
-export { startProgress, statusText, terminalColors } from "./shared/progress";
+export {
+  startProgress,
+  statusText,
+  terminalColors,
+  progressLineText,
+  type ProgressLine,
+  type ProgressPart,
+} from "./shared/progress";

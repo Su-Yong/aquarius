@@ -4,11 +4,13 @@ import {
   AquariusError,
   callBridge,
   loadConfig,
+  prepareRuleResources,
   prepareRules,
   resolveBridge,
   selectTargets,
   toRunError,
   type AiBridge,
+  type PreparedRuleResources,
   type RulePlugin,
 } from "@aquarius/core/internal";
 import { applyFileChanges, captureBaseline, planFileChanges } from "../changes/apply";
@@ -18,7 +20,12 @@ import { normalizeFormatResponse } from "./results";
 import { formatResponseJsonSchema } from "./schemas";
 import type { FormatExecutionOptions, FormatExecutionResult, FormatResult } from "./types";
 
-const emptyResult = (): FormatResult => ({ changedFiles: [], warnings: [], errors: [] });
+const emptyResult = (): FormatResult => ({
+  changedFiles: [],
+  skippedRules: [],
+  warnings: [],
+  errors: [],
+});
 
 export const executeFormat = async (
   options: FormatExecutionOptions,
@@ -26,6 +33,7 @@ export const executeFormat = async (
   suppliedBridge?: AiBridge,
 ): Promise<FormatExecutionResult> => {
   const initial = emptyResult();
+  let preparedResources: PreparedRuleResources | undefined;
 
   try {
     if (options.undo && (options.check || options.paths?.length)) {
@@ -40,21 +48,25 @@ export const executeFormat = async (
       options.onProgress?.("Restoring files");
       const restoredFiles = await undoLastFileChanges(config.projectRoot);
       return {
-        result: { changedFiles: [], restoredFiles, warnings: [], errors: [] },
+        result: { ...initial, restoredFiles },
         exitCode: 0,
       };
-    }
-
-    const selections = config.rules.filter((rule) => rule.severity !== "off");
-    if (selections.length === 0) {
-      if (options.paths?.length) await selectTargets(config, options);
-      return { result: initial, exitCode: 0 };
     }
 
     options.onProgress?.("Preparing rules");
     const prepared = await prepareRules(config, builtinPlugins);
     initial.errors.push(...prepared.errors);
+    if (
+      prepared.errors.some(({ code }) =>
+        ["RULE_OPTIONS_INVALID", "RULE_SCHEMA_TRANSFORMED_OPTIONS"].includes(code),
+      )
+    ) {
+      return { result: initial, exitCode: 2 };
+    }
     if (prepared.rules.length === 0) {
+      if (options.paths?.length) {
+        await selectTargets(config, options);
+      }
       return { result: initial, exitCode: initial.errors.length ? 2 : 0 };
     }
 
@@ -67,13 +79,21 @@ export const executeFormat = async (
 
     const baseline = await captureBaseline(config.projectRoot, policy.targets);
     const bridge = suppliedBridge ?? (await resolveBridge(config));
+    preparedResources = await prepareRuleResources({
+      projectRoot: config.projectRoot,
+      tool: "format",
+      rules: prepared.rules,
+      signal: options.signal,
+      onWarning: options.onWarning,
+    });
+    const ruleResources = preparedResources.resources;
     const cwdRelative = relative(config.projectRoot, config.cwd).replaceAll("\\", "/");
     const pathsRelativeTo =
       !options.paths?.length &&
       (cwdRelative === ".." || cwdRelative.startsWith("../") || isAbsolute(cwdRelative))
         ? "."
         : cwdRelative || ".";
-    const prompt = buildFormatPrompt(prepared.rules, policy, {
+    const prompt = buildFormatPrompt(ruleResources.files, policy, {
       files: config.files,
       paths: options.paths?.length ? options.paths : ["."],
       pathsRelativeTo,
@@ -86,8 +106,10 @@ export const executeFormat = async (
         readableFiles: policy.readableFiles,
         ignore: policy.ignoreRules,
         prompt,
+        ruleResources,
         outputSchema: formatResponseJsonSchema,
         options: config.ai.options,
+        onProgress: options.onProgress,
       },
       config.ai.timeoutMs,
       options.signal,
@@ -95,9 +117,10 @@ export const executeFormat = async (
     if (options.signal?.aborted) throw new AquariusError("AI_ABORTED", "Execution was cancelled.");
 
     options.onProgress?.("Checking changes");
-    const response = normalizeFormatResponse(raw, prepared.rules, policy);
+    const response = normalizeFormatResponse(raw, prepared.rules, policy, ruleResources);
     const result: FormatResult = {
       changedFiles: [],
+      skippedRules: response.skippedRules,
       warnings: response.warnings,
       errors: [...prepared.errors, ...response.errors],
     };
@@ -134,5 +157,7 @@ export const executeFormat = async (
   } catch (cause) {
     initial.errors.push(toRunError(cause));
     return { result: initial, exitCode: options.signal?.aborted ? 130 : 2 };
+  } finally {
+    await preparedResources?.dispose();
   }
 };

@@ -6,7 +6,7 @@ export const preferEarlyReturn: FormatRule = {
   scope: "file",
   buildPrompt: () => ({
     applicability:
-      "Nested function branches that can be flattened through equivalent early returns.",
+      "Nested conditional branches in functions.",
     transformation:
       "Place terminating or exceptional paths first and reduce indentation of the normal path. Leave already conforming code unchanged.",
     constraints: [

@@ -18,14 +18,9 @@
         "reason": "The complete inspected edges follow the declared direction."
       },
       {
-        "scenario": "Synthetic fixture: A folder is named domain but the layer mapping and import alias resolution are unavailable.",
-        "expected": "unknown",
-        "reason": "Names alone do not establish layers or the resolved edge."
-      },
-      {
-        "scenario": "Synthetic fixture: The project explicitly has one module and declares no layer boundary for these files.",
+        "scenario": "Synthetic fixture: The configured policy has one layer and the inspected files have no cross-layer dependencies.",
         "expected": "not_applicable",
-        "reason": "The layer-policy prerequisite is confirmed absent."
+        "reason": "There is no cross-layer dependency in the configured scope."
       }
     ],
     "inspectionDetail": {
@@ -54,11 +49,6 @@
         "scenario": "Synthetic fixture: Cycles are permitted; two modules register deferred callbacks and tests and execution order establish no pre-initialization reads.",
         "expected": "pass",
         "reason": "The permitted cycle preserves the relevant initialization contract."
-      },
-      {
-        "scenario": "Synthetic fixture: A dynamic import in the apparent cycle cannot be resolved, and initialization order is unavailable.",
-        "expected": "unknown",
-        "reason": "The cycle and its effects cannot be established."
       },
       {
         "scenario": "Synthetic fixture: The complete relevant graph is acyclic.",
@@ -94,11 +84,6 @@
         "reason": "The adapter preserves the specified domain independence."
       },
       {
-        "scenario": "Synthetic fixture: A symbol named Request is used but its origin and the domain independence policy cannot be resolved.",
-        "expected": "unknown",
-        "reason": "A name is insufficient to identify framework coupling or a required boundary."
-      },
-      {
         "scenario": "Synthetic fixture: This scope deliberately implements framework-specific controllers and is outside the declared independent domain.",
         "expected": "not_applicable",
         "reason": "The independence boundary does not include this scope."
@@ -122,11 +107,6 @@
         "scenario": "Synthetic fixture: The use case returns a domain result; an HTTP adapter maps it to 201 or 409 outside the business boundary.",
         "expected": "pass",
         "reason": "Protocol mapping remains in the permitted adapter."
-      },
-      {
-        "scenario": "Synthetic fixture: A function accepts req but no symbol origin, callers, or separation contract can be established.",
-        "expected": "unknown",
-        "reason": "Parameter spelling cannot establish transport coupling or intent."
       },
       {
         "scenario": "Synthetic fixture: A simple health route has no business flow and is expressly kept as a transport-specific handler.",
@@ -154,11 +134,6 @@
         "reason": "The storage representation does not govern the protected domain behavior."
       },
       {
-        "scenario": "Synthetic fixture: An entity has save() but the ORM origin, domain boundary, and intended model are unavailable.",
-        "expected": "unknown",
-        "reason": "The method name alone does not prove unintended persistence coupling."
-      },
-      {
         "scenario": "Synthetic fixture: This model is explicitly designed as Active Record and is outside any persistence-independent boundary.",
         "expected": "not_applicable",
         "reason": "The independence prerequisite is confirmed absent."
@@ -182,11 +157,6 @@
         "scenario": "Synthetic fixture: Sales uses Billing documented public invoice API and all re-exports resolve to supported symbols.",
         "expected": "pass",
         "reason": "The dependency stays within the supported public contract."
-      },
-      {
-        "scenario": "Synthetic fixture: An alias resolves incompletely and domain ownership of the target is unknown.",
-        "expected": "unknown",
-        "reason": "Neither the crossed boundary nor the private target can be proven."
       },
       {
         "scenario": "Synthetic fixture: Both modules belong to the same domain and no cross-domain dependency occurs.",
@@ -222,11 +192,6 @@
         "reason": "The verified common boundary preserves the required guarantees."
       },
       {
-        "scenario": "Synthetic fixture: A bulk SQL operation is visible but its triggers, ownership policy, and write permissions are unavailable.",
-        "expected": "unknown",
-        "reason": "The presence or absence of required enforcement is not established."
-      },
-      {
         "scenario": "Synthetic fixture: The inspected module writes only its own data through its declared ownership boundary.",
         "expected": "not_applicable",
         "reason": "No foreign-owner write boundary is crossed."
@@ -258,11 +223,6 @@
         "scenario": "Synthetic fixture: The API explicitly returns accepted and a status token, and clients poll until reservation completion.",
         "expected": "pass",
         "reason": "The asynchronous communication matches the declared completion semantics."
-      },
-      {
-        "scenario": "Synthetic fixture: A queue wrapper is used but delivery guarantees and what the caller promises are unavailable.",
-        "expected": "unknown",
-        "reason": "The required and supplied guarantees cannot be compared."
       },
       {
         "scenario": "Synthetic fixture: The inspected code performs only local computation and no inter-module communication.",
@@ -298,11 +258,6 @@
         "reason": "The required authorization is enforced before the protected operation."
       },
       {
-        "scenario": "Synthetic fixture: A gateway is said to validate requests, but its configuration and bypass paths are unavailable.",
-        "expected": "unknown",
-        "reason": "The claimed upstream guarantee cannot be verified."
-      },
-      {
         "scenario": "Synthetic fixture: The complete inspected computation uses constants only and crosses no data or authority trust boundary.",
         "expected": "not_applicable",
         "reason": "The trust-transition prerequisite is absent."
@@ -334,11 +289,6 @@
         "scenario": "Synthetic fixture: A provider adapter maps documented vendor states into the domain refund state machine and owns vendor errors.",
         "expected": "pass",
         "reason": "The adapter preserves the established independent domain semantics."
-      },
-      {
-        "scenario": "Synthetic fixture: A status field appears in domain code but its provider origin and independence requirement are unverified.",
-        "expected": "unknown",
-        "reason": "Neither external origin nor prohibited coupling is established."
       },
       {
         "scenario": "Synthetic fixture: This adapter is deliberately provider-specific and outside the independent internal boundary.",
@@ -374,11 +324,6 @@
         "reason": "The required error contract is preserved by equivalent isolation."
       },
       {
-        "scenario": "Synthetic fixture: An old library is imported, but no special legacy contract or isolation goal is established.",
-        "expected": "unknown",
-        "reason": "Age alone cannot establish a boundary violation."
-      },
-      {
         "scenario": "Synthetic fixture: The inspected module is the explicitly designated legacy adapter, where translation is intended.",
         "expected": "not_applicable",
         "reason": "Legacy-specific handling is in the allowed boundary scope."
@@ -410,11 +355,6 @@
         "scenario": "Synthetic fixture: Package exports select verified browser and Node entries; the browser graph contains no Node-only imports.",
         "expected": "pass",
         "reason": "Entry separation enforces the declared portability contract."
-      },
-      {
-        "scenario": "Synthetic fixture: A process guard is present but the bundler, export conditions, and target runtimes are unavailable.",
-        "expected": "unknown",
-        "reason": "Resolution and reachability of the platform API remain unverified."
       },
       {
         "scenario": "Synthetic fixture: The package explicitly supports Node only and the inspected API is supported by that declared Node version.",
@@ -450,11 +390,6 @@
         "reason": "The inspected dispatch and lifecycle match the published guarantees."
       },
       {
-        "scenario": "Synthetic fixture: An extension registry is visible but supported lifetime and error behavior are unavailable and callers do not establish them.",
-        "expected": "unknown",
-        "reason": "The required extension guarantees cannot be established."
-      },
-      {
         "scenario": "Synthetic fixture: A private local callback is not a supported extension mechanism and no plugin guarantee applies.",
         "expected": "not_applicable",
         "reason": "The public extension-point prerequisite is absent."
@@ -488,11 +423,6 @@
         "reason": "The approved equivalent boundary preserves the mandatory guarantees."
       },
       {
-        "scenario": "Synthetic fixture: A route calls a repository, but neither the workflow contract nor middleware enforcement can be established.",
-        "expected": "unknown",
-        "reason": "Direct access alone does not prove an omitted business obligation."
-      },
-      {
         "scenario": "Synthetic fixture: The code is a read-only query with no state-changing entry point covered by this workflow contract.",
         "expected": "not_applicable",
         "reason": "The protected change-entry prerequisite is absent."
@@ -524,11 +454,6 @@
         "scenario": "Synthetic fixture: Migration M42 performs the approved write within its authorized scope and required safeguards.",
         "expected": "pass",
         "reason": "The actual dependency satisfies the exception conditions."
-      },
-      {
-        "scenario": "Synthetic fixture: A comment says approved, but its approval source or applicable validity cannot be verified.",
-        "expected": "unknown",
-        "reason": "A claim of authority is not proof of authorization or a proved violation."
       },
       {
         "scenario": "Synthetic fixture: No boundary exception is claimed or required in the complete inspected scope.",

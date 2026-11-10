@@ -1,12 +1,19 @@
 import type { JsonObject, ToolKind } from "../shared/types";
-import type { RuleSelection } from "../rules/types";
+import type { RuleSettings } from "../rules/types";
 
 export interface ProjectConfig {
   files?: string[];
   ignore?: string[];
   plugins?: string[];
-  ai?: { adapter?: string; options?: JsonObject; timeoutMs?: number };
-  rules?: RuleSelection[];
+  preset?: string[];
+  ai?: {
+    adapter: string;
+    options?: JsonObject;
+    timeoutMs?: number;
+    fileBatchSize?: number;
+    maxConcurrency?: number;
+  };
+  rules?: RuleSettings;
 }
 
 export interface LoadedConfig {
@@ -18,6 +25,13 @@ export interface LoadedConfig {
   files: string[];
   ignore: string[];
   plugins: string[];
-  ai: { adapter: string; options: JsonObject; timeoutMs: number };
-  rules: RuleSelection[];
+  preset: string[];
+  ai: {
+    adapter?: string;
+    options: JsonObject;
+    timeoutMs: number;
+    fileBatchSize?: number;
+    maxConcurrency?: number;
+  };
+  rules: RuleSettings;
 }

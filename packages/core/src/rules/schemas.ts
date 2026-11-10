@@ -6,7 +6,6 @@ const nonEmptyStringSchema = z.string().refine((value) => value.trim() !== "", {
 });
 
 const stringArraySchema = z.array(nonEmptyStringSchema);
-const jsonObjectSchema = z.record(z.string(), z.json());
 const scopeSchema = z.enum(["file", "module", "project"]);
 const optionsSchema = z.custom<z.ZodType>(
   (value) =>
@@ -26,17 +25,10 @@ const ruleBaseShape = {
   description: nonEmptyStringSchema,
   scope: scopeSchema,
   optionsSchema: optionsSchema.optional(),
-  defaultOptions: jsonObjectSchema.optional(),
   buildPrompt: buildPromptSchema,
 };
 
-export const lintRuleSchema = z
-  .object({
-    ...ruleBaseShape,
-    defaultSeverity: z.enum(["warn", "error"]),
-  })
-  .strict();
-
+export const lintRuleSchema = z.object(ruleBaseShape).strict();
 export const formatRuleSchema = z.object(ruleBaseShape).strict();
 
 export const rulePluginShapeSchema = z
@@ -44,6 +36,7 @@ export const rulePluginShapeSchema = z
     namespace: nonEmptyStringSchema,
     lintRules: z.array(z.unknown()).optional(),
     formatRules: z.array(z.unknown()).optional(),
+    presets: z.record(z.string(), z.unknown()).optional(),
   })
   .strict();
 
@@ -59,7 +52,7 @@ export const lintInstructionsSchema = z
         z
           .object({
             scenario: nonEmptyStringSchema,
-            expected: z.enum(["pass", "violation", "unknown", "not_applicable"]),
+            expected: z.enum(["pass", "violation", "not_applicable"]),
             reason: nonEmptyStringSchema,
           })
           .strict(),

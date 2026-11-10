@@ -3,13 +3,13 @@ import { dirname, isAbsolute, join, parse as parsePath, resolve } from "node:pat
 import { parse, printParseErrorCode, type ParseError } from "jsonc-parser";
 import { AquariusError } from "../shared/errors";
 import type { ToolKind } from "../shared/types";
-import type { RuleSelection } from "../rules/types";
+import type { RuleSettings } from "../rules/types";
 import { formatZodIssues, projectConfigSchema } from "./schemas";
 import type { LoadedConfig, ProjectConfig } from "./types";
 
-const CONFIG_NAMES: Record<ToolKind, string> = {
-  lint: ".aqlintrc.jsonc",
-  format: ".aqfmtrc.jsonc",
+const CONFIG_NAMES: Record<ToolKind, readonly string[]> = {
+  lint: [".aqlintrc.json", ".aqlintrc.jsonc"],
+  format: [".aqfmtrc.jsonc"],
 };
 
 const DEFAULT_TIMEOUT_MS = 600_000;
@@ -25,7 +25,7 @@ export const loadConfig = async (
   const projectRoot = configPath ? dirname(configPath) : cwd;
   const configDirectory = projectRoot;
   const input = configPath ? await readConfig(configPath) : {};
-  const config = validateConfig(tool, input);
+  const config = validateConfig(input);
 
   return {
     tool,
@@ -36,12 +36,14 @@ export const loadConfig = async (
     files: config.files ?? ["**/*"],
     ignore: config.ignore ?? [],
     plugins: config.plugins ?? [],
+    preset: config.preset ?? [],
     ai: {
-      adapter: config.ai?.adapter ?? "codex",
+      ...config.ai,
+      adapter: config.ai?.adapter,
       options: config.ai?.options ?? {},
       timeoutMs: config.ai?.timeoutMs ?? DEFAULT_TIMEOUT_MS,
     },
-    rules: config.rules ?? [],
+    rules: config.rules ?? {},
   };
 };
 
@@ -62,11 +64,13 @@ const resolveDirectory = async (directory: string): Promise<string> => {
   }
 };
 
-const findConfig = async (cwd: string, name: string): Promise<string | undefined> => {
+const findConfig = async (cwd: string, names: readonly string[]): Promise<string | undefined> => {
   let directory = cwd;
   while (true) {
-    const candidate = join(directory, name);
-    if (await pathExists(candidate)) return realpath(candidate);
+    for (const name of names) {
+      const candidate = join(directory, name);
+      if (await pathExists(candidate)) return realpath(candidate);
+    }
     const parent = dirname(directory);
     if (parent === directory) return undefined;
     directory = parent;
@@ -114,7 +118,7 @@ const readConfig = async (configPath: string): Promise<unknown> => {
   return value;
 };
 
-const validateConfig = (tool: ToolKind, input: unknown): ProjectConfig => {
+const validateConfig = (input: unknown): ProjectConfig => {
   const parsed = projectConfigSchema.safeParse(input);
   if (!parsed.success) invalid(formatZodIssues(parsed.error));
   const config = parsed.data;
@@ -122,22 +126,21 @@ const validateConfig = (tool: ToolKind, input: unknown): ProjectConfig => {
   for (const pattern of [...(config.files ?? []), ...(config.ignore ?? [])])
     validateRelativePattern(pattern);
   if (config.plugins) rejectDuplicates(config.plugins, "plugins");
-  validateRules(tool, config.rules ?? []);
+  for (const [index, preset] of (config.preset ?? []).entries()) {
+    if (!isRuleReference(preset)) {
+      invalid(`preset[${index}] must be a namespace/preset-name string`);
+    }
+  }
+  validateRules(config.rules ?? {});
   return config;
 };
 
-const validateRules = (tool: ToolKind, rules: RuleSelection[]): void => {
-  for (const [index, rule] of rules.entries()) {
-    if (!isRuleReference(rule.rule))
-      invalid(`rules[${index}].rule must be a namespace/rule-id string`);
-    if (tool === "format" && rule.severity !== undefined) {
-      invalid(`rules[${index}].severity is only valid for aqlint`);
+const validateRules = (rules: RuleSettings): void => {
+  for (const rule of Object.keys(rules)) {
+    if (!isRuleReference(rule)) {
+      invalid(`rules key must be a namespace/rule-id string: ${rule}`);
     }
   }
-  rejectDuplicates(
-    rules.map(({ rule }) => rule),
-    "rules",
-  );
 };
 
 const rejectDuplicates = (values: string[], name: string): void => {

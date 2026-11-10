@@ -12,13 +12,11 @@ const yamlRuleBaseShape = {
   description: z.string().min(1),
   scope: z.enum(["file", "module", "project"]),
   optionsSchema: jsonObjectSchema.optional(),
-  defaultOptions: jsonObjectSchema.optional(),
 };
 
 const lintYamlRuleSchema = z
   .object({
     ...yamlRuleBaseShape,
-    defaultSeverity: z.enum(["warn", "error"]),
     prompt: lintInstructionsSchema,
   })
   .strict();
@@ -33,15 +31,12 @@ const formatYamlRuleSchema = z
 export const lintRuleFromYaml = (text: string): LintRule => {
   const source = parseYaml(text, lintYamlRuleSchema);
   validateRuleId(source.id);
-  validateDefaultOptions(source.optionsSchema, source.defaultOptions);
   validateTemplateValue(source.prompt);
   return {
     id: source.id,
     description: source.description,
     scope: source.scope,
-    defaultSeverity: source.defaultSeverity,
     optionsSchema: createOptionsSchema(source.optionsSchema),
-    defaultOptions: source.defaultOptions,
     buildPrompt: ({ options }) => renderValue(source.prompt, options) as LintInstructions,
   };
 };
@@ -49,14 +44,12 @@ export const lintRuleFromYaml = (text: string): LintRule => {
 export const formatRuleFromYaml = (text: string): FormatRule => {
   const source = parseYaml(text, formatYamlRuleSchema);
   validateRuleId(source.id);
-  validateDefaultOptions(source.optionsSchema, source.defaultOptions);
   validateTemplateValue(source.prompt);
   return {
     id: source.id,
     description: source.description,
     scope: source.scope,
     optionsSchema: createOptionsSchema(source.optionsSchema),
-    defaultOptions: source.defaultOptions,
     buildPrompt: ({ options }) => renderValue(source.prompt, options) as FormatInstructions,
   };
 };
@@ -91,13 +84,6 @@ const validateRuleId = (id: string): void => {
   if (id.startsWith("/") || id.endsWith("/") || id.split("/").some((part) => part.trim() === "")) {
     invalid("id must contain non-empty path segments");
   }
-};
-
-const validateDefaultOptions = (
-  schema: JsonObject | undefined,
-  defaults: JsonObject | undefined,
-): void => {
-  if (defaults && !schema) invalid("defaultOptions requires optionsSchema");
 };
 
 const validateTemplateValue = (value: unknown): void => {

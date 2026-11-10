@@ -1,4 +1,5 @@
 import { describe, expect, test } from "vitest";
+import { allRulesPreset } from "../src/presets";
 import { prepareRules } from "../../core/src/rules/prepare";
 import type { LoadedConfig } from "../../core/src/config/types";
 import { section04Rules } from "../src/lint/section-04";
@@ -17,7 +18,7 @@ const ids = [
   "abstraction/no-subclass-type-switches",
   "abstraction/no-fragile-base-hooks",
   "abstraction/no-unused-generic-variation",
-  "abstraction/justified-abstraction-depth"
+  "abstraction/justified-abstraction-depth",
 ];
 
 const config = (selected: LoadedConfig["rules"]): LoadedConfig => ({
@@ -29,6 +30,7 @@ const config = (selected: LoadedConfig["rules"]): LoadedConfig => ({
   ignore: [],
   plugins: ["section"],
   ai: { adapter: "codex", options: {}, timeoutMs: 30_000 },
+  preset: [],
   rules: selected,
 });
 const plugins = { section: { namespace: "aquarius", lintRules: rules } };
@@ -37,11 +39,14 @@ describe("section 04 rule definitions", () => {
   test("preserves the canonical independent IDs and report-only defaults", () => {
     expect(rules.map((rule) => rule.id)).toEqual(ids);
     expect(new Set(ids).size).toBe(ids.length);
-    expect(rules.every((rule) => rule.defaultSeverity === "warn")).toBe(true);
+    expect(ids.every((id) => allRulesPreset[`aquarius/${id}`] === "warn")).toBe(true);
   });
 
   test("prepares every rule through the existing engine API", async () => {
-    const prepared = await prepareRules(config(ids.map((id) => ({ rule: `aquarius/${id}` }))), plugins);
+    const selections = Object.fromEntries(
+      ids.map((id) => [`aquarius/${id}`, allRulesPreset[`aquarius/${id}`]]),
+    );
+    const prepared = await prepareRules(config(selections), plugins);
     expect(prepared.errors).toEqual([]);
     expect(prepared.rules.map((rule) => rule.id)).toEqual(ids.map((id) => `aquarius/${id}`));
     for (const rule of rules) {
@@ -52,32 +57,38 @@ describe("section 04 rule definitions", () => {
       expect(prompt.exceptions?.length).toBeGreaterThan(0);
       expect(prompt.procedure?.join(" ")).toContain("비활성화");
       expect(prompt.examples?.some((example) => example.expected === "pass")).toBe(true);
-      expect(prompt.examples?.some((example) => example.expected === "unknown")).toBe(true);
+      expect(prompt.examples?.map((example) => example.expected)).not.toContain("unknown");
       expect(prompt.criteria).toContain("보고 전용");
     }
   });
 
-  test("selection is explicit and an off neighbor does not suppress an active rule", async () => {
-    expect(await prepareRules(config([]), plugins)).toEqual({ rules: [], errors: [] });
-    for (let index = 0; index < ids.length; index += 1) {
-      const current = ids[index]!;
-      const neighbor = ids[(index + 1) % ids.length]!;
-      const alone = await prepareRules(config([{ rule: `aquarius/${current}` }]), plugins);
-      const withOff = await prepareRules(config([
-        { rule: `aquarius/${neighbor}`, severity: "off" },
-        { rule: `aquarius/${current}` },
-      ]), plugins);
-      expect(withOff).toEqual(alone);
-      expect(alone.errors).toEqual([]);
-      expect(alone.rules).toHaveLength(1);
+  test("registration leaves rules inactive and off disables only the selected rule", async () => {
+    expect(await prepareRules(config({}), plugins)).toEqual({ rules: [], errors: [] });
+    const selections = Object.fromEntries(
+      ids.map((id) => [`aquarius/${id}`, allRulesPreset[`aquarius/${id}`]]),
+    );
+    const active = await prepareRules(config(selections), plugins);
+    expect(active.errors).toEqual([]);
+    expect(active.rules.map(({ id }) => id)).toEqual(ids.map((id) => `aquarius/${id}`));
+
+    for (const disabled of ids) {
+      const withOff = await prepareRules(
+        config({ ...selections, [`aquarius/${disabled}`]: "off" }),
+        plugins,
+      );
+      expect(withOff.errors).toEqual([]);
+      expect(withOff.rules).toEqual(active.rules.filter(({ id }) => id !== `aquarius/${disabled}`));
     }
   });
 
   test("rejects invented options without dropping other selected rules", async () => {
-    const prepared = await prepareRules(config([
-      { rule: `aquarius/${ids[0]}`, options: { invented: true } },
-      { rule: `aquarius/${ids[1]}` },
-    ]), plugins);
+    const prepared = await prepareRules(
+      config({
+        [`aquarius/${ids[0]}`]: ["warn", { invented: true }],
+        [`aquarius/${ids[1]}`]: "warn",
+      }),
+      plugins,
+    );
     expect(prepared.errors.map((error) => error.code)).toEqual(["RULE_OPTIONS_INVALID"]);
     expect(prepared.rules.map((rule) => rule.id)).toEqual([`aquarius/${ids[1]}`]);
   });
@@ -98,7 +109,9 @@ describe("section 04 rule definitions", () => {
 
 describe("section 04 semantic boundaries", () => {
   test("abstraction/evidence-based-abstraction", async () => {
-    const rule = rules.find((candidate) => candidate.id === "abstraction/evidence-based-abstraction")!;
+    const rule = rules.find(
+      (candidate) => candidate.id === "abstraction/evidence-based-abstraction",
+    )!;
     const prompt = await rule.buildPrompt({ options: {} });
     const text = JSON.stringify(prompt);
     expect(text).toContain("비공유");
@@ -110,7 +123,9 @@ describe("section 04 semantic boundaries", () => {
   });
 
   test("abstraction/no-stringly-typed-policy", async () => {
-    const rule = rules.find((candidate) => candidate.id === "abstraction/no-stringly-typed-policy")!;
+    const rule = rules.find(
+      (candidate) => candidate.id === "abstraction/no-stringly-typed-policy",
+    )!;
     const prompt = await rule.buildPrompt({ options: {} });
     const text = JSON.stringify(prompt);
     expect(text).toContain("JavaScript");
@@ -120,7 +135,9 @@ describe("section 04 semantic boundaries", () => {
   });
 
   test("abstraction/no-empty-strategy-objects", async () => {
-    const rule = rules.find((candidate) => candidate.id === "abstraction/no-empty-strategy-objects")!;
+    const rule = rules.find(
+      (candidate) => candidate.id === "abstraction/no-empty-strategy-objects",
+    )!;
     const prompt = await rule.buildPrompt({ options: {} });
     const text = JSON.stringify(prompt);
     expect(text).toContain("식별");
@@ -131,7 +148,9 @@ describe("section 04 semantic boundaries", () => {
   });
 
   test("abstraction/no-unused-generic-variation", async () => {
-    const rule = rules.find((candidate) => candidate.id === "abstraction/no-unused-generic-variation")!;
+    const rule = rules.find(
+      (candidate) => candidate.id === "abstraction/no-unused-generic-variation",
+    )!;
     const prompt = await rule.buildPrompt({ options: {} });
     const text = JSON.stringify(prompt);
     expect(text).toContain("브랜딩");
@@ -141,7 +160,9 @@ describe("section 04 semantic boundaries", () => {
   });
 
   test("abstraction/justified-abstraction-depth", async () => {
-    const rule = rules.find((candidate) => candidate.id === "abstraction/justified-abstraction-depth")!;
+    const rule = rules.find(
+      (candidate) => candidate.id === "abstraction/justified-abstraction-depth",
+    )!;
     const prompt = await rule.buildPrompt({ options: {} });
     const text = JSON.stringify(prompt);
     expect(text).toContain("호출 경로");
@@ -150,20 +171,34 @@ describe("section 04 semantic boundaries", () => {
   });
 
   test("historical abstraction IDs are not registered or silently migrated", async () => {
-    const previous = ["abstraction/no-speculative-extension", "abstraction/no-empty-pass-through-layer"];
+    const previous = [
+      "abstraction/no-speculative-extension",
+      "abstraction/no-empty-pass-through-layer",
+    ];
     for (const id of previous) expect(ids).not.toContain(id);
-    const prepared = await prepareRules(config(previous.map((id) => ({ rule: `aquarius/${id}` }))), plugins);
+    const selections = Object.fromEntries(
+      previous.map((id) => [`aquarius/${id}`, "warn" as const]),
+    );
+    const prepared = await prepareRules(config(selections), plugins);
     expect(prepared.rules).toEqual([]);
-    expect(prepared.errors.map((error) => error.code)).toEqual(["RULE_NOT_FOUND", "RULE_NOT_FOUND"]);
+    expect(prepared.errors.map((error) => error.code)).toEqual([
+      "RULE_NOT_FOUND",
+      "RULE_NOT_FOUND",
+    ]);
   });
 
   test("optional simplification is not emitted as a confirmed contract violation", async () => {
-    for (const id of ["abstraction/evidence-based-abstraction", "abstraction/no-empty-strategy-objects"]) {
+    for (const id of [
+      "abstraction/evidence-based-abstraction",
+      "abstraction/no-empty-strategy-objects",
+    ]) {
       const prompt = await rules.find((rule) => rule.id === id)!.buildPrompt({ options: {} });
       expect(prompt.examples?.[0]?.expected).toBe("pass");
       expect(prompt.criteria).toContain("선택적 설계 개선은 계약 위반과 구분");
     }
-    const typed = await rules.find((rule) => rule.id === "abstraction/no-unused-generic-variation")!.buildPrompt({ options: {} });
+    const typed = await rules
+      .find((rule) => rule.id === "abstraction/no-unused-generic-variation")!
+      .buildPrompt({ options: {} });
     expect(typed.examples?.some((example) => example.expected === "not_applicable")).toBe(true);
   });
 });

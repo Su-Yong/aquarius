@@ -5,16 +5,14 @@ export const noInputMutation: LintRule = {
   id: "contracts/no-input-mutation",
   description: "Find mutations that violate an input's immutability contract.",
   scope: "module",
-  defaultSeverity: "error",
   optionsSchema: ownershipOptionsSchema,
-  defaultOptions: { allowOwnershipTransfer: false },
   buildPrompt: ({ options }) => ({
     applicability:
-      "Code whose input is subject to a read-only, borrowed, or immutable-input contract established by source, callers, API semantics, or existing documentation.",
+      "Code receiving read-only, borrowed, or immutable inputs.",
     criteria:
       "Report a violation when the input or a shared nested reference is mutated in breach of that contract. Local independent objects are not input mutations. Do not infer an immutability contract solely from parameter names.",
     evidenceRequirements: [
-      "The applicable immutability contract.",
+      "The applicable immutability contract, established by source, callers, API semantics, or existing documentation.",
       "The reference or alias relationship connecting the mutated object to the caller.",
       "The concrete mutation location and reachable path.",
     ],
@@ -23,7 +21,7 @@ export const noInputMutation: LintRule = {
         ? ["Exclusive ownership transfer is established and the transfer permits this mutation."]
         : [],
     procedure: [
-      "Inspect relevant callers, aliases, shallow copies, and helper implementations. Keep unsupported or unavailable paths unknown rather than reporting them as violations.",
+      "Inspect relevant callers, aliases, shallow copies, and helper implementations. Inspect available callers and aliases, then report only established violations. Do not invent an immutability contract for an unsupported suspicion.",
     ],
   }),
 };

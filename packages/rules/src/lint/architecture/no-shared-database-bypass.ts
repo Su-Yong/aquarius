@@ -6,9 +6,9 @@ export const noSharedDatabaseBypass: LintRule = {
   id: "architecture/no-shared-database-bypass",
   description: "데이터 소유 모듈의 불변조건·권한 계약을 우회하는 직접 쓰기를 검사하고, 검증된 공용 저장 경계와 승인된 운영·마이그레이션 경로를 구분합니다.",
   scope: "project",
-  defaultSeverity: "warn",
   buildPrompt: () => ({
-    applicability: "Writes to data owned by another module where an established ownership boundary protects invariants, authorization, or ordered effects.",
+    applicability:
+      "Writes to another module's data across an ownership boundary.",
     criteria: "Report direct or indirect writes that bypass the owner's required invariant, authorization, or effect-enforcement boundary. Trace stored procedures, bulk writes, administrative tools, migrations, and shared persistence adapters. Shared storage or a direct write alone is not a violation when a verified common boundary provides the same required guarantees or an authorized operational path permits it.",
     evidenceRequirements: [
       "The data owner and the required invariant, authorization, or effect contract.",
@@ -23,7 +23,7 @@ export const noSharedDatabaseBypass: LintRule = {
     procedure: [
       "An approved migration exemption applies only to its stated tables, operation, time, and substitute safeguards.",
       "Keep a use-case bypass separate when the same write also skips a distinct workflow effect or authorization obligation.",
-      "Use violation only for an established applicable obligation and a concrete conflicting path. Use pass only after sufficient coverage. Use unknown for missing, unresolved, inaccessible, or conflicting required context, and not_applicable only for a confirmed absent prerequisite. Record confirmed defects separately from unresolved scope.",
+      "Use violation only for an established applicable obligation and a concrete conflicting path. Inspect the available evidence, then use pass when no violation is established in that scope. Required configuration must be validated before review; a missing required policy is a setup error. Use not_applicable only when the inspected code lacks the rule applicability prerequisite. Actual access or execution failures are errors. Do not defer the conclusion.",
       "Do not invent architecture, policy, thresholds, or exceptions from names or missing configuration. Preserve independent obligations and evidence when other rules overlap. Treat optional design advice separately from proven violations.",
       "Specification violation example: shipping이 payment 테이블에 paid=true를 직접 UPDATE하여, payment 모듈의 영수증 및 금액 검사를 건너뜁니다.",
       "Specification allowed counterexample (not a whole-scope pass assertion): 같은 데이터베이스를 사용하더라도 승인된 쓰기는 RLS·제약 조건·공용 저장 계약을 지키며, 읽기 전용 보고 기능은 조회만 수행합니다.",
@@ -40,11 +40,6 @@ export const noSharedDatabaseBypass: LintRule = {
         scenario: "Synthetic fixture: A shared stored procedure is an approved write boundary and enforces ownership, authorization, and inventory bounds for every caller.",
         expected: "pass",
         reason: "The verified common boundary preserves the required guarantees."
-      },
-      {
-        scenario: "Synthetic fixture: A bulk SQL operation is visible but its triggers, ownership policy, and write permissions are unavailable.",
-        expected: "unknown",
-        reason: "The presence or absence of required enforcement is not established."
       },
       {
         scenario: "Synthetic fixture: The inspected module writes only its own data through its declared ownership boundary.",

@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { fileChangeSchema } from "@aquarius/core/internal";
 export { fileChangeSchema } from "@aquarius/core/internal";
-import { errorSchema } from "@aquarius/core/internal";
+import { errorSchema, skippedRuleSchema } from "@aquarius/core/internal";
 import type { JsonObject } from "@aquarius/core/internal";
 
 const ruleIdsSchema = z.array(z.string());
@@ -15,6 +15,7 @@ export const formatWarningSchema = z.strictObject({
 
 export const formatResponseSchema = z.strictObject({
   completedRuleIds: z.array(z.string()),
+  skippedRules: z.array(skippedRuleSchema),
   changes: z.array(fileChangeSchema),
   warnings: z.array(formatWarningSchema),
   errors: z.array(errorSchema),

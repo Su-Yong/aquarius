@@ -26,7 +26,10 @@ liveTest(
           files: ["lint/**"],
           ignore: ["ignored/**"],
           plugins: ["@aquarius/rules"],
-          rules: [{ rule: "aquarius/contracts/no-input-mutation" }],
+          ai: { adapter: "codex" },
+          rules: {
+            "aquarius/contracts/no-input-mutation": ["error", { allowOwnershipTransfer: false }],
+          },
         }),
       );
       const beforeEntries = await readdir(root, { recursive: true });
@@ -39,7 +42,8 @@ liveTest(
 
       expect(execution.status, execution.stderr).toBe(1);
       expect(output.errors).toEqual([]);
-      expect(output.unknowns).toEqual([]);
+      expect(output.skippedRules).toEqual([]);
+      expect(output).not.toHaveProperty("unknowns");
       const diagnostics = output.diagnostics as Array<{
         rules: Array<{ rule: string; severity: string }>;
         locations: Array<{ path: string }>;

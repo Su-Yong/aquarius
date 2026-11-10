@@ -20,7 +20,10 @@ Options:
       --undo                         Undo the last actual formatting run
       --with-node-modules            Include node_modules targets
 
-Only explicitly configured rules run. Empty rule lists do not invoke AI.
+Plugins register available rules. Select presets with preset, then override rules
+by ID: true enables a formatter rule, false disables it, and an object sets options.
+Runs without active rules do not invoke AI.
+AI execution requires an explicit ai.adapter, such as "codex" or "./bridge.mjs".
 `;
 
 export const runCli = async (
@@ -58,7 +61,7 @@ export const runCli = async (
       throw new Error("--format must be text or json.");
     }
 
-    const progress = startProgress(values.format === "text");
+    const progress = startProgress(true);
     const controller = new AbortController();
     const abort = (): void => controller.abort();
     process.once("SIGINT", abort);
@@ -77,6 +80,10 @@ export const runCli = async (
           undo: values.undo,
           signal: controller.signal,
           onProgress: progress.update,
+          onWarning: (message) => {
+            progress.clear();
+            console.error(statusText(safeText(`aqfmt: ${message}`), "warning", process.stderr));
+          },
         },
         builtinPlugins,
       );

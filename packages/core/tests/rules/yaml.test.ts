@@ -7,7 +7,6 @@ describe("YAML rule helpers", () => {
 id: contracts/check
 description: Check a contract
 scope: module
-defaultSeverity: error
 optionsSchema:
   type: object
   properties:
@@ -17,8 +16,6 @@ optionsSchema:
     nullable: { type: [string, "null"] }
     literal: { type: string }
   additionalProperties: false
-defaultOptions:
-  enabled: false
 prompt:
   applicability: "Code with {{options.label}}"
   criteria: "enabled={{options.enabled}}; nested={{options.nested}}; value={{options.nullable}}"
@@ -39,8 +36,9 @@ prompt:
     expect(rule).toMatchObject({
       id: "contracts/check",
       scope: "module",
-      defaultSeverity: "error",
     });
+    expect(rule).not.toHaveProperty("defaultSeverity");
+    expect(rule).not.toHaveProperty("defaultOptions");
     expect(rule.optionsSchema?.safeParse({ enabled: "true" }).success).toBe(false);
     expect(instructions).toEqual({
       applicability: "Code with {{options.enabled}}",
@@ -77,7 +75,6 @@ prompt:
 id: contracts/check
 description: Check
 scope: file
-defaultSeverity: warn
 prompt:
   applicability: code
   criteria: "{{options.missing}}"
@@ -99,7 +96,6 @@ prompt:
 id: contracts/check
 description: Check
 scope: file
-defaultSeverity: warn
 prompt:
   applicability: code
   criteria: "${template}"
@@ -112,6 +108,37 @@ prompt:
       }),
     );
   });
+
+  test.each(["defaultSeverity: warn", "defaultOptions: {}"])(
+    "rejects removed default fields in both rule kinds: %s",
+    (field) => {
+      const base = `
+id: example/check
+description: Check
+scope: file
+${field}
+`;
+      const lint = `${base}
+prompt:
+  applicability: code
+  criteria: check
+  evidenceRequirements: []
+`;
+      const format = `${base}
+prompt:
+  applicability: code
+  transformation: transform
+  constraints: []
+`;
+
+      expect(() => lintRuleFromYaml(lint)).toThrow(
+        expect.objectContaining({ code: "YAML_RULE_INVALID" }),
+      );
+      expect(() => formatRuleFromYaml(format)).toThrow(
+        expect.objectContaining({ code: "YAML_RULE_INVALID" }),
+      );
+    },
+  );
 
   test("rejects invalid YAML and unknown rule fields", () => {
     expect(() => lintRuleFromYaml("id: [")).toThrow(

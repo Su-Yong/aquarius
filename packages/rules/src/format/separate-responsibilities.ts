@@ -6,7 +6,7 @@ export const separateResponsibilities: FormatRule = {
   scope: "module",
   buildPrompt: () => ({
     applicability:
-      "Code with distinct responsibilities that can be separated without changing its externally observed behavior.",
+      "Code combining distinct responsibilities.",
     transformation:
       "Follow the existing project structure. Prefer named functions in the same file when sufficient; use separate modules when a real responsibility boundary benefits from it. Keep orchestration where it belongs.",
     constraints: [

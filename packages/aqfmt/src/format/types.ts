@@ -1,4 +1,4 @@
-import type { RunError, TargetOptions } from "@aquarius/core/internal";
+import type { RunError, SkippedRule, TargetOptions } from "@aquarius/core/internal";
 import type { FileChange, FormatWarning } from "./schemas";
 
 export type { FileChange, FormatWarning } from "./schemas";
@@ -7,6 +7,7 @@ export interface FormatResponse {
   changes: FileChange[];
   warnings: FormatWarning[];
   errors: RunError[];
+  skippedRules: SkippedRule[];
 }
 
 export interface FormatResult {
@@ -15,6 +16,7 @@ export interface FormatResult {
   restoredFiles?: string[];
   warnings: FormatWarning[];
   errors: RunError[];
+  skippedRules: SkippedRule[];
 }
 
 export interface FormatExecutionOptions extends TargetOptions {
@@ -24,6 +26,7 @@ export interface FormatExecutionOptions extends TargetOptions {
   undo?: boolean;
   signal?: AbortSignal;
   onProgress?: (message: string) => void;
+  onWarning?: (message: string) => void;
 }
 
 export interface FormatExecutionResult {

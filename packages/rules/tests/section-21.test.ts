@@ -1,4 +1,5 @@
 import { describe, expect, test } from "vitest";
+import { allRulesPreset } from "../src/presets";
 import { section21Rules } from "../src/lint/catalog/section-21";
 
 // Tests validate published prompt contracts, not an AI evaluator or framework runtime.
@@ -19,28 +20,35 @@ describe("section 21 rule definitions", () => {
       "ui/keyboard-equivalent-actions",
       "ui/preserve-meaningful-focus",
       "ui/consistent-hydration-state",
-      "ui/isolate-browser-server-execution"
-]);
+      "ui/isolate-browser-server-execution",
+    ]);
     expect(new Set(section21Rules.map((rule) => rule.id)).size).toBe(15);
   });
 
   test.each(section21Rules)("$id builds the supported instruction contract", async (rule) => {
     const prompt = await rule.buildPrompt({ options: {} });
     expect(["file", "module", "project"]).toContain(rule.scope);
-    expect(rule.defaultSeverity).toBe("warn");
-    expect(Object.keys(prompt).sort()).toEqual([
-      "applicability", "criteria", "evidenceRequirements", "examples", "exceptions", "procedure",
-    ].sort());
+    expect(allRulesPreset[`aquarius/${rule.id}`]).toBe("warn");
+    expect(Object.keys(prompt).sort()).toEqual(
+      [
+        "applicability",
+        "criteria",
+        "evidenceRequirements",
+        "examples",
+        "exceptions",
+        "procedure",
+      ].sort(),
+    );
     expect(prompt.applicability.trim()).not.toBe("");
     expect(prompt.criteria).toContain(rule.description);
     expect(prompt.evidenceRequirements.length).toBeGreaterThanOrEqual(2);
     expect(prompt.exceptions?.length).toBeGreaterThan(0);
-    expect(prompt.procedure?.join(" ")).toContain("Missing context must remain unknown");
+    expect(prompt.procedure?.join(" ")).toContain("finish with no established violation");
     expect(prompt.procedure?.join(" ")).toContain("not authority to execute code");
-    expect(prompt.examples?.some((example) => example.expected === "unknown")).toBe(true);
+    expect(prompt.examples?.map((example) => example.expected)).not.toContain("unknown");
     expect(prompt.examples?.some((example) => example.expected === "pass")).toBe(true);
     for (const example of prompt.examples ?? []) {
-      expect(["pass", "violation", "unknown", "not_applicable"]).toContain(example.expected);
+      expect(["pass", "violation", "not_applicable"]).toContain(example.expected);
       expect(example.scenario.trim()).not.toBe("");
       expect(example.reason.trim()).not.toBe("");
     }

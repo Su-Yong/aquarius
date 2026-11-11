@@ -209,7 +209,7 @@ const loadManualIgnores = async (
   config: LoadedConfig,
   options: TargetOptions,
 ): Promise<IgnoreMatcher[]> => {
-  if (config.tool === "lint" && options.noIgnore) return [];
+  if (options.noIgnore) return [];
   const names =
     options.ignorePaths && options.ignorePaths.length > 0
       ? options.ignorePaths
@@ -222,7 +222,7 @@ const loadManualIgnores = async (
     const text = await readOptionalFile(path, explicit);
     if (text !== undefined) matchers.push(createMatcher(dirname(path), splitPatterns(text)));
   }
-  if (config.tool === "lint" && options.ignorePatterns && options.ignorePatterns.length > 0) {
+  if (options.ignorePatterns && options.ignorePatterns.length > 0) {
     matchers.push(createMatcher(config.cwd, options.ignorePatterns));
   }
   return matchers;

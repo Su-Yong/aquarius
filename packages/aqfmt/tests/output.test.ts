@@ -1,5 +1,16 @@
 import { expect, test, vi } from "vitest";
 import { printHuman } from "../src/cli/output";
+import type { FormatResult } from "../src/format/types";
+
+const emptyResult = (): FormatResult => ({
+  changedFiles: [],
+  proposedFiles: [],
+  skippedRules: [],
+  warnings: [],
+  errors: [],
+  fileResults: [],
+  summary: { totalFiles: 0, completedFiles: 0, skippedFiles: 0, failedFiles: 0, activeRules: 0 },
+});
 
 test("styles formatter warnings by field on a terminal", () => {
   const tty = Object.getOwnPropertyDescriptor(process.stderr, "isTTY");
@@ -14,6 +25,7 @@ test("styles formatter warnings by field on a terminal", () => {
       {
         exitCode: 0,
         result: {
+          ...emptyResult(),
           changedFiles: [],
           skippedRules: [],
           errors: [],
@@ -38,6 +50,7 @@ test("styles formatter warnings by field on a terminal", () => {
       {
         exitCode: 0,
         result: {
+          ...emptyResult(),
           changedFiles: [],
           skippedRules: [],
           errors: [],
@@ -54,6 +67,7 @@ test("styles formatter warnings by field on a terminal", () => {
       {
         exitCode: 0,
         result: {
+          ...emptyResult(),
           changedFiles: [],
           skippedRules: [],
           errors: [],
@@ -92,6 +106,7 @@ test("uses status markers for formatter results only on terminals", () => {
       {
         exitCode: 1,
         result: {
+          ...emptyResult(),
           changedFiles: [],
           skippedRules: [],
           wouldChangeFiles: ["a.ts"],
@@ -102,21 +117,136 @@ test("uses status markers for formatter results only on terminals", () => {
       },
       true,
     );
-    expect(log.mock.calls.flat()).toEqual(["⚠ Would format a.ts", "✓ Restored b.ts"]);
+    expect(log.mock.calls.flat()).toContain("⚠ Would format a.ts");
+    expect(log.mock.calls.flat()).toContain("✓ Restored b.ts");
     Object.defineProperty(process.stdout, "isTTY", { configurable: true, value: false });
     log.mockClear();
     printHuman(
       {
         exitCode: 0,
-        result: { changedFiles: ["a.ts"], skippedRules: [], warnings: [], errors: [] },
+        result: {
+          ...emptyResult(),
+          changedFiles: ["a.ts"],
+          skippedRules: [],
+          warnings: [],
+          errors: [],
+        },
       },
       false,
     );
-    expect(log.mock.calls.flat()).toEqual(["Formatted a.ts"]);
+    expect(log.mock.calls.flat()).toContain("Formatted a.ts");
   } finally {
     if (tty) Object.defineProperty(process.stdout, "isTTY", tty);
     else Reflect.deleteProperty(process.stdout, "isTTY");
     log.mockRestore();
     vi.unstubAllEnvs();
+  }
+});
+
+test.each([true, false])(
+  "reports skipped targets without claiming completion with tty=%s",
+  (isTTY) => {
+    const descriptor = Object.getOwnPropertyDescriptor(process.stdout, "isTTY");
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    vi.stubEnv("NO_COLOR", "1");
+    try {
+      Object.defineProperty(process.stdout, "isTTY", { configurable: true, value: isTTY });
+      const result = emptyResult();
+      result.fileResults = [{ path: "a.ts", status: "skipped", reason: "No active rules." }];
+      result.summary = { ...result.summary, totalFiles: 1, skippedFiles: 1 };
+      printHuman({ result, exitCode: 0 }, false);
+      const output = log.mock.calls.flat().join("\n");
+      expect(output).toContain("Formatting skipped");
+      expect(output).toMatch(/Files:\s+1/);
+      expect(output).toMatch(/Skipped:\s+1/);
+      expect(output).toContain("skipped a.ts: No active rules.");
+      expect(output).not.toContain("Formatting complete");
+    } finally {
+      if (descriptor) Object.defineProperty(process.stdout, "isTTY", descriptor);
+      else Reflect.deleteProperty(process.stdout, "isTTY");
+      log.mockRestore();
+      vi.unstubAllEnvs();
+    }
+  },
+);
+
+test("distinguishes unknown targets from an empty selection", () => {
+  const log = vi.spyOn(console, "log").mockImplementation(() => {});
+  try {
+    const result = emptyResult();
+    result.summary.totalFiles = null;
+    printHuman({ result, exitCode: 2 }, false);
+    expect(log.mock.calls.flat().join("\n")).toMatch(
+      /Formatting not started[\s\S]*Files:\s+undetermined/,
+    );
+    log.mockClear();
+    result.summary.totalFiles = 0;
+    printHuman({ result, exitCode: 0 }, false);
+    expect(log.mock.calls.flat().join("\n")).toContain("No files selected");
+  } finally {
+    log.mockRestore();
+  }
+});
+
+test("preserves valid reviews and labels proposals as unapplied on failure", () => {
+  const log = vi.spyOn(console, "log").mockImplementation(() => {});
+  const error = vi.spyOn(console, "error").mockImplementation(() => {});
+  try {
+    const result = emptyResult();
+    result.proposedFiles = ["a.ts\x1b[2J"];
+    result.fileResults = [
+      { path: "a.ts", status: "completed", reason: "" },
+      { path: "b.ts", status: "failed", reason: "Request\x07 failed" },
+      { path: "c.ts", status: "skipped", reason: "Another batch failed" },
+    ];
+    result.summary = {
+      totalFiles: 3,
+      completedFiles: 1,
+      failedFiles: 1,
+      skippedFiles: 1,
+      activeRules: 1,
+    };
+    result.errors = [{ code: "AI_TIMEOUT", message: "Timed out", ruleIds: [] }];
+    printHuman({ result, exitCode: 2 }, false);
+    const output = log.mock.calls.flat().join("\n");
+    expect(output).toContain("Formatting failed");
+    expect(output).toMatch(/Reviewed:\s+1/);
+    expect(output).toMatch(/Written files:\s+0/);
+    expect(output).toContain("Proposed (not applied) a.ts");
+    expect(output).toContain("failed b.ts: Request failed");
+    expect(output).toContain("skipped c.ts: Another batch failed");
+    expect(output).not.toContain("Formatted ");
+    expect(output).not.toContain("\x1b[2J");
+    expect(output).not.toContain("\x07");
+    expect(error.mock.calls.flat().join("\n")).toContain("AI_TIMEOUT");
+  } finally {
+    log.mockRestore();
+    error.mockRestore();
+  }
+});
+
+test("undo output reports restored files without a review summary", () => {
+  const log = vi.spyOn(console, "log").mockImplementation(() => {});
+  try {
+    printHuman({ result: { ...emptyResult(), restoredFiles: ["a.ts"] }, exitCode: 0 }, false);
+    const output = log.mock.calls.flat().join("\n");
+    expect(output).toContain("Undo complete");
+    expect(output).toContain("Restored files: 1");
+    expect(output).toContain("Restored a.ts");
+    expect(output).not.toContain("Reviewed:");
+    expect(output).not.toContain("Formatting complete");
+  } finally {
+    log.mockRestore();
+  }
+});
+
+test("cancellation is distinct from successful formatting", () => {
+  const log = vi.spyOn(console, "log").mockImplementation(() => {});
+  try {
+    printHuman({ result: emptyResult(), exitCode: 130 }, false);
+    expect(log.mock.calls.flat().join("\n")).toContain("Formatting cancelled");
+    expect(log.mock.calls.flat().join("\n")).not.toContain("Formatting complete");
+  } finally {
+    log.mockRestore();
   }
 });

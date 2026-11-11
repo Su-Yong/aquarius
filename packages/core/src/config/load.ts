@@ -9,7 +9,7 @@ import type { LoadedConfig, ProjectConfig } from "./types";
 
 const CONFIG_NAMES: Record<ToolKind, readonly string[]> = {
   lint: [".aqlintrc.json", ".aqlintrc.jsonc"],
-  format: [".aqfmtrc.jsonc"],
+  format: [".aqfmtrc.json", ".aqfmtrc.jsonc"],
 };
 
 const DEFAULT_TIMEOUT_MS = 600_000;

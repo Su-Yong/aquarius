@@ -187,15 +187,66 @@ describe("loadConfig", () => {
     await expect(loadConfig("lint", { cwd: root })).rejects.toMatchObject({ code });
   });
 
-  test("preserves JSONC-only formatter discovery", async () => {
+  test.each([".aqfmtrc.json", ".aqfmtrc.jsonc"])(
+    "discovers formatter configuration %s with the existing JSONC parser",
+    async (name) => {
+      const root = await project();
+      await writeFile(join(root, name), '{ /* formatter config */ "files": ["src/**",], }');
+
+      const config = await loadConfig("format", { cwd: root });
+
+      expect(config.configPath).toBe(join(root, name));
+      expect(config.files).toEqual(["src/**"]);
+    },
+  );
+
+  test("prefers formatter JSON unless JSONC is explicitly selected", async () => {
     const root = await project();
     await writeFile(join(root, ".aqfmtrc.json"), '{ "files": ["json/**"] }');
     await writeFile(join(root, ".aqfmtrc.jsonc"), '{ "files": ["jsonc/**"] }');
 
-    const config = await loadConfig("format", { cwd: root });
+    const automatic = await loadConfig("format", { cwd: root });
+    const explicit = await loadConfig("format", { cwd: root, configPath: ".aqfmtrc.jsonc" });
 
-    expect(config.configPath).toBe(join(root, ".aqfmtrc.jsonc"));
-    expect(config.files).toEqual(["jsonc/**"]);
+    expect(automatic.configPath).toBe(join(root, ".aqfmtrc.json"));
+    expect(automatic.files).toEqual(["json/**"]);
+    expect(explicit.configPath).toBe(join(root, ".aqfmtrc.jsonc"));
+    expect(explicit.files).toEqual(["jsonc/**"]);
+  });
+
+  test("prefers nearby formatter JSONC over JSON in a parent directory", async () => {
+    const root = await project();
+    const nested = join(root, "nested");
+    await mkdir(nested);
+    await writeFile(join(root, ".aqfmtrc.json"), '{ "files": ["parent/**"] }');
+    await writeFile(join(nested, ".aqfmtrc.jsonc"), '{ "files": ["child/**"] }');
+
+    const config = await loadConfig("format", { cwd: nested });
+
+    expect(config.configPath).toBe(join(nested, ".aqfmtrc.jsonc"));
+    expect(config.projectRoot).toBe(nested);
+    expect(config.files).toEqual(["child/**"]);
+  });
+
+  test.each([
+    ['{ "files": [ }', "CONFIG_PARSE_FAILED"],
+    ['{ "unknown": true }', "CONFIG_INVALID"],
+  ])("does not fall back from invalid preferred formatter JSON: %s", async (contents, code) => {
+    const root = await project();
+    await writeFile(join(root, ".aqfmtrc.json"), contents);
+    await writeFile(join(root, ".aqfmtrc.jsonc"), "{}");
+
+    await expect(loadConfig("format", { cwd: root })).rejects.toMatchObject({ code });
+  });
+
+  test("does not fall back when preferred formatter JSON cannot be read", async () => {
+    const root = await project();
+    await mkdir(join(root, ".aqfmtrc.json"));
+    await writeFile(join(root, ".aqfmtrc.jsonc"), "{}");
+
+    await expect(loadConfig("format", { cwd: root })).rejects.toMatchObject({
+      code: "CONFIG_READ_FAILED",
+    });
   });
 
   test("finds the nearest tool-specific JSONC configuration", async () => {

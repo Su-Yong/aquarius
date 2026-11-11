@@ -29,7 +29,7 @@ liveTest(
     try {
       await writeFile(join(root, "format", "label.js"), source);
       await writeFile(
-        join(root, ".aqfmtrc.jsonc"),
+        join(root, ".aqfmtrc.json"),
         JSON.stringify({
           files: ["format/**"],
           ignore: ["ignored/**"],
@@ -53,6 +53,16 @@ liveTest(
       expect(output.errors).toEqual([]);
       expect(output.skippedRules).toEqual([]);
       expect(output.changedFiles).toEqual(["format/label.js"]);
+      expect(output.proposedFiles).toEqual(["format/label.js"]);
+      expect(output.fileResults).toEqual([
+        { path: "format/label.js", status: "completed", reason: expect.any(String) },
+      ]);
+      expect(output.summary).toMatchObject({
+        totalFiles: 1,
+        completedFiles: 1,
+        skippedFiles: 0,
+        failedFiles: 0,
+      });
       expect(transformed).not.toBe(source);
       expect(transformed).not.toMatch(/\}\s*else\s*\{/u);
       expect(await labelResults(transformed)).toEqual(expectedReturns);
@@ -67,6 +77,8 @@ liveTest(
       expect(undoOutput.errors).toEqual([]);
       expect(undoOutput.skippedRules).toEqual([]);
       expect(undoOutput.restoredFiles).toEqual(["format/label.js"]);
+      expect(undoOutput.fileResults).toEqual([]);
+      expect(undoOutput.summary).toMatchObject({ completedFiles: 0 });
       expect(await readFile(join(root, "format", "label.js"), "utf8")).toBe(source);
       expect(await readFile(join(root, "ignored", "private.txt"), "utf8")).toBe(ignored);
     } finally {

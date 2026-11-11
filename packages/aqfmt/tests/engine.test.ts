@@ -66,6 +66,7 @@ const formatReply = () => {
     ],
     warnings: [],
     errors: [],
+    fileResults: [{ path: "src/sample.any", status: "completed" as const, reason: "" }],
   };
 };
 
@@ -128,15 +129,25 @@ test("accepts reference warnings outside target patterns and keeps writes in sco
 });
 
 test("human CLI preserves execution error rule IDs", () => {
+  const logs = vi.spyOn(console, "log").mockImplementation(() => {});
   const errors = vi.spyOn(console, "error").mockImplementation(() => {});
   try {
     printHuman(
       {
         result: {
           changedFiles: [],
+          proposedFiles: [],
           skippedRules: [],
           warnings: [],
           errors: [{ code: "RULE_FAILED", message: "Rule failed.", ruleIds: ["fixture/format"] }],
+          fileResults: [],
+          summary: {
+            totalFiles: null,
+            completedFiles: 0,
+            skippedFiles: 0,
+            failedFiles: 0,
+            activeRules: 1,
+          },
         },
         exitCode: 2,
       },
@@ -144,6 +155,7 @@ test("human CLI preserves execution error rule IDs", () => {
     );
     expect(errors.mock.calls.flat().join("\n")).toContain("fixture/format");
   } finally {
+    logs.mockRestore();
     errors.mockRestore();
   }
 });
@@ -192,9 +204,18 @@ test("JSON output stays machine-readable while progress is written to stderr", a
     expect(await runCli("0.1.0", { fixture: plugin }, ["--format", "json"])).toBe(0);
     expect(JSON.parse(String(logs.mock.calls[0]?.[0]))).toEqual({
       changedFiles: [],
+      proposedFiles: [],
       skippedRules: [],
       warnings: [],
       errors: [],
+      fileResults: [{ path: "src/sample.any", status: "skipped", reason: expect.any(String) }],
+      summary: {
+        totalFiles: 1,
+        completedFiles: 0,
+        skippedFiles: 1,
+        failedFiles: 0,
+        activeRules: 0,
+      },
     });
     expect(writes.mock.calls.some(([text]) => String(text).includes("[00:00] Preparing"))).toBe(
       true,
@@ -237,9 +258,18 @@ test("cache warnings use stderr while JSON formatting remains successful", async
     expect(logs).toHaveBeenCalledTimes(1);
     expect(JSON.parse(String(logs.mock.calls[0]?.[0]))).toEqual({
       changedFiles: [],
+      proposedFiles: [],
       skippedRules: [],
       warnings: [],
       errors: [],
+      fileResults: [{ path: "src/sample.any", status: "completed", reason: "" }],
+      summary: {
+        totalFiles: 1,
+        completedFiles: 1,
+        skippedFiles: 0,
+        failedFiles: 0,
+        activeRules: 1,
+      },
     });
     expect(errors.mock.calls.flat().join("\n")).toContain("aqfmt:");
     expect(await readFile(join(root, "src/sample.any"), "utf8")).toBe(original);
@@ -333,7 +363,7 @@ describe("format execution", () => {
   });
 
   test.each([false, true])(
-    "keeps valid formatting results after a rule preparation failure with check=%s",
+    "stops before AI or writes after a rule preparation failure with check=%s",
     async (check) => {
       const root = await project("format", {
         preset: ["fixture/all"],
@@ -365,15 +395,21 @@ describe("format execution", () => {
       expect(execution.result.errors).toEqual([
         expect.objectContaining({ code: "RULE_PROMPT_FAILED", ruleIds: ["fixture/broken"] }),
       ]);
-      expect(ai.run).toHaveBeenCalledTimes(1);
-      if (check) {
-        expect(execution.result.wouldChangeFiles).toEqual(["src/sample.any"]);
-        expect(execution.result.changedFiles).toEqual([]);
-        expect(await readFile(join(root, "src/sample.any"), "utf8")).toBe(original);
-      } else {
-        expect(execution.result.changedFiles).toEqual(["src/sample.any"]);
-        expect(await readFile(join(root, "src/sample.any"), "utf8")).toBe(replacement);
-      }
+      expect(ai.run).not.toHaveBeenCalled();
+      expect(execution.result.changedFiles).toEqual([]);
+      expect(execution.result.proposedFiles).toEqual([]);
+      expect(execution.result.wouldChangeFiles ?? []).toEqual([]);
+      expect(execution.result.fileResults).toEqual([
+        { path: "src/sample.any", status: "skipped", reason: expect.any(String) },
+      ]);
+      expect(execution.result.fileResults[0]!.reason.trim()).not.toBe("");
+      expect(execution.result.summary).toMatchObject({
+        totalFiles: 1,
+        completedFiles: 0,
+        skippedFiles: 1,
+        failedFiles: 0,
+      });
+      expect(await readFile(join(root, "src/sample.any"), "utf8")).toBe(original);
     },
   );
 
@@ -428,6 +464,7 @@ describe("format execution", () => {
           changes: [],
           warnings: [],
           errors: [],
+          fileResults: [{ path: "src/sample.any", status: "completed", reason: "" }],
         };
       },
     };
@@ -525,6 +562,10 @@ describe("format execution", () => {
     "rejects a resource-directory %s even when all project paths are selected",
     async (operation) => {
       const root = await project("format", { files: ["**/*"] });
+      const modulePlugin: RulePlugin = {
+        ...plugin,
+        formatRules: [{ ...plugin.formatRules![0]!, scope: "module" }],
+      };
       let internalPath: string | undefined;
       const ai: AiBridge = {
         id: "internal-path",
@@ -556,13 +597,30 @@ describe("format execution", () => {
               paths: [internalPath],
             });
           }
-          return { ...formatReply(), changes, warnings };
+          const metadata = JSON.parse(input.prompt.split("\n\n").at(-1)!) as {
+            targets: string[];
+          };
+          return {
+            ...formatReply(),
+            changes,
+            warnings,
+            fileResults: metadata.targets.map((path) => ({
+              path,
+              status: "completed",
+              reason: "",
+            })),
+          };
         },
       };
 
-      const execution = await executeFormat({ cwd: root }, { fixture: plugin }, ai);
+      const execution = await executeFormat({ cwd: root }, { fixture: modulePlugin }, ai);
       expect(execution.exitCode).toBe(2);
       expect(execution.result.errors.length).toBeGreaterThan(0);
+      expect(execution.result.errors).toContainEqual(
+        expect.objectContaining({
+          code: operation === "warning" ? "INVALID_RESULT_PATH" : "CHANGE_OUTSIDE_SCOPE",
+        }),
+      );
       expect(execution.result.changedFiles).toEqual([]);
       expect(internalPath).toBeDefined();
       await expect(access(join(root, internalPath!))).rejects.toMatchObject({ code: "ENOENT" });
@@ -591,6 +649,16 @@ describe("format execution", () => {
     expect(execution.exitCode).toBe(0);
     expect(execution.result.errors).toEqual([]);
     expect(execution.result.skippedRules).toEqual([]);
+    expect(execution.result.summary).toEqual({
+      totalFiles: 1,
+      completedFiles: 0,
+      skippedFiles: 1,
+      failedFiles: 0,
+      activeRules: 0,
+    });
+    expect(execution.result.fileResults).toEqual([
+      { path: "src/sample.any", status: "skipped", reason: expect.any(String) },
+    ]);
     expect(buildPrompt).not.toHaveBeenCalled();
     expect(ai.run).not.toHaveBeenCalled();
     await expect(access(join(root, "node_modules/.cache"))).rejects.toMatchObject({
@@ -617,8 +685,11 @@ describe("format execution", () => {
     expect(rejected.result.errors).toContainEqual(
       expect.objectContaining({ code: "TARGET_UNMATCHED" }),
     );
+    expect(rejected.result.summary.totalFiles).toBeNull();
     expect(allowed.exitCode).toBe(0);
     expect(allowed.result.errors).toEqual([]);
+    expect(allowed.result.summary.totalFiles).toBe(0);
+    expect(allowed.result.fileResults).toEqual([]);
     expect(ai.run).not.toHaveBeenCalled();
   });
 
@@ -641,7 +712,7 @@ describe("format execution", () => {
       "Preparing rules",
       "Selecting files",
       "Formatting files with AI",
-      "Inspecting src/sample.any",
+      expect.stringContaining("Inspecting src/sample.any"),
       "Checking changes",
     ]);
   });
@@ -668,6 +739,9 @@ describe("format/check/undo through real core components", () => {
     const checked = await executeFormat({ cwd: root, check: true }, { fixture: plugin }, ai);
     expect(checked.exitCode).toBe(1);
     expect((checked.result as FormatResult).wouldChangeFiles).toEqual(["src/sample.any"]);
+    expect(checked.result.summary).toMatchObject({ totalFiles: 1, completedFiles: 1 });
+    expect(checked.result.changedFiles).toEqual([]);
+    expect(checked.result.proposedFiles).toEqual(["src/sample.any"]);
     expect(await readFile(join(root, "src", "sample.any"), "utf8")).toBe(original);
 
     const formatted = await executeFormat({ cwd: root }, { fixture: plugin }, ai);
@@ -690,6 +764,8 @@ describe("format/check/undo through real core components", () => {
     const undone = await executeFormat({ cwd: root, undo: true }, { fixture: plugin });
     expect(undone.exitCode).toBe(0);
     expect((undone.result as FormatResult).restoredFiles).toEqual(["src/sample.any"]);
+    expect(undone.result.fileResults).toEqual([]);
+    expect(undone.result.summary.completedFiles).toBe(0);
     expect(await readFile(join(root, "src", "sample.any"), "utf8")).toBe(original);
     await expect(access(join(root, "node_modules/.cache"))).rejects.toMatchObject({
       code: "ENOENT",

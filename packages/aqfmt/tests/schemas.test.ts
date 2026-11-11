@@ -21,9 +21,12 @@ test("format response schema is strict and produces the AI JSON schema", () => {
     ],
     warnings: [],
     errors: [],
+    fileResults: [{ path: "src/file.ts", status: "completed", reason: "" }],
   };
 
   expect(formatResponseSchema.safeParse(response).success).toBe(true);
+  const { fileResults: _fileResults, ...missingFileResults } = response;
+  expect(formatResponseSchema.safeParse(missingFileResults).success).toBe(false);
   const { skippedRules: _skippedRules, ...missingSkippedRules } = response;
   expect(formatResponseSchema.safeParse(missingSkippedRules).success).toBe(false);
   expect(

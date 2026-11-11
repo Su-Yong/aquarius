@@ -169,6 +169,88 @@ describe("selectTargets lint policy", () => {
 });
 
 describe("selectTargets format policy", () => {
+  test("anchors repeated formatter ignore patterns at the working directory", async () => {
+    const root = await realpath(await formatProject());
+    await file(root, "src/first.txt");
+    await file(root, "src/second.txt");
+    await file(root, "first.txt");
+    const config = loaded(root, "format", { cwd: join(root, "src") });
+
+    const policy = await selectTargets(config, {
+      paths: [root],
+      ignorePatterns: ["/first.txt", "/second.txt"],
+    });
+
+    expect(policy.targets).toContain("src/good.txt");
+    expect(policy.targets).toContain("first.txt");
+    for (const path of ["src/first.txt", "src/second.txt"]) {
+      expect(policy.targets).not.toContain(path);
+      expect(policy.canWrite(path)).toBe(false);
+      expect(policy.readableFiles).toContain(path);
+    }
+  });
+
+  test("disables formatter manual ignores while preserving config, Git, and default exclusions", async () => {
+    const root = await realpath(await formatProject());
+    await writeFile(join(root, "custom.ignore"), "custom.txt\n");
+    await file(root, "custom.txt");
+    await file(root, "cli.txt");
+    await file(root, "generated/hidden.txt");
+    const config = loaded(root, "format", { ignore: ["generated/**"] });
+    const options = {
+      paths: ["."],
+      ignorePaths: ["custom.ignore"],
+      ignorePatterns: ["cli.txt"],
+    };
+
+    const enabled = await selectTargets(config, options);
+    expect(enabled.targets).not.toContain("custom.txt");
+    expect(enabled.targets).not.toContain("cli.txt");
+    expect(enabled.canWrite("custom.txt")).toBe(false);
+    expect(enabled.canWrite("cli.txt")).toBe(false);
+
+    const noIgnore = await selectTargets(config, { ...options, noIgnore: true });
+    const noCompatibilityIgnore = await selectTargets(config, { paths: ["."], noIgnore: true });
+    for (const policy of [noIgnore, noCompatibilityIgnore]) {
+      for (const path of ["prettier.txt", "custom.txt", "cli.txt"]) {
+        expect(policy.targets).toContain(path);
+        expect(policy.canWrite(path)).toBe(true);
+      }
+      for (const path of [
+        "ignored.txt",
+        "info.txt",
+        "generated/hidden.txt",
+        "node_modules/package/file.txt",
+        "package-lock.json",
+        ".svn/internal.txt",
+      ]) {
+        expect(policy.targets).not.toContain(path);
+        expect(policy.canWrite(path)).toBe(false);
+      }
+    }
+
+    const withModules = await selectTargets(config, {
+      ...options,
+      noIgnore: true,
+      withNodeModules: true,
+    });
+    expect(withModules.targets).toContain("node_modules/package/file.txt");
+    expect(withModules.canWrite("node_modules/package/file.txt")).toBe(true);
+    expect(withModules.targets).not.toContain("package-lock.json");
+  });
+
+  test("does not read an explicit formatter ignore file when noIgnore is enabled", async () => {
+    const root = await realpath(await formatProject());
+    const config = loaded(root, "format");
+    const options = { paths: ["src/good.txt"], ignorePaths: ["missing.ignore"] };
+
+    await expect(selectTargets(config, options)).rejects.toMatchObject({
+      code: "IGNORE_FILE_FAILED",
+    });
+    const policy = await selectTargets(config, { ...options, noIgnore: true });
+    expect(policy.targets).toEqual(["src/good.txt"]);
+  });
+
   test("applies formatter ignores and defaults, including to explicit files", async () => {
     const root = await formatProject();
     const config = loaded(root, "format");

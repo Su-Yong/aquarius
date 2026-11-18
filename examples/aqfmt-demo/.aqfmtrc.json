@@ -1,0 +1,13 @@
+{
+  "files": ["*.mjs"],
+  "plugins": ["@aquarius/rules"],
+  "ai": {
+    "adapter": "codex",
+    "options": { "model": "gpt-6.1-terra" }
+  },
+  "rules": {
+    "aquarius/style/prefer-early-return": true,
+    "aquarius/readability/name-compound-conditions": true,
+    "aquarius/refactor/separate-responsibilities": true
+  }
+}

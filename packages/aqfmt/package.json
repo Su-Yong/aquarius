@@ -1,6 +1,6 @@
 {
-  "name": "aqfmt",
-  "version": "0.2.1",
+  "name": "@aqtools/aqfmt",
+  "version": "0.2.2",
   "description": "AI-driven, behavior-preserving code transformations",
   "type": "module",
   "bin": {

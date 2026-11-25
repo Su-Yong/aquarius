@@ -1,6 +1,6 @@
 {
-  "name": "aqlint",
-  "version": "0.2.1",
+  "name": "@aqtools/aqlint",
+  "version": "0.2.2",
   "description": "AI-driven, rule-based code diagnostics",
   "type": "module",
   "bin": {

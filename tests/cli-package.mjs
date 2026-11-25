@@ -303,15 +303,11 @@ function runJson(bin, cwd, args, exitCode) {
 
 export function checkBuiltCli(packageDir) {
   const metadata = JSON.parse(readFileSync(join(packageDir, "package.json"), "utf8"));
-  const prefix = `${metadata.name}-cli-`;
+  const command = metadata.name.split("/").at(-1);
+  const prefix = `${command}-cli-`;
   const directory = mkdtempSync(join(tmpdir(), prefix));
   try {
-    checkCli(
-      join(packageDir, metadata.bin[metadata.name]),
-      metadata.name,
-      metadata.version,
-      directory,
-    );
+    checkCli(join(packageDir, metadata.bin[command]), command, metadata.version, directory);
   } finally {
     removeOwnedTemporaryDirectory(directory, prefix);
   }
@@ -345,7 +341,8 @@ export function checkPackedCli(workspaceRoot, packageDir) {
   const metadata = JSON.parse(readFileSync(join(packageDir, "package.json"), "utf8"));
   expect(metadata.engines.node).toBe(">=24.11.0");
   expect(metadata.publishConfig.access).toBe("public");
-  const prefix = `aquarius-${metadata.name}-package-`;
+  const command = metadata.name.split("/").at(-1);
+  const prefix = `aquarius-${command}-package-`;
   const directory = mkdtempSync(join(tmpdir(), prefix));
   try {
     const packs = join(directory, "packs");
@@ -395,11 +392,11 @@ export function checkPackedCli(workspaceRoot, packageDir) {
     });
     expect(installedCli.dependencies).not.toHaveProperty("@aqtools/rules");
     expect(installedCli.dependencies).not.toHaveProperty("@aqtools/codex");
-    const bin = join(installedCliDir, installedCli.bin[metadata.name]);
-    expect(existsSync(join(install, "node_modules", ".bin", metadata.name))).toBe(true);
-    checkCli(bin, metadata.name, metadata.version, project);
+    const bin = join(installedCliDir, installedCli.bin[command]);
+    expect(existsSync(join(install, "node_modules", ".bin", command))).toBe(true);
+    checkCli(bin, command, metadata.version, project);
 
-    const configFilename = `.${metadata.name}rc.json`;
+    const configFilename = `.${command}rc.json`;
     const config = JSON.stringify({ plugins: ["@aqtools/rules"], files: ["fixture.js"] });
     writeFileSync(join(project, configFilename), config);
     const missingPlugin = runJson(bin, project, [], 2);
@@ -415,7 +412,7 @@ export function checkPackedCli(workspaceRoot, packageDir) {
     const installedAdapterConfig = {
       files: ["fixture.js"],
       plugins: ["./plugin.mjs"],
-      rules: { "fixture/review": metadata.name === "aqlint" ? "error" : true },
+      rules: { "fixture/review": command === "aqlint" ? "error" : true },
       ai: { adapter: "@aqtools/codex", options: { ephemeral: "invalid" } },
     };
     writeFileSync(join(localProject, configFilename), JSON.stringify(installedAdapterConfig));

@@ -1,4 +1,12 @@
-# aqlint
+# @aqtools/aqlint
+
+## 0.2.2
+
+### Patch Changes
+
+- Publish the Aquarius packages together under the `@aqtools` scope. Install the CLIs as `@aqtools/aqlint` and `@aqtools/aqfmt`, then run them with the `aqlint` and `aqfmt` commands.
+- Updated dependencies
+  - @aqtools/core@0.2.2
 
 ## 0.2.1
 

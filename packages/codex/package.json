@@ -1,6 +1,6 @@
 {
   "name": "@aqtools/codex",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "Read-only Codex CLI adapter for Aquarius",
   "type": "module",
   "files": [

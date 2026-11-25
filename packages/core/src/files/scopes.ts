@@ -27,6 +27,7 @@ export const createScopes = async (
     if (raw.trim() === "") {
       throw new AquariusError("TARGET_PATH_INVALID", "Target paths cannot be empty");
     }
+
     if (raw.startsWith("!")) {
       if (raw.slice(1).trim() === "") {
         throw new AquariusError("TARGET_PATH_INVALID", "Target exclusions cannot be empty");
@@ -45,6 +46,7 @@ export const createScopes = async (
           `Symbolic link targets are not supported: ${raw}`,
         );
       }
+
       if (targetStats.isFile()) {
         positive.push({ kind: "file", path, raw });
         continue;
@@ -53,6 +55,7 @@ export const createScopes = async (
         positive.push({ kind: "directory", path, raw });
         continue;
       }
+
       throw new AquariusError(
         "TARGET_PATH_INVALID",
         `Target is not a regular file or directory: ${raw}`,
@@ -69,6 +72,7 @@ export const createScopes = async (
   if (positive.length === 0) {
     throw new AquariusError("TARGET_PATH_INVALID", "At least one non-exclusion target is required");
   }
+
   return { positive, negative };
 };
 
@@ -84,11 +88,13 @@ export const scopeMatches = (scope: Scope, path: string): boolean => {
 
 export const matchesFilePatterns = (path: string, patterns: readonly string[]): boolean => {
   let matched = false;
+
   for (const raw of patterns) {
     const isExclusion = raw.startsWith("!");
     const pattern = isExclusion ? raw.slice(1) : raw;
     if (matchesPath(path, pattern)) matched = !isExclusion;
   }
+
   return matched;
 };
 
@@ -108,12 +114,14 @@ const maskDotSegments = (path: string): string =>
 const normalizePattern = (config: LoadedConfig, input: string): string => {
   if (isAbsolute(input)) {
     const absolute = resolve(input);
+
     if (!isInside(config.projectRoot, absolute)) {
       throw new AquariusError(
         "TARGET_PATH_OUTSIDE_ROOT",
         `Target pattern escapes the project root: ${input}`,
       );
     }
+
     const projectPath = relative(config.projectRoot, absolute);
     return toPosix(projectPath) || "**/*";
   }
@@ -122,6 +130,7 @@ const normalizePattern = (config: LoadedConfig, input: string): string => {
   const relativeCwd = toPosix(relative(config.projectRoot, config.cwd));
   const projectPattern = relativeCwd === "" ? normalizedInput : `${relativeCwd}/${normalizedInput}`;
   const normalizedPattern = posix.normalize(projectPattern);
+
   const escapesProjectRoot =
     normalizedPattern === ".." ||
     normalizedPattern.startsWith("../") ||
@@ -132,6 +141,7 @@ const normalizePattern = (config: LoadedConfig, input: string): string => {
       `Target pattern escapes the project root: ${input}`,
     );
   }
+
   const currentDirectoryPrefix = /^\.\//;
   return normalizedPattern.replace(currentDirectoryPrefix, "");
 };

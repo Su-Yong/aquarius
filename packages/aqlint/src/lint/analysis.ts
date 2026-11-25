@@ -23,6 +23,7 @@ export const createLintAnalysis = (
   >[2]["apply"] = async (update, _current, files, rules) => {
     const diagnosticIds = update.diagnostics.map(({ id }) => id);
     const uniqueDiagnosticIds = new Set(diagnosticIds);
+
     if (uniqueDiagnosticIds.size !== update.diagnostics.length) {
       throw new AquariusError(
         "DUPLICATE_ANALYSIS_ITEM",
@@ -36,6 +37,7 @@ export const createLintAnalysis = (
         nextDiagnostics.set(entry.id, await validator.diagnostic(entry.diagnostic));
         continue;
       }
+
       if (!nextDiagnostics.delete(entry.id)) {
         throw new AquariusError(
           "UNKNOWN_ANALYSIS_ITEM",
@@ -51,6 +53,7 @@ export const createLintAnalysis = (
           "A provisionally skipped rule also has a finding.",
         );
       }
+
       if (diagnostic.locations.some(({ path }) => files.get(path)?.status === "skipped")) {
         throw new AquariusError(
           "CONFLICTING_FILE_RESULT",

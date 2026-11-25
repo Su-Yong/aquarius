@@ -38,6 +38,7 @@ export const readStableRegularFile = async (
       `File does not resolve to its project path: ${validatedPath}`,
     );
   }
+
   const pathBefore = await lstat(currentPath, { bigint: true });
   if (!pathBefore.isFile()) {
     throw new AquariusError("FILE_PATH_UNSUPPORTED", `Expected a regular file: ${validatedPath}`);
@@ -64,6 +65,7 @@ export const readStableRegularFile = async (
 
     assertNotAborted(signal);
     const content = await handle.readFile();
+
     const handleAfter = await handle.stat({ bigint: true });
     const resolvedAfter = await realpath(currentPath);
     const pathAfter = await lstat(currentPath, { bigint: true });
@@ -82,6 +84,7 @@ export const readStableRegularFile = async (
         `File changed while reading: ${validatedPath}`,
       );
     }
+
     assertNotAborted(signal);
     const permissionBits = handleBefore.mode & 0o777n;
     return { content, mode: Number(permissionBits) };

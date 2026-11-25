@@ -30,6 +30,7 @@ export const stringKeyRecordSchema = <Value extends z.ZodType>(valueSchema: Valu
     const prototype: unknown = Object.getPrototypeOf(input);
     return prototype === Object.prototype || prototype === null;
   }, "must be a record");
+
   type RecordRefinement = Parameters<typeof recordSchema.superRefine>[0];
   const validateRecordEntries: RecordRefinement = (record, context) => {
     for (const entry of Object.entries(record)) {
@@ -40,6 +41,7 @@ export const stringKeyRecordSchema = <Value extends z.ZodType>(valueSchema: Valu
       }
     }
   };
+
   return recordSchema.superRefine(validateRecordEntries);
 };
 
@@ -90,6 +92,7 @@ export const buildInstructions = ({
       `Format applicability must be a non-empty single line of at most ${MAX_APPLICABILITY_LENGTH} characters`,
     );
   }
+
   return {
     applicability,
     transformation,

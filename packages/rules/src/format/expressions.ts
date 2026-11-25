@@ -135,8 +135,10 @@ function buildIterationPrompt({
   const imperative =
     "Prefer a clear imperative loop for collection transformations currently expressed as pipelines.";
   const transformation = prefer === "pipeline" ? pipeline : imperative;
+
   if (overrides.length > 0) {
     const serializedOverrides = JSON.stringify(overrides);
+
     return {
       applicability:
         "Collection loops and pipelines in files covered by the default or a path override.",
@@ -148,6 +150,7 @@ function buildIterationPrompt({
       constraints: iterationConstraints,
     };
   }
+
   return {
     applicability:
       prefer === "pipeline"
@@ -257,6 +260,7 @@ function buildConditionReadabilityPrompt({
       transformation: `Inline redundant local condition bindings or one-use predicates with at most ${maxInlineClauses} logical clauses when inlining clarifies the condition.`,
     },
   };
+
   return {
     ...conditionStyles[prefer],
     constraints: [

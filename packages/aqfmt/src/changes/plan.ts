@@ -49,6 +49,7 @@ export const planFileChanges = async (
     allPaths.push(relativePath);
     return relativePath;
   };
+
   const sourceFor = (relativePath: string): SourceChanges => {
     const key = pathKey(relativePath);
     const existing = sources.get(key);
@@ -96,6 +97,7 @@ export const planFileChanges = async (
     }
   }
   assertNoPrefixConflicts(allPaths);
+
   const planned = new Map<string, PlannedFile>();
   const setPlanned = (file: PlannedFile): void => {
     const key = pathKey(file.path);
@@ -114,6 +116,7 @@ export const planFileChanges = async (
         fail("PATH_ALIAS_CONFLICT", `Changed paths name the same file: ${alias}, ${source.path}`);
       sourceIdentities.set(identity, source.path);
     }
+
     const transformed = applyReplacementPatches(source.path, before, source.replacements);
     if (source.delete) {
       setPlanned({ path: source.path, before, after: null });
@@ -127,6 +130,7 @@ export const planFileChanges = async (
       if ((await readProjectFileState(projectRoot, source.moveTo)) !== null) {
         fail("DESTINATION_EXISTS", `Move destination already exists: ${source.moveTo}`);
       }
+
       setPlanned({ path: source.path, before, after: null });
       setPlanned({ path: source.moveTo, before: null, after: transformed });
     } else if (!fileStatesEqual(before, transformed)) {
@@ -145,6 +149,7 @@ export const planFileChanges = async (
     if ((await readProjectFileState(projectRoot, create.path)) !== null) {
       fail("DESTINATION_EXISTS", `Create destination already exists: ${create.path}`);
     }
+
     setPlanned({
       path: create.path,
       before: null,
@@ -166,6 +171,7 @@ export const planPartialFileReplacements = async (
 ): Promise<{ plan: FileChangePlan; failures: ReplacementFailure[] }> => {
   const projectRoot = await canonicalProjectRoot(root);
   const normalizedBaseline = normalizeBaseline(projectRoot, baseline);
+
   const files: PlannedFile[] = [];
   const failures: ReplacementFailure[] = [];
   const replacements = Map.groupBy(changes, ({ path }) => pathKey(path));
@@ -188,12 +194,14 @@ export const planPartialFileReplacements = async (
       if (path !== relativePath || !canWrite(relativePath)) {
         fail("CHANGE_OUTSIDE_SCOPE", `Change is outside the selected scope: ${path}`);
       }
+
       const before = await requireSourceState(projectRoot, relativePath, normalizedBaseline);
       const identity = fileIdentity(before);
       const expectedIdentity = normalizedBaseline.get(pathKey(relativePath))?.identity;
       if (expectedIdentity !== undefined && expectedIdentity !== identity) {
         fail("SOURCE_CHANGED", `File changed after the AI baseline was captured: ${relativePath}`);
       }
+
       sources.push({ path, before, changes: entries });
       if (identity) {
         const paths = aliases.get(identity);
@@ -211,6 +219,7 @@ export const planPartialFileReplacements = async (
       if (paths && paths.length > 1) {
         fail("PATH_ALIAS_CONFLICT", `Changed paths name the same file: ${paths.join(", ")}`);
       }
+
       const after = applyReplacementPatches(path, before, changes);
       if (!fileStatesEqual(before, after)) files.push({ path, before, after });
     } catch (cause) {
@@ -239,6 +248,7 @@ const registerPath = (
 
 const assertNoPrefixConflicts = (paths: readonly string[]): void => {
   const sortedPathKeys = [...new Set(paths.map(pathKey))].sort();
+
   for (let index = 0; index < sortedPathKeys.length; index += 1) {
     const parent = sortedPathKeys[index]!;
     for (let childIndex = index + 1; childIndex < sortedPathKeys.length; childIndex += 1) {
@@ -262,5 +272,6 @@ const normalizeBaseline = (
     const relativePath = normalizeRelativePath(projectRoot, input);
     normalized.set(pathKey(relativePath), value);
   }
+
   return normalized;
 };

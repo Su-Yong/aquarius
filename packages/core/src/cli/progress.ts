@@ -48,6 +48,7 @@ export const startProgress = (enabled: boolean, stream: NodeJS.WriteStream = pro
     const elapsed = formatDuration(Date.now() - startedAt);
     const showDetailCount = interactive && (stream.rows ?? 24) <= 2 && details.length > 0;
     const activity = showDetailCount ? `${details.length} more lines` : message;
+
     if (!interactive) return `[${elapsed}] ${activity}`;
     return progressLineText(
       {
@@ -65,19 +66,24 @@ export const startProgress = (enabled: boolean, stream: NodeJS.WriteStream = pro
   const clear = () => {
     const cannotClear = !interactive || stopped || renderedLines === 0;
     if (cannotClear) return;
+
     const terminalRows = Math.max(1, stream.rows ?? 24);
     const count = Math.min(renderedLines, terminalRows);
+
     let erase = "\r\x1b[2K";
     for (let line = 1; line < count; line += 1) {
       erase += "\x1b[1A\r\x1b[2K";
     }
+
     stream.write(erase);
+
     renderedLines = 0;
   };
 
   const fitDetailRows = (lines: string[], availableRows: number, columns: number): string[] => {
     const hasOverflow = lines.length > availableRows;
     if (!hasOverflow) return lines;
+
     const omitted = lines.length - availableRows + 1;
     if (availableRows === 1) return [lines[0]!];
     return [
@@ -93,12 +99,16 @@ export const startProgress = (enabled: boolean, stream: NodeJS.WriteStream = pro
       );
       return;
     }
+
     clear();
+
     const columns = Math.max(0, (stream.columns ?? 120) - 1);
     const availableRows = Math.max(1, (stream.rows ?? 24) - 1);
     const lines = [heading(), ...details.map((line) => progressLineText(line, stream, columns))];
     const fittedLines = fitDetailRows(lines, availableRows, columns);
+
     stream.write(`\r${fittedLines.join("\n")}`);
+
     renderedLines = fittedLines.length;
     renderedColumns = stream.columns;
     renderedRows = stream.rows;
@@ -109,22 +119,27 @@ export const startProgress = (enabled: boolean, stream: NodeJS.WriteStream = pro
       stream.write(`${heading()}\n`);
       return;
     }
+
     const needsFullRender =
       renderedLines === 0 || renderedColumns !== stream.columns || renderedRows !== stream.rows;
     if (needsFullRender) {
       render();
       return;
     }
+
     const rowsAbove = renderedLines - 1;
     const moveCursorUp = rowsAbove > 0 ? `\x1b[${rowsAbove}A` : "";
     const moveCursorDown = rowsAbove > 0 ? `\x1b[${rowsAbove}B\r` : "";
+
     stream.write(`${moveCursorUp}\r\x1b[2K${heading()}${moveCursorDown}`);
   };
 
   render();
+
   const refreshIntervalMs = interactive ? interactiveRefreshIntervalMs : nonInteractiveRefreshIntervalMs;
   const timer = setInterval(renderActivity, refreshIntervalMs);
   timer.unref();
+
   return {
     update: (next: string) => {
       if (stopped) return;
@@ -169,15 +184,19 @@ export const progressLineText = (
     ...part,
     text: part.text.replace(/[\u0000-\u001f\u007f-\u009f]/gu, " "),
   }));
+
   if (!stream.isTTY || process.env.TERM === "dumb") {
     return parts.map((part) => part.text).join("");
   }
+
   if (status) {
     const { symbol, color } = statusStyles[status];
     parts.unshift({ text: `${symbol} `, color });
   }
+
   const plain = parts.map((part) => part.text).join("");
   const fitted = columns === undefined ? plain : fitProgressLine(plain, columns);
+
   const colors = terminalColors(stream);
   let offset = 0;
   return parts
@@ -201,6 +220,7 @@ export const terminalColors = (stream: NodeJS.WriteStream) => {
 const fitProgressLine = (text: string, columns: number): string => {
   let width = 0;
   let visible = "";
+
   for (const character of text) {
     // Conservatively count non-ASCII as double width so filenames cannot wrap the spinner.
     const characterWidth = character.codePointAt(0)! > 0x7f ? 2 : 1;
@@ -210,5 +230,6 @@ const fitProgressLine = (text: string, columns: number): string => {
     visible += character;
     width += characterWidth;
   }
+
   return visible;
 };

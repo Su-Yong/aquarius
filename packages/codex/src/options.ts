@@ -178,6 +178,7 @@ function validateConfigOverrides(
     const webSearchOverride = overridesWebSearch(key, value);
     const message = configOverrideIssue(key, root, optionPath, webSearchOverride);
     if (message === undefined) continue;
+
     context.addIssue({
       code: "custom",
       path: [key],

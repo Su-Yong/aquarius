@@ -34,8 +34,10 @@ const formatYamlRuleSchema = z
 
 export const lintRuleFromYaml = (text: string): LintRule => {
   const source = parseYaml(text, lintYamlRuleSchema);
+
   validateRuleId(source.id);
   validateTemplateValue(source.prompt);
+
   return {
     id: source.id,
     description: source.description,
@@ -47,8 +49,10 @@ export const lintRuleFromYaml = (text: string): LintRule => {
 
 export const formatRuleFromYaml = (text: string): FormatRule => {
   const source = parseYaml(text, formatYamlRuleSchema);
+
   validateRuleId(source.id);
   validateTemplateValue(source.prompt);
+
   return {
     id: source.id,
     description: source.description,
@@ -66,6 +70,7 @@ const parseYaml = <T>(text: string, schema: z.ZodType<T>): T => {
       const messages = document.errors.map(({ message }) => message);
       throw new Error(messages.join("; "));
     }
+
     value = document.toJS({ maxAliasCount: YAML_MAX_ALIAS_COUNT });
   } catch (error) {
     throw new AquariusError("YAML_PARSE_FAILED", `Cannot parse YAML rule: ${errorMessage(error)}`);
@@ -73,6 +78,7 @@ const parseYaml = <T>(text: string, schema: z.ZodType<T>): T => {
 
   const parsed = schema.safeParse(value);
   if (!parsed.success) invalid(formatZodIssues(parsed.error, "value"));
+
   return parsed.data;
 };
 
@@ -131,7 +137,9 @@ const renderString = (template: string, options: Readonly<JsonObject>): string =
       }
       value = value[part];
     }
+
     if (typeof value === "string") return value;
+
     try {
       const json = JSON.stringify(value);
       if (json === undefined) throw new Error("value is not JSON-serializable");
@@ -143,6 +151,7 @@ const renderString = (template: string, options: Readonly<JsonObject>): string =
       );
     }
   };
+
   return template.replace(/{{\s*([^{}]+?)\s*}}/g, renderPlaceholder);
 };
 
@@ -154,10 +163,13 @@ const validateTemplateSyntax = (template: string): void => {
     if (isInvalidOptionPath) {
       invalid(`only options dot paths are allowed in templates: ${expression.trim()}`);
     }
+
     return "";
   };
+
   const placeholderPattern = /{{\s*([^{}]+?)\s*}}/g;
   const remainder = template.replace(placeholderPattern, removeValidatedPlaceholder);
+
   if (remainder.includes("{{") || remainder.includes("}}"))
     invalid("template contains a malformed placeholder");
 };

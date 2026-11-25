@@ -20,6 +20,7 @@ export const printHuman = (execution: FormatExecutionResult, check: boolean): vo
     result.errors.length > 0 || summary.failedFiles > 0 || execution.exitCode === 2;
   const isUndo = result.restoredFiles !== undefined;
   const displayedChanges = check ? (result.wouldChangeFiles ?? []) : result.changedFiles;
+
   const selectFormattingHeading = (): FormattingHeading => {
     if (execution.exitCode === 130) {
       return { heading: "Formatting cancelled", status: "error" };
@@ -46,10 +47,13 @@ export const printHuman = (execution: FormatExecutionResult, check: boolean): vo
         status: "warning",
       };
     }
+
     return { heading: check ? "Formatting check complete" : "Formatting complete", status: "success" };
   };
+
   const { heading, status } = selectFormattingHeading();
   printHeading(heading, status);
+
   if (isUndo) {
     console.log(`Restored files: ${result.restoredFiles!.length}`);
   } else {
@@ -62,6 +66,7 @@ export const printHuman = (execution: FormatExecutionResult, check: boolean): vo
       ],
     });
   }
+
   const changeLabel = check ? "Would format" : "Formatted";
   for (const file of displayedChanges) {
     console.log(
@@ -72,6 +77,7 @@ export const printHuman = (execution: FormatExecutionResult, check: boolean): vo
       ),
     );
   }
+
   if (formattingFailed || execution.exitCode === 130) {
     const displayedPaths = new Set(displayedChanges);
     for (const file of result.proposedFiles) {
@@ -81,9 +87,11 @@ export const printHuman = (execution: FormatExecutionResult, check: boolean): vo
       );
     }
   }
+
   for (const file of result.restoredFiles ?? []) {
     console.log(statusText(safeText(`Restored ${file}`), "success", process.stdout));
   }
+
   printReportDetails(result);
 };
 

@@ -14,6 +14,7 @@ export const analysisLines = (
     const [location, ...additionalLocations] = diagnostic.locations;
     const primaryLocationText = location ? `${location.path}:${location.line}:${location.column}` : "(project)";
     const ruleNames = diagnostic.rules.map(({ rule }) => rule).join(", ");
+
     lines.push({
       text: [
         { text: primaryLocationText, color: "cyan" },
@@ -26,6 +27,7 @@ export const analysisLines = (
       ],
       status: diagnostic.severity === "error" ? "error" : "warning",
     });
+
     for (const additional of additionalLocations) {
       lines.push({
         text: [
@@ -34,6 +36,7 @@ export const analysisLines = (
         ],
       });
     }
+
     for (const evidence of diagnostic.evidence) {
       lines.push({
         text: [

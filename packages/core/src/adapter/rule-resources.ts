@@ -37,6 +37,7 @@ export const buildRuleResources = (
     instructions: tool === "lint" ? lintInstructionsSchema : formatInstructionsSchema,
   });
   const seen = new Set<string>();
+
   const buildRuleResource = (rule: PreparedRule): RuleResource => {
     const parsed = detailSchema.safeParse({
       ruleId: rule.id,
@@ -48,6 +49,7 @@ export const buildRuleResources = (
     if (isInvalidOrRepeated) {
       throw new AquariusError("INVALID_RULE_RESOURCE", `Invalid or repeated rule: ${rule.id}`);
     }
+
     seen.add(rule.id);
     const content = `${JSON.stringify(parsed.data, null, 2)}\n`;
     return {
@@ -59,6 +61,7 @@ export const buildRuleResources = (
       contentHash: hashContent(content),
     };
   };
+
   return rules.map(buildRuleResource);
 };
 
@@ -69,29 +72,37 @@ export const writeRuleResources = async (
 ): Promise<string[]> => {
   assertActive(signal);
   const files = validateRuleResources(resources);
+
   const view = await snapshotRoot(viewRoot);
   const directories = new Set<string>();
+
   for (const file of files) {
     assertActive(signal);
+
     const pathSegments = file.detailsPath.split("/");
     const directory = pathSegments[0]!;
     const destination = join(view, file.detailsPath);
+
     try {
       if (!directories.has(directory)) {
         await mkdir(join(view, directory), { mode: 0o700 });
         directories.add(directory);
       }
+
       await writeSnapshotFile(destination, file.content, 0o400, signal);
     } catch (error) {
       assertActive(signal);
       if (!isNodeError(error, "EEXIST")) throw error;
+
       throw new AquariusError(
         "RULE_RESOURCE_CONFLICT",
         `Rule resource conflicts with snapshot content: ${file.detailsPath}`,
       );
     }
   }
+
   assertActive(signal);
+
   return files.map(({ detailsPath }) => detailsPath);
 };
 
@@ -115,9 +126,11 @@ const validateRuleResources = (resources: readonly RuleResource[]): RuleResource
 
   const pathKeys = new Set<string>();
   const ruleIds = new Set<string>();
+
   for (const resource of parsed.data) {
     const path = resource.detailsPath;
     const pathKey = process.platform === "win32" ? path.toLowerCase() : path;
+
     const isInvalidOrRepeated =
       safeRelativePath(path) !== path ||
       !RULE_RESOURCE_PATH_PATTERN.test(path) ||
@@ -129,14 +142,17 @@ const validateRuleResources = (resources: readonly RuleResource[]): RuleResource
         "Invalid or repeated rule resource path or ID.",
       );
     }
+
     if (hashContent(resource.content) !== resource.contentHash) {
       throw new AquariusError(
         "RULE_RESOURCE_CHANGED",
         "A rule file does not match its content hash.",
       );
     }
+
     pathKeys.add(pathKey);
     ruleIds.add(resource.ruleId);
   }
+
   return parsed.data;
 };

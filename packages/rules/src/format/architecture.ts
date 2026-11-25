@@ -46,6 +46,7 @@ export const architectureFormatRules = [
         featureDir === undefined
           ? "Use existing feature directory conventions."
           : `Use ${JSON.stringify(featureDir)} as the configured project-relative location for feature directories, substituting the existing feature name where a {feature} placeholder is present.`;
+
       return {
         applicability:
           style === "feature-colocated"

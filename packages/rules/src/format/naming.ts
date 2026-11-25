@@ -95,6 +95,7 @@ function createMagicValuesRule() {
     );
     const serializedCategories = JSON.stringify(categories);
     const serializedIgnoredLiterals = ignoredLiterals.join(",");
+
     return {
       applicability:
         "Literals that encode a configured domain concept or unit without a clear name.",

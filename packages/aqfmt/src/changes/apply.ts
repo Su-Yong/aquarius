@@ -34,15 +34,18 @@ export const applyFileChanges = async (
   store: UndoStore | null,
 ): Promise<{ changedFiles: string[]; undoAvailable: boolean }> => {
   if (plan.files.length === 0) return { changedFiles: [], undoAvailable: store !== null };
+
   await assertFilePlanState(plan, "before");
   const directoryCandidates = await missingParentDirectories(plan.projectRoot, plan.files, "after");
   const transaction = store ? await store.begin(plan, directoryCandidates) : null;
   const createdDirectories: string[] = [];
+
   try {
     await transitionFilePlan(plan, "before", "after", false, createdDirectories);
     if (transaction) await transaction.commit(createdDirectories);
   } catch (error) {
     if (transaction?.committed) throw error;
+
     if (error instanceof FileTransitionRecoveredError) {
       try {
         await removeEmptyDirectories(plan.projectRoot, createdDirectories);
@@ -56,6 +59,7 @@ export const applyFileChanges = async (
       }
       throw error.original;
     }
+
     if (error instanceof AquariusError && error.code === "FILE_TRANSACTION_INCOMPLETE") {
       if (transaction) await transaction.preserve().catch(() => undefined);
       throw new AquariusError(
@@ -63,6 +67,7 @@ export const applyFileChanges = async (
         `${error.message}${transaction ? " Recovery data was preserved." : " Git recovery data is unavailable."}`,
       );
     }
+
     try {
       await transitionFilePlan(plan, "after", "before", true);
       await removeEmptyDirectories(plan.projectRoot, createdDirectories);
@@ -78,6 +83,7 @@ export const applyFileChanges = async (
     }
     throw error;
   }
+
   return { changedFiles: plan.files.map((file) => file.path), undoAvailable: store !== null };
 };
 
@@ -111,21 +117,25 @@ export const transitionFilePlan = async (
   const createdStart = createdDirectoriesOutput.length;
   await createDirectories(plan.projectRoot, directoryCandidates, createdDirectoriesOutput);
   const createdDirectories = createdDirectoriesOutput.slice(createdStart);
+
   const staged = new Map<string, string>();
   const backups = new Map<string, string>();
   const installed = new Map<string, string>();
   let activeFiles: PlannedFile[] = [];
   let finalStateVerified = false;
+
   try {
     for (const file of plan.files) {
       const target = file[to];
       if (target !== null)
         staged.set(pathKey(file.path), await stageFile(plan.projectRoot, file.path, target));
     }
+
     const current = await verifySource();
     activeFiles = plan.files.filter(
       (file) => !fileStatesEqual(current.get(pathKey(file.path)) ?? null, file[to]),
     );
+
     for (const file of activeFiles) {
       const source = file[from];
       if (source === null) continue;
@@ -134,6 +144,7 @@ export const transitionFilePlan = async (
       await assertStableParent(plan.projectRoot, file.path);
       await rename(target, backup);
       backups.set(pathKey(file.path), backup);
+
       await assertStableParent(plan.projectRoot, file.path);
       const moved = await readAbsoluteFileState(backup, file.path);
       if (!fileStatesAndIdentityEqual(moved, source)) {
@@ -144,6 +155,7 @@ export const transitionFilePlan = async (
       slash(path.relative(plan.projectRoot, backup)),
     );
     await assertNoAlternateDataStreams(plan.projectRoot, backupPaths);
+
     for (const file of activeFiles) {
       const temporary = staged.get(pathKey(file.path));
       if (!temporary) continue;
@@ -151,15 +163,19 @@ export const transitionFilePlan = async (
       const stagedIdentity = stagedState && fileIdentity(stagedState);
       if (!stagedIdentity)
         fail("FILE_IDENTITY_UNAVAILABLE", `Cannot identify staged file: ${file.path}`);
+
       await assertStableParent(plan.projectRoot, file.path);
       await link(temporary, absolutePath(plan.projectRoot, file.path));
       installed.set(pathKey(file.path), stagedIdentity);
       await assertStableParent(plan.projectRoot, file.path);
+
       await unlink(temporary);
       staged.delete(pathKey(file.path));
     }
+
     await cleanupTemporaryFiles(staged.values());
     staged.clear();
+
     await assertNoAlternateDataStreams(plan.projectRoot, [
       ...backupPaths,
       ...plan.files.map(({ path }) => path),
@@ -174,6 +190,7 @@ export const transitionFilePlan = async (
     }
     await assertPlanContentState(plan, to);
     finalStateVerified = true;
+
     for (const backup of backups.values()) await unlink(backup);
   } catch (error) {
     let cleanupError: unknown;
@@ -186,6 +203,7 @@ export const transitionFilePlan = async (
     } catch (caught) {
       cleanupError = caught;
     }
+
     if (cleanupError) {
       throw new AquariusError(
         "FILE_TRANSACTION_INCOMPLETE",
@@ -195,6 +213,7 @@ export const transitionFilePlan = async (
     if (!finalStateVerified) throw new FileTransitionRecoveredError(error);
     throw error;
   }
+
   return createdDirectories;
 };
 
@@ -205,6 +224,7 @@ export const removeEmptyDirectories = async (
   const sortedDirectories = [...new Set(directories)].sort(
     (left, right) => right.split("/").length - left.split("/").length,
   );
+
   for (const relativePath of sortedDirectories) {
     try {
       const absolute = await assertSafePath(root, relativePath);
@@ -242,6 +262,7 @@ const missingParentDirectories = async (
         parent = path.posix.dirname(parent);
         continue;
       }
+
       const absolute = await assertSafePath(root, parent);
       try {
         const stat = await lstat(absolute);
@@ -257,6 +278,7 @@ const missingParentDirectories = async (
       parent = path.posix.dirname(parent);
     }
   }
+
   return [...missing.values()].sort(
     (left, right) => left.split("/").length - right.split("/").length,
   );
@@ -268,6 +290,7 @@ const createDirectories = async (
   createdOutput: string[],
 ): Promise<void> => {
   const created: string[] = [];
+
   try {
     for (const relativePath of directories) {
       const absolute = await assertSafePath(root, relativePath);
@@ -300,6 +323,7 @@ const stageFile = async (root: string, relativePath: string, state: FileState): 
   const target = absolutePath(root, relativePath);
   const temporary = path.join(path.dirname(target), `.aqfmt-${randomUUID()}.tmp`);
   await assertStableParent(root, relativePath);
+
   const handle = await open(temporary, "wx", state.mode);
   try {
     await handle.writeFile(state.content);
@@ -312,6 +336,7 @@ const stageFile = async (root: string, relativePath: string, state: FileState): 
     await unlink(temporary).catch(() => undefined);
     throw error;
   }
+
   return temporary;
 };
 
@@ -332,6 +357,7 @@ const siblingArtifact = (root: string, relativePath: string, suffix: string): st
 
 const assertPlanContentState = async (plan: FileChangePlan, side: PlanSide): Promise<void> => {
   const current = await currentStates(plan);
+
   for (const file of plan.files) {
     if (!fileStatesEqual(current.get(pathKey(file.path)) ?? null, file[side])) {
       fail("FILE_CHANGED", `File no longer matches the expected ${side} content: ${file.path}`);
@@ -351,14 +377,17 @@ const restoreMovedSources = async (
     plan.projectRoot,
     activeFiles.map(({ path }) => path),
   );
+
   for (const file of [...activeFiles].reverse()) {
     const key = pathKey(file.path);
     const target = absolutePath(plan.projectRoot, file.path);
     const backup = backups.get(key);
     const current = await readProjectFileState(plan.projectRoot, file.path);
+
     if (backup) {
       const selectRollbackPath = (): string | undefined => {
         if (current === null) return undefined;
+
         const installedIdentity = installed.get(key);
         const installedFileChanged =
           !installedIdentity ||
@@ -370,14 +399,17 @@ const restoreMovedSources = async (
             `A user file appeared while restoring ${file.path}; backup was preserved at ${backup}`,
           );
         }
+
         return siblingArtifact(plan.projectRoot, file.path, "rollback");
       };
+
       const displaced = selectRollbackPath();
       if (displaced) {
         await assertStableParent(plan.projectRoot, file.path);
         await rename(target, displaced);
         await assertStableParent(plan.projectRoot, file.path);
       }
+
       try {
         await link(backup, target);
         await assertStableParent(plan.projectRoot, file.path);
@@ -388,6 +420,7 @@ const restoreMovedSources = async (
         }
         throw error;
       }
+
       if (displaced) await unlink(displaced);
     } else if (file[from] === null && current !== null) {
       const installedIdentity = installed.get(key);
@@ -398,6 +431,7 @@ const restoreMovedSources = async (
       if (installedFileChanged) {
         fail("FILE_CHANGED", `A user file replaced the created path during rollback: ${file.path}`);
       }
+
       const discarded = siblingArtifact(plan.projectRoot, file.path, "rollback");
       await assertStableParent(plan.projectRoot, file.path);
       await rename(target, discarded);
@@ -405,5 +439,6 @@ const restoreMovedSources = async (
       await unlink(discarded);
     }
   }
+
   await assertPlanContentState(plan, from);
 };

@@ -54,6 +54,7 @@ export const executeFormat = async (
     baseline = await captureBaseline(policy.projectRoot, policy.targets);
     const baselineByIdentity = Map.groupBy(baseline, ([, { identity }]) => identity);
     baselineByIdentity.delete(undefined);
+
     for (const entries of baselineByIdentity.values()) {
       if (entries.length < 2) continue;
       for (const [path] of entries) aliasedPaths.add(path);
@@ -92,6 +93,7 @@ export const executeFormat = async (
         };
       }
     }
+
     assertNotCancelled(options.signal);
     if (options.check) {
       wouldChangeFiles = plan.files.map(({ path }) => path);
@@ -106,6 +108,7 @@ export const executeFormat = async (
     assertNotCancelled(options.signal);
     const appliedChanges = await applyFileChanges(plan, undoStore);
     changedFiles = appliedChanges.changedFiles;
+
     if (appliedChanges.undoAvailable) {
       return response;
     }
@@ -154,6 +157,7 @@ export const executeFormat = async (
       validateBatchReplacements(response, context, baseline, hasAlias),
     afterReview: applyReviewedChanges,
   });
+
   const { changes, warnings, errors, skippedRules, fileResults } = execution.response;
   const { ai } = execution;
   const result = {
@@ -167,6 +171,7 @@ export const executeFormat = async (
     fileResults,
     summary: summarizeFormatResult(fileResults, execution.activeRules, execution.totalFiles),
   };
+
   const selectCheckExitCode = (): 0 | 1 => (wouldChangeFiles?.length ? 1 : 0);
   const exitCode = execution.exitCode || selectCheckExitCode();
   return { result, exitCode };
@@ -182,6 +187,7 @@ const executeUndo = async (options: FormatExecutionOptions): Promise<FormatExecu
     fileResults: [],
     summary: summarizeFormatResult([], 0, null),
   };
+
   let restoredFiles: string[];
   try {
     if (options.check || options.paths?.length) {
@@ -190,8 +196,10 @@ const executeUndo = async (options: FormatExecutionOptions): Promise<FormatExecu
         "--undo cannot be combined with --check or target paths.",
       );
     }
+
     const config = await loadConfig("format", options);
     assertNotCancelled(options.signal);
+
     options.onProgress?.("Restoring files");
     assertNotCancelled(options.signal);
     restoredFiles = await undoLastFileChanges(config.projectRoot);
@@ -201,6 +209,7 @@ const executeUndo = async (options: FormatExecutionOptions): Promise<FormatExecu
       exitCode: options.signal?.aborted ? 130 : 2,
     };
   }
+
   return { result: { ...result, restoredFiles }, exitCode: 0 };
 };
 

@@ -35,11 +35,13 @@ export const validateBatchReplacements = async (
   const repairedChanges: ReplaceChange[] = [];
   const unresolvedFailures: ReplacementFailure[] = [];
   const warnings = [...response.warnings];
+
   for (const failure of failures) {
     if (!failure.repairable || signal.aborted) {
       unresolvedFailures.push(failure);
       continue;
     }
+
     replacedPaths.add(failure.path);
     try {
       const repaired = await repairReplacement(
@@ -56,6 +58,7 @@ export const validateBatchReplacements = async (
       unresolvedFailures.push(withRepairError(failure, message, code));
     }
   }
+
   const changes = response.changes.filter(
     (change) => change.op !== "replace" || !replacedPaths.has(change.path),
   );
@@ -94,6 +97,7 @@ const repairReplacement = async (
     signal,
     { keepAlive: true },
   );
+
   const repaired = normalizeFormatResponse(
     repairResponse,
     repairRules,
@@ -120,6 +124,7 @@ const repairReplacement = async (
     const verificationFailure = verification.failures[0];
     if (verificationFailure) return { failure: verificationFailure, changes };
   }
+
   return { changes, warnings: repaired.warnings };
 };
 

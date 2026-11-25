@@ -4,9 +4,11 @@ import { realpath } from "node:fs/promises";
 export const findGitDirectory = async (projectRoot: string): Promise<string | null> => {
   let insideWorktree: string;
   let gitDirectory: string;
+
   try {
     const worktreeStatus = await runGit(projectRoot, ["rev-parse", "--is-inside-work-tree"]);
     insideWorktree = worktreeStatus.toString("utf8").trim();
+
     const gitDirectoryOutput = await runGit(projectRoot, [
       "rev-parse",
       "--path-format=absolute",
@@ -16,7 +18,9 @@ export const findGitDirectory = async (projectRoot: string): Promise<string | nu
   } catch {
     return null;
   }
+
   if (insideWorktree !== "true" || !gitDirectory) return null;
+
   return await realpath(gitDirectory);
 };
 
@@ -33,12 +37,15 @@ export const runGit = async (
       stdio: ["pipe", "pipe", "pipe"],
       windowsHide: true,
     });
+
     const stdoutChunks: Buffer[] = [];
     const collectStdout = (chunk: Buffer) => stdoutChunks.push(chunk);
     child.stdout.on("data", collectStdout);
+
     const stderrChunks: Buffer[] = [];
     const collectStderr = (chunk: Buffer) => stderrChunks.push(chunk);
     child.stderr.on("data", collectStderr);
+
     let settled = false;
     const rejectOnSpawnError = (error: Error) => {
       if (settled) return;
@@ -54,9 +61,11 @@ export const runGit = async (
         reject(new Error(stderrText.trim() || `git exited with status ${code}`));
         return;
       }
+
       resolve(Buffer.concat(stdoutChunks));
     };
     child.once("close", settleOnExit);
+
     const ignoreStdinError = () => undefined;
     child.stdin.on("error", ignoreStdinError);
     child.stdin.end(input ? Buffer.from(input) : undefined);

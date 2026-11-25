@@ -36,6 +36,7 @@ const commentPolicy = createFormatRule({
     const language = docs?.language ?? "preserve";
     const maxSummarySentences = docs?.maxSummarySentences ?? 2;
     const tags = docs?.tags;
+
     const buildDocumentationSyncInstructions = () => {
       const instructions = [
         `Synchronize existing documentation with verified code and signatures. Keep summaries to at most ${maxSummarySentences} sentences.`,
@@ -43,12 +44,15 @@ const commentPolicy = createFormatRule({
         tags &&
           `Apply tag synchronization to these configured tags: ${JSON.stringify(tags)}. Preserve other tags.`,
       ];
+
       return instructions.filter(Boolean).join(" ");
     };
+
     const documentationInstructions =
       mode === "sync-existing"
         ? buildDocumentationSyncInstructions()
         : "Keep existing documentation comments unchanged.";
+
     return {
       applicability: "Source comments, commented-out code, and existing documentation comments.",
       transformation: [

@@ -51,6 +51,7 @@ function createStructureRules() {
         preserve: "Preserve the relative order of exports.",
         alphabetical: "Order exports within their section alphabetically by exported name.",
       };
+
       return {
         applicability: "Files with identifiable module, React component, or class sections.",
         transformation: [
@@ -98,6 +99,7 @@ function createStructureRules() {
           "Place unmatched properties after matched groups and sort them alphabetically.",
         end: "Place unmatched properties after matched groups in their existing relative order.",
       };
+
       return {
         applicability:
           "Configured property-bearing declarations that clearly match a semantic profile.",
@@ -221,6 +223,7 @@ function createStructureRules() {
           "Replace literal flag arguments with named properties in an options object.",
         preserve: "Keep existing literal flag calls in their current form.",
       };
+
       return {
         applicability:
           "Module-internal calls and functions that select behavior using boolean flags.",
@@ -370,11 +373,13 @@ function createStructureRules() {
         spacious:
           "Separate finer logical units, including independent setup, branches and loops, result assembly, and the final return.",
       };
+
       const unmatchedInstruction =
         unmatched === "end" && reorder !== "none"
           ? "Place unmatched or ambiguous statements at the end of the safely movable region if eligible under the selected reorder mode, preserving their relative order. Keep the others in place."
           : "Keep unmatched or ambiguous statements in their current positions.";
       const mode = reorderModes[reorder];
+
       return {
         applicability: mode.applicability,
         transformation: [

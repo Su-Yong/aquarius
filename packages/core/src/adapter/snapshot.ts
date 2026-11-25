@@ -20,6 +20,7 @@ export const createReadonlySnapshot = async (
   if (!sourceStats.isDirectory()) {
     throw new AquariusError("SNAPSHOT_ROOT_INVALID", "Project root must be a regular directory.");
   }
+
   const destinationRoot = await snapshotRoot(viewRoot);
   if (destinationRoot === sourceRoot) {
     throw new AquariusError(
@@ -27,13 +28,16 @@ export const createReadonlySnapshot = async (
       "Snapshot root must differ from the project root.",
     );
   }
+
   const files = normalizeSnapshotPaths(readableFiles);
 
   for (const [index, path] of files.entries()) {
     assertActive(signal);
+
     const file = await readStableRegularFile(sourceRoot, path, signal);
     const outputPath = join(destinationRoot, path);
     const mode = process.platform === "win32" ? file.mode | 0o200 : file.mode & 0o555;
+
     await ensureSnapshotParents(destinationRoot, path);
     assertActive(signal);
     try {
@@ -51,6 +55,7 @@ export const createReadonlySnapshot = async (
       onProgress?.(`Preparing snapshot ${count}/${files.length}: ${path}`);
     }
   }
+
   assertActive(signal);
   return files;
 };
@@ -70,6 +75,7 @@ export const writeSnapshotFile = async (
   signal?: AbortSignal,
 ): Promise<void> => {
   const handle = await open(path, "wx", mode);
+
   try {
     await handle.writeFile(content, { signal });
     if (process.platform !== "win32") await handle.chmod(mode);
@@ -86,6 +92,7 @@ const assertActive = (signal: AbortSignal | undefined): void => {
 
 const normalizeSnapshotPaths = (paths: readonly string[]): string[] => {
   const seen = new Set<string>();
+
   const normalizeUniquePath = (input: string): string => {
     const path = safeRelativePath(input);
     if (!path) {
@@ -94,25 +101,30 @@ const normalizeSnapshotPaths = (paths: readonly string[]): string[] => {
         `Snapshot path must be a normalized project-relative path: ${input}`,
       );
     }
+
     const comparisonPath = process.platform === "win32" ? path.toLowerCase() : path;
     if (seen.has(comparisonPath)) {
       throw new AquariusError("FILE_PATH_INVALID", `Duplicate snapshot path: ${path}`);
     }
+
     seen.add(comparisonPath);
     return path;
   };
+
   return paths.map(normalizeUniquePath);
 };
 
 const ensureSnapshotParents = async (root: string, path: string): Promise<void> => {
   const parents = path.split("/").slice(0, -1);
   let directory = root;
+
   for (const parent of parents) {
     directory = join(directory, parent);
     try {
       await mkdir(directory, { mode: 0o700 });
     } catch (error) {
       if (!isNodeError(error, "EEXIST")) throw error;
+
       const directoryStats = await lstat(directory);
       if (!directoryStats.isDirectory()) {
         throw new AquariusError("SNAPSHOT_CONFLICT", `Snapshot directory conflicts with: ${path}`);

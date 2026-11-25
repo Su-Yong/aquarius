@@ -38,6 +38,7 @@ function createRefactorRules() {
       const flagPolicy = wrapBooleanFlags
         ? "Wrap positional boolean policy flags in named options regardless of argument count, and keep existing named flags when unwrapping other options."
         : "Treat boolean flags like other parameters when applying the selected style.";
+
       return {
         applicability:
           prefer === "options-object"

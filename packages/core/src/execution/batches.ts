@@ -45,6 +45,7 @@ export const reviewBatches = async <Details extends object, SnapshotDetails exte
   const controller = new AbortController();
   const signal = AbortSignal.any([controller.signal, options.signal]);
   const groups: Group<Details, SnapshotDetails>[] = [];
+
   for (let offset = 0; offset < policy.targets.length; offset += options.fileBatchSize) {
     groups.push({
       paths: policy.targets.slice(offset, offset + options.fileBatchSize),
@@ -63,6 +64,7 @@ export const reviewBatches = async <Details extends object, SnapshotDetails exte
         ? reviewFiles(paths, "failed", "AI execution was cancelled.")
         : reviewFiles(paths, "skipped", "Not started because execution was cancelled.");
     }
+
     const reason = started
       ? "Cancelled because another file group failed."
       : "Not started because another file group failed.";
@@ -72,9 +74,11 @@ export const reviewBatches = async <Details extends object, SnapshotDetails exte
     if (group.response || signal.aborted) return groupOutcome(group);
     return group.snapshot?.fileResults ?? group.paths.map(pendingFileReview);
   };
+
   let revision = 0;
   const publish = (response?: ReviewResponse & Details): void => {
     if (!options.onUpdate) return;
+
     const snapshots = groups.flatMap(({ snapshot }) => (snapshot ? [snapshot] : []));
     const phase = reviewPhase(response);
     const selectSnapshotDetails = (): SnapshotDetails => {
@@ -89,6 +93,7 @@ export const reviewBatches = async <Details extends object, SnapshotDetails exte
       }
       return hooks.mergeAnalysis(snapshots);
     };
+
     const details = selectSnapshotDetails();
     const snapshot: AnalysisSnapshot & SnapshotDetails = {
       ...details,
@@ -98,6 +103,7 @@ export const reviewBatches = async <Details extends object, SnapshotDetails exte
       ruleResults: mergeRuleReviews(rules, groups, response),
       errors: response?.errors ?? [],
     };
+
     notify(options.onUpdate, structuredClone(snapshot), () =>
       notify(
         options.onWarning,
@@ -114,6 +120,7 @@ export const reviewBatches = async <Details extends object, SnapshotDetails exte
       canWrite: (path) => targets.has(path) && policy.canWrite(path),
     };
     let previousErrors: RunError[] = [];
+
     for (let attempt = 0; attempt < MAX_BATCH_ATTEMPTS && !signal.aborted; attempt += 1) {
       const analysis = shouldTrackAnalysis
         ? hooks.createAnalysis(rules, groupPolicy, request.ruleResources, {
@@ -128,6 +135,7 @@ export const reviewBatches = async <Details extends object, SnapshotDetails exte
         ? `The previous attempt left this file group incomplete: ${JSON.stringify(previousErrors)}. Review every assigned file and rule and return a complete result. Replace the previous response rather than combining both attempts.\n\n`
         : "";
       const progressPrefix = fileGroupProgressPrefix(groups.length, index, attempt);
+
       if (signal.aborted) return;
       group.started = true;
       try {
@@ -153,6 +161,7 @@ export const reviewBatches = async <Details extends object, SnapshotDetails exte
           request.ruleResources,
         );
         if (signal.aborted) return;
+
         if (attempt === 0 && response.retryable) {
           previousErrors = response.errors;
           await analysis?.flush();
@@ -169,6 +178,7 @@ export const reviewBatches = async <Details extends object, SnapshotDetails exte
               timeoutMs: options.timeoutMs,
             })
           : response;
+
         if (!hooks.continueOnBatchFailure && hasFailedReview(group.response)) controller.abort();
         await analysis?.finish(group.response);
         return;
@@ -177,6 +187,7 @@ export const reviewBatches = async <Details extends object, SnapshotDetails exte
           await analysis?.flush();
           return;
         }
+
         const error = toRunError(cause);
         group.interrupted = true;
         group.response = {
@@ -186,6 +197,7 @@ export const reviewBatches = async <Details extends object, SnapshotDetails exte
           skippedRules: [],
           retryable: false,
         };
+
         if (!hooks.continueOnBatchFailure) controller.abort();
         await analysis?.interrupt([error]);
         return;
@@ -201,6 +213,7 @@ export const reviewBatches = async <Details extends object, SnapshotDetails exte
       await runGroup(groups[index]!, index);
     }
   };
+
   await Promise.all(
     Array.from({ length: Math.min(options.maxConcurrency, groups.length) }, worker),
   );
@@ -210,6 +223,7 @@ export const reviewBatches = async <Details extends object, SnapshotDetails exte
   if (options.signal.aborted && !errors.some(({ code }) => code === "AI_ABORTED")) {
     errors.push(toRunError(new AquariusError("AI_ABORTED", "Execution was cancelled.")));
   }
+
   const response: ReviewResponse & Details = {
     ...hooks.merge(responses),
     fileResults: groups.flatMap(groupOutcome),
@@ -241,6 +255,7 @@ const mergeSkippedRules = <Details, SnapshotDetails>(
         ? response.skippedRules.find(({ ruleId }) => ruleId === id)?.reason
         : undefined,
     );
+
     return reasons.length && reasons.every((reason) => reason !== undefined)
       ? [{ ruleId: id, reason: summarizeBatchReasons(reasons) }]
       : [];
@@ -259,6 +274,7 @@ const mergeRuleReviews = <Details, SnapshotDetails>(
     if (finalResponse) return undefined;
     return snapshot?.ruleResults;
   };
+
   const reviewsByGroup = groups.map(reviewGroupRules);
   const mergeRuleReview = ({ id }: PreparedRule, index: number): RuleReview => {
     const finalReview = finalReviews?.[index];
@@ -267,6 +283,7 @@ const mergeRuleReviews = <Details, SnapshotDetails>(
     const reviews = reviewsByGroup.map((group) => group?.[index]);
     const failed = reviews.find((rule) => rule?.status === "failed");
     if (failed) return failed;
+
     if (
       reviews.every(
         (rule): rule is RuleReview & { status: "skipped" } => rule?.status === "skipped",
@@ -288,10 +305,12 @@ const mergeRuleReviews = <Details, SnapshotDetails>(
         reason: "Rule review did not complete for every file group.",
       };
     }
+
     return reviews.some((rule) => rule && rule.status !== "pending")
       ? { ruleId: id, status: "in_progress", reason: "Reviewing remaining file groups." }
       : { ruleId: id, status: "pending", reason: "" };
   };
+
   return rules.map(mergeRuleReview);
 };
 

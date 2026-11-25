@@ -19,6 +19,7 @@ export const resolveCodexExecutable = async (explicit?: string): Promise<string>
       );
     if (!(await isExecutableFile(explicit)))
       throw new AquariusError("CODEX_EXECUTABLE_NOT_FOUND", "Codex executable was not found.");
+
     return realpath(explicit);
   }
 
@@ -39,6 +40,7 @@ export const resolveCodexExecutable = async (explicit?: string): Promise<string>
   for (const directory of pathDirectories) {
     const shim = join(directory, executableName);
     if (!(await isExecutableFile(shim))) continue;
+
     if (process.platform !== "win32") {
       try {
         const resolvedShim = await realpath(shim);
@@ -51,6 +53,7 @@ export const resolveCodexExecutable = async (explicit?: string): Promise<string>
         // Fall through to the executable itself when a shim target cannot be resolved.
       }
     }
+
     return realpath(shim);
   }
 
@@ -104,19 +107,23 @@ const platformPackage = (): PlatformPackage | undefined => {
       binary: "codex.exe",
     },
   };
+
   return targets[platformKey];
 };
 
 const packagedBinary = async (packageRoot: string): Promise<string | undefined> => {
   const platform = platformPackage();
   if (!platform) return undefined;
+
   const packageDirectory = join(packageRoot, "node_modules", "@openai", platform.packageName);
   const nodeModulesDirectory = dirname(dirname(packageRoot));
   const hoistedDirectory = join(nodeModulesDirectory, "@openai", platform.packageName);
+
   for (const directory of [packageDirectory, hoistedDirectory]) {
     const candidate = join(directory, "vendor", platform.target, "bin", platform.binary);
     if (await isExecutableFile(candidate)) return candidate;
   }
+
   return undefined;
 };
 

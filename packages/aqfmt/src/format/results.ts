@@ -39,6 +39,7 @@ export const normalizeFormatResponse = (
   const fileOnly = rules.every(({ scope }) => scope === "file");
   const targets = new Set(policy.targets);
   const unassignedScopeErrors: RunError[] = [];
+
   for (const item of body.changes!) {
     try {
       const change = validator.change(item);
@@ -50,6 +51,7 @@ export const normalizeFormatResponse = (
           "Skipped file " + skippedPath + " also has a change.",
         );
       }
+
       changes.push(change);
     } catch (cause) {
       const error = toRunError(cause, "INVALID_FILE_CHANGE");
@@ -58,6 +60,7 @@ export const normalizeFormatResponse = (
         fileOnly &&
         error.code === "CHANGE_OUTSIDE_SCOPE" &&
         !paths.some((path) => targets.has(path));
+
       if (isUnassignedScopeError) {
         unassignedScopeErrors.push(error);
       } else {
@@ -93,6 +96,7 @@ export const createFormatValidator = (
   const knownRuleIds = new Set(rules.map(({ id }) => id));
   const targetPaths = new Set(policy.targets);
   const fileOnly = rules.every(({ scope }) => scope === "file");
+
   const resourceDirectoryKey = (path: string): string => {
     const directory = path.split("/")[0]!;
     return directory.toLowerCase();
@@ -112,6 +116,7 @@ export const createFormatValidator = (
         "Change is outside the selected scope: " + path,
       );
     }
+
     return path;
   };
 
@@ -120,6 +125,7 @@ export const createFormatValidator = (
     change: (input: unknown): FileChange => {
       const change = parseResultItem(fileChangeSchema, input, "file change");
       references(change.ruleIds, knownRuleIds, false, skippedRuleIds);
+
       const changePaths = formatChangePaths([change]);
       for (const path of changePaths) proposedPath(path);
       if (fileOnly && change.op !== "replace") {
@@ -137,6 +143,7 @@ export const createFormatValidator = (
           "Existing-file changes require a selected target: " + sourcePath,
         );
       }
+
       return change;
     },
     warning: (input: unknown): FormatWarning => {
@@ -144,6 +151,7 @@ export const createFormatValidator = (
       references(warning.ruleIds, knownRuleIds, true, skippedRuleIds);
       nonempty(warning.code, "Warning code");
       nonempty(warning.message, "Warning message");
+
       for (const path of warning.paths) {
         normalizedPath(path);
         if (isInternalPath(path) || policy.isIgnored(path)) {
@@ -153,6 +161,7 @@ export const createFormatValidator = (
           );
         }
       }
+
       return warning;
     },
   };
@@ -191,7 +200,9 @@ export const recordReplacementFailures = (
     seenAliasKeys.add(aliasKey);
     return true;
   };
+
   const errors = [...response.errors, ...failures.map(({ error }) => error)].filter(isNewError);
+
   return {
     ...response,
     changes: response.changes.filter(
@@ -217,20 +228,24 @@ export const summarizeFormatResult = (
     failedFiles: 0,
     activeRules,
   };
+
   for (const file of fileResults) {
     if (file.status === "completed") summary.completedFiles += 1;
     else if (file.status === "skipped") summary.skippedFiles += 1;
     else summary.failedFiles += 1;
   }
+
   return summary;
 };
 
 const itemPaths = (item: unknown): string[] => {
   if (typeof item !== "object" || item === null) return [];
+
   const paths: unknown[] = [];
   if ("path" in item) paths.push(item.path);
   if ("from" in item) paths.push(item.from);
   if ("to" in item) paths.push(item.to);
   if ("paths" in item && Array.isArray(item.paths)) paths.push(...item.paths);
+
   return paths.filter((path): path is string => typeof path === "string");
 };

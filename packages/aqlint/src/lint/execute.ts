@@ -26,6 +26,7 @@ export const executeLint = async (options: LintExecutionOptions): Promise<LintEx
     merge: mergeFindings,
     mergeAnalysis: mergeFindings,
   });
+
   const { diagnostics, errors, fileResults, skippedRules } = response;
   const result = {
     diagnostics,
@@ -35,6 +36,7 @@ export const executeLint = async (options: LintExecutionOptions): Promise<LintEx
     ...(ai && { ai }),
     summary: summarizeLintResult(response, activeRules, totalFiles),
   };
+
   const diagnosticExitCode =
     exitCode === 0 && diagnostics.some(({ severity }) => severity === "error") ? 1 : 0;
   return { result, exitCode: exitCode === 0 ? diagnosticExitCode : exitCode };

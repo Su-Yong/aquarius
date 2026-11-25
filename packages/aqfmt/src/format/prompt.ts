@@ -26,6 +26,7 @@ export const buildFormatPrompt = (
   const scopeInstructions = rules.every(({ scope }) => scope === "file")
     ? "All active rules have file scope. Only replace operations in the selected target files assigned to this request are permitted. Do not create, delete, or move files, and do not change files assigned to other requests. This restriction also applies when this request contains a single file or is the only file group. You may still read the permitted project context."
     : "At least one active rule has module or project scope. Review all selected targets together and coordinate all related changes in this single request; preserve the supported replace, create, delete, and move operations within the write scope.";
+
   return buildTaskPrompt([...formatInstructions, scopeInstructions], rules, policy, {
     task: "format",
     writeScope,

@@ -62,11 +62,13 @@ function buildTestStructurePrompt(
       "Inline simple local fixture setup where it remains readable and preserves test isolation.",
     preserve: "Keep fixtures in their current form.",
   };
+
   const phaseInstructions = {
     "blank-lines": "Separate identifiable Arrange, Act, and Assert phases with blank lines.",
     comments: "Label identifiable phases with short Arrange, Act, and Assert comments.",
     preserve: "Preserve the current separation between test phases.",
   };
+
   return {
     applicability: "Tests with identifiable phases or local test fixture setup.",
     transformation: [phaseInstructions[aaaStyle], fixtureInstructions[fixtureMode]].join(" "),
@@ -116,6 +118,7 @@ function buildTestDescriptionStylePrompt(
     en: "Write revised titles in English.",
     preserve: "Preserve the existing title language.",
   };
+
   return {
     applicability: onlyRewriteVague
       ? "Tests with vague descriptions."

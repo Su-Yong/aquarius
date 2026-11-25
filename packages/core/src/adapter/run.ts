@@ -26,10 +26,12 @@ export const executeWithTimeout = async (
     const activity = lastActivity
       ? ` Last activity: ${lastActivity} (${formatDuration(Date.now() - lastActivityAt)} ago).`
       : " No adapter activity was reported.";
+
     const timeoutMessage =
       `AI execution timed out after ${elapsed} (ai.timeoutMs=${timeoutMs}).` +
       activity +
       " Increase ai.timeoutMs or narrow the selected files or rules.";
+
     controller.abort(new AquariusError("AI_TIMEOUT", timeoutMessage));
   };
   const timer = setTimeout(handleTimeout, timeoutMs);
@@ -41,6 +43,7 @@ export const executeWithTimeout = async (
     const shouldIgnoreProgress =
       settled || controller.signal.aborted || typeof message !== "string";
     if (shouldIgnoreProgress) return;
+
     lastActivity = progressText(message);
     lastActivityAt = Date.now();
     notifyObserver(request.onProgress, lastActivity);
@@ -51,6 +54,7 @@ export const executeWithTimeout = async (
     lastActivityAt = Date.now();
     notifyObserver(request.onAnalysisUpdate, update);
   };
+
   const execute = async (): Promise<unknown> =>
     session.execute({
       ...request,
@@ -58,13 +62,16 @@ export const executeWithTimeout = async (
       onProgress,
       ...(request.onAnalysisUpdate && { onAnalysisUpdate }),
     });
+
   let rejectAbort: (() => void) | undefined;
   try {
     controller.signal.throwIfAborted();
+
     const cancelled = new Promise<never>((_resolve, reject) => {
       rejectAbort = () => reject(controller.signal.reason);
       controller.signal.addEventListener("abort", rejectAbort, { once: true });
     });
+
     return await Promise.race([cancelled, execute()]);
   } finally {
     settled = true;

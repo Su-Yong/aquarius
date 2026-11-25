@@ -30,6 +30,7 @@ export const createFormatAnalysis = (
         "A provisional update repeats a proposed file path.",
       );
     }
+
     const proposedFiles = update.proposedFiles.map(validator.proposedPath);
     const warnings = update.warnings.map(validator.warning);
 
@@ -53,6 +54,7 @@ export const createFormatAnalysis = (
         "A provisionally skipped rule also has a warning.",
       );
     }
+
     return { proposedFiles, warnings };
   };
 

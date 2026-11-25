@@ -70,6 +70,7 @@ const reviewCounts = (
   for (const review of reviews) {
     counts[review.status] += 1;
   }
+
   return {
     text: [
       { text: `${label} ${reviews.length}: `, color: "bold" },
@@ -92,6 +93,7 @@ const reviewLine = (
   reason: string,
 ): ProgressLine => {
   const style = reviewStyles[status];
+
   return {
     text: [
       { text: `${kind} `, color: "dim" },
@@ -114,24 +116,28 @@ const collectAnalysisLines = (
   if (!showReviews) {
     return [...headings, ...beforeReviews, ...afterReviews];
   }
+
   const lines = [
     ...headings,
     reviewCounts("Files", snapshot.fileResults),
     reviewCounts("Rules", snapshot.ruleResults),
     ...beforeReviews,
   ];
+
   for (const file of snapshot.fileResults) {
     if (file.status === "pending") {
       continue;
     }
     lines.push(reviewLine("File", file.path, file.status, file.reason));
   }
+
   for (const rule of snapshot.ruleResults) {
     if (rule.status === "pending") {
       continue;
     }
     lines.push(reviewLine("Rule", rule.ruleId, rule.status, rule.reason));
   }
+
   return [...lines, ...afterReviews];
 };
 

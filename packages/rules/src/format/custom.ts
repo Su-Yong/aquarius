@@ -31,6 +31,7 @@ function validateUniquePolicyNames(
   context: z.RefinementCtx,
 ) {
   const seenPolicyNames = new Set<string>();
+
   for (const [index, { name }] of policies.entries()) {
     if (seenPolicyNames.has(name)) {
       context.addIssue({
@@ -39,6 +40,7 @@ function validateUniquePolicyNames(
         message: "must be unique within policies",
       });
     }
+
     seenPolicyNames.add(name);
   }
 }
@@ -51,6 +53,7 @@ function buildCustomPolicyPrompt({ policies }: z.output<typeof optionsSchema>) {
       reason: `Illustrates the configured policy ${JSON.stringify(name)}.`,
     })),
   );
+
   const policiesWithoutExamples = policies.map(({ examples: _examples, ...policy }) => policy);
   const configuredPolicies = JSON.stringify(policiesWithoutExamples);
 

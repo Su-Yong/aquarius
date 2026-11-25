@@ -160,9 +160,11 @@ const loopGranularity = createFormatRule({
       if (overrides.length) {
         return "Multi-purpose loops and adjacent loops that traverse the same collection, subject to file overrides.";
       }
+
       if (mode === "split") {
         return "Loops combining independent responsibilities.";
       }
+
       return "Adjacent loops traversing the same collection.";
     };
 

@@ -52,6 +52,7 @@ export const prepareRules = async (
       );
       continue;
     }
+
     registerPlugin(specifier, plugin, plugins, lintRules, formatRules, errors);
   }
 
@@ -61,10 +62,12 @@ export const prepareRules = async (
     const namespace = reference.slice(0, separatorIndex);
     const name = reference.slice(separatorIndex + 1);
     const presets = plugins.get(namespace)?.presets;
+
     if (!presets || !Object.hasOwn(presets, name)) {
       errors.push(runError("PRESET_NOT_FOUND", `Preset is not registered: ${reference}`));
       continue;
     }
+
     const rules = presets[name];
     if (!isPlainObject(rules)) {
       errors.push(
@@ -72,6 +75,7 @@ export const prepareRules = async (
       );
       continue;
     }
+
     sources.push({ name: reference, rules });
   }
   sources.push({ name: "rules", rules: config.rules });
@@ -117,7 +121,6 @@ export const prepareRules = async (
       }
 
       const { enabled, severity, options } = resolveRuleSetting(setting);
-
       selections.set(id, {
         definition,
         enabled,
@@ -132,9 +135,11 @@ export const prepareRules = async (
     if (!selection.enabled) {
       continue;
     }
+
     try {
       const options = prepareOptions(selection.definition, selection.options);
       const instructions = await selection.definition.buildPrompt({ options: deepFreeze(options) });
+
       validateInstructions(config.tool, instructions);
       prepared.push({
         id,
@@ -193,8 +198,8 @@ const registerPlugin = (
     );
     return;
   }
-  plugins.set(plugin.namespace, plugin);
 
+  plugins.set(plugin.namespace, plugin);
   registerRuleList(plugin.namespace, "lint", plugin.lintRules, lintRules, formatRules, errors);
   registerRuleList(plugin.namespace, "format", plugin.formatRules, formatRules, lintRules, errors);
 };
@@ -219,6 +224,7 @@ const registerRuleList = <T extends LintRule | FormatRule>(
       typeof candidate === "object" && candidate !== null && "id" in candidate;
     const candidateId = hasCandidateId ? candidate.id : undefined;
     const id = typeof candidateId === "string" ? `${namespace}/${candidateId}` : namespace;
+
     const parsed = schema.safeParse(candidate);
     const problem = parsed.success
       ? validateRuleId(candidateId)
@@ -227,11 +233,13 @@ const registerRuleList = <T extends LintRule | FormatRule>(
       errors.push(runError("RULE_INVALID", `${id}: ${problem}`, [id]));
       continue;
     }
+
     const rule = parsed.data as T;
     if (registry.has(id) || otherRegistry.has(id)) {
       errors.push(runError("RULE_CONFLICT", `Rule is already registered: ${id}`, [id]));
       continue;
     }
+
     registry.set(id, rule);
   }
 };
@@ -254,21 +262,26 @@ const prepareOptions = (rule: LintRule | FormatRule, selected: JsonObject): Json
       "optionsSchema must validate without changing options",
     );
   }
+
   return selected;
 };
 
 const deepMerge = (defaults: JsonObject, selected: JsonObject): JsonObject => {
   const keys = new Set([...Object.keys(defaults), ...Object.keys(selected)]);
+
   const mergeEntry = (key: string): [string, unknown] => {
     if (!Object.hasOwn(selected, key)) return [key, cloneJson(defaults[key])];
+
     const selectedValue = selected[key];
     const defaultValue = defaults[key];
     const mergedValue =
       isPlainObject(defaultValue) && isPlainObject(selectedValue)
         ? deepMerge(defaultValue, selectedValue)
         : cloneJson(selectedValue);
+
     return [key, mergedValue];
   };
+
   return Object.fromEntries([...keys].map(mergeEntry));
 };
 

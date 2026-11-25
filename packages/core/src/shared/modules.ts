@@ -12,11 +12,13 @@ export const importProjectModule = async (
     "__aquarius_module_resolver__.mjs",
   );
   const parentURL = pathToFileURL(resolverPath).href;
+
   const resolutionSpecifier =
     path.isAbsolute(specifier) || path.win32.isAbsolute(specifier)
       ? pathToFileURL(specifier).href
       : specifier;
   const resolvedSpecifier = resolveModule(resolutionSpecifier, parentURL);
+
   const namespace = await import(resolvedSpecifier);
   return Object.hasOwn(namespace, "default") ? namespace.default : namespace;
 };

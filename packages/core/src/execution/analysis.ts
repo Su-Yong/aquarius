@@ -68,6 +68,7 @@ export const createAnalysisState = <
   let accepting = true;
   const update = (raw: unknown): void => {
     if (!accepting) return;
+
     const parsed = hooks.schema.safeParse(raw);
     if (!parsed.success) {
       const detail = formatZodIssues(parsed.error, "provisional analysis update").replace(
@@ -77,9 +78,11 @@ export const createAnalysisState = <
       warn(`Ignored a provisional analysis update (INVALID_ANALYSIS_UPDATE): ${detail}`);
       return;
     }
+
     const parsedUpdate = parsed.data;
     const applyUpdate = async (): Promise<void> => {
       if (parsedUpdate.revision <= revision) return;
+
       try {
         const validateFilePath = (path: string): void => {
           normalizedPath(path);
@@ -97,6 +100,7 @@ export const createAnalysisState = <
           validateFilePath,
           "file path",
         );
+
         const validateRuleId = (id: string): void => {
           if (!rulesById.has(id)) {
             throw new AquariusError(
@@ -112,6 +116,7 @@ export const createAnalysisState = <
           validateRuleId,
           "rule ID",
         );
+
         details = await hooks.apply(parsedUpdate, details, nextFiles, nextRules);
         files = nextFiles;
         rulesById = nextRules;
@@ -122,6 +127,7 @@ export const createAnalysisState = <
         warn(`Ignored a provisional analysis update (${error.code}): ${error.message}`);
       }
     };
+
     pending = pending.then(applyUpdate);
   };
 
@@ -129,16 +135,19 @@ export const createAnalysisState = <
     snapshot: () => AnalysisSnapshot & Details,
   ): Promise<AnalysisSnapshot & Details> => {
     accepting = false;
+
     const publishAfterPending = async (): Promise<AnalysisSnapshot & Details> => {
       await pending;
       revision += 1;
       return publish({ ...snapshot(), revision });
     };
+
     const closed = publishAfterPending();
     const waitForClose = async (): Promise<void> => {
       await closed;
     };
     pending = waitForClose();
+
     return closed;
   };
 
@@ -148,6 +157,7 @@ export const createAnalysisState = <
   const finish = (response: Response) => {
     const failed = hasFailedReview(response);
     if (failed && hooks.retainIncomplete) return interrupt(response.errors);
+
     const finalSnapshot = (): AnalysisSnapshot & Details => ({
       ...hooks.final(response),
       phase: failed ? "incomplete" : "final",
@@ -156,10 +166,12 @@ export const createAnalysisState = <
       ruleResults: finalRuleReviews(rules, response),
       errors: response.errors,
     });
+
     return close(finalSnapshot);
   };
 
   publish(provisional());
+
   return { update, flush: () => pending, finish, interrupt };
 };
 
@@ -190,18 +202,23 @@ export const finalRuleReviews = (
     response.skippedRules.map(({ ruleId, reason }) => [ruleId, reason]),
   );
   const fileFailure = response.fileResults.find(({ status }) => status === "failed");
+
   const reviewRule = ({ id }: PreparedRule): RuleReview => {
     const error = response.errors.find(
       ({ ruleIds }) => ruleIds.length === 0 || ruleIds.includes(id),
     );
     if (error) return { ruleId: id, status: "failed", reason: error.message };
+
     const reason = skippedReasons.get(id);
     if (reason !== undefined) return { ruleId: id, status: "skipped", reason };
+
     if (fileFailure && response.errors.length === 0) {
       return { ruleId: id, status: "failed", reason: fileFailure.reason };
     }
+
     return { ruleId: id, status: "completed", reason: "" };
   };
+
   return rules.map(reviewRule);
 };
 
@@ -220,6 +237,7 @@ const patchReviews = <Review extends FileReview | RuleReview>(
 ): Map<string, Review> => {
   const next = new Map(reviews);
   const seen = new Set<string>();
+
   for (const review of updates) {
     const key = identify(review);
     if (seen.has(key)) {
@@ -229,11 +247,14 @@ const patchReviews = <Review extends FileReview | RuleReview>(
       );
     }
     seen.add(key);
+
     validate(key);
     if (review.status === "skipped" || review.status === "failed") {
       nonempty(review.reason, "Review reason");
     }
+
     next.set(key, review);
   }
+
   return next;
 };

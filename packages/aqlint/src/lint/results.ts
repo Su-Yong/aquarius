@@ -21,6 +21,7 @@ export const normalizeLintResponse = async (
 ): Promise<LintResponse> => {
   const normalization = beginResponseNormalization(raw, rules, policy, ["diagnostics"]);
   const { body, skippedRuleIds, reported, recordItemError, finish } = normalization;
+
   if (!body) {
     return { ...finish(), diagnostics: [] };
   }
@@ -28,6 +29,7 @@ export const normalizeLintResponse = async (
   const targets = new Set(policy.targets);
   const validator = createLintFindingValidator(rules, policy);
   const findings: Diagnostic[] = [];
+
   for (const item of body.diagnostics!) {
     try {
       findings.push(await validator.diagnostic(item, skippedRuleIds));
@@ -41,10 +43,12 @@ export const normalizeLintResponse = async (
   const diagnostics = groupDiagnostics(findings);
   const diagnosticPaths = diagnostics.flatMap(({ locations }) => locations.map(({ path }) => path));
   const uniqueDiagnosticPaths = new Set(diagnosticPaths);
+
   for (const path of uniqueDiagnosticPaths) {
     if (reported.get(path)?.status !== "skipped") {
       continue;
     }
+
     recordItemError(
       {
         code: "CONFLICTING_FILE_RESULT",
@@ -71,6 +75,7 @@ export const createLintFindingValidator = (rules: readonly PreparedRule[], polic
     const ruleIds = references(suppliedDiagnostic.ruleIds, knownRuleIds, false, skippedRules);
     nonempty(suppliedDiagnostic.message, "Diagnostic message");
     await validateLocations(suppliedDiagnostic.locations, readSourceLines, targets);
+
     if (suppliedDiagnostic.evidence.length === 0) {
       throw new AquariusError("INVALID_EVIDENCE", "A violation requires evidence.");
     }
@@ -105,6 +110,7 @@ export const createLintFindingValidator = (rules: readonly PreparedRule[], polic
 
 export const groupDiagnostics = (diagnostics: readonly Diagnostic[]): Diagnostic[] => {
   const grouped = new Map<string, Diagnostic>();
+
   for (const diagnostic of diagnostics) {
     const key = JSON.stringify([diagnostic.message, diagnostic.locations, diagnostic.evidence]);
     const existing = grouped.get(key);
@@ -112,15 +118,18 @@ export const groupDiagnostics = (diagnostics: readonly Diagnostic[]): Diagnostic
       grouped.set(key, structuredClone(diagnostic));
       continue;
     }
+
     for (const contributor of diagnostic.rules) {
       if (!existing.rules.some(({ rule }) => rule === contributor.rule)) {
         existing.rules.push({ ...contributor });
       }
     }
+
     existing.severity = existing.rules.some(({ severity }) => severity === "error")
       ? "error"
       : "warn";
   }
+
   return [...grouped.values()];
 };
 
@@ -146,6 +155,7 @@ export const summarizeLintResult = (
     failedFiles: 0,
     activeRules,
   };
+
   for (const file of result.fileResults) {
     if (file.status === "failed" || severityByFilePath.get(file.path) === "error") {
       summary.failedFiles += 1;
@@ -157,6 +167,7 @@ export const summarizeLintResult = (
       summary.successFiles += 1;
     }
   }
+
   return summary;
 };
 
@@ -188,14 +199,17 @@ const createSourceReader = (policy: PathPolicy) => {
           `Result file is not a stable regular project file: ${path}`,
         );
       }
+
       const text = bytes.toString("utf8");
       const encodedText = Buffer.from(text, "utf8");
       if (!encodedText.equals(bytes)) {
         throw new AquariusError("INVALID_RESULT_PATH", `Result file is not UTF-8 text: ${path}`);
       }
+
       const sourceLineBreak = /\r\n|\n|\r/u;
       return text.split(sourceLineBreak);
     };
+
     const pending = readUncachedSourceLines();
     sourceLinesByPath.set(path, pending);
     return await pending;
@@ -216,6 +230,7 @@ const validateLocations = async (
       "Every primary diagnostic location must be a selected target.",
     );
   }
+
   for (const location of locations) {
     const lines = await readSourceLines(location.path);
     const isOutsideSource =
@@ -241,6 +256,7 @@ const findingPaths = (item: unknown, targets: ReadonlySet<string>): string[] => 
   }
 
   const affectedPaths = new Set<string>();
+
   for (const location of item.locations) {
     const isTargetLocation =
       typeof location === "object" &&
@@ -251,6 +267,7 @@ const findingPaths = (item: unknown, targets: ReadonlySet<string>): string[] => 
     if (!isTargetLocation) {
       continue;
     }
+
     affectedPaths.add(location.path);
   }
   return [...affectedPaths];

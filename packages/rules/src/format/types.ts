@@ -89,6 +89,7 @@ function buildTypeDeclarationStylePrompt({
   const defaultDeclarationInstruction = defaultStyle
     ? declarationInstructions[defaultStyle]
     : "follow the established project convention or preserve the existing form when unclear";
+
   return {
     applicability: "Object type declarations and repeated inline object types.",
     transformation: [
@@ -114,6 +115,7 @@ function buildStateModelingPrompt({
   excludeExported = true,
 }: z.output<typeof stateModelingOptionsSchema>) {
   const quotedTagField = JSON.stringify(tagField);
+
   return {
     applicability:
       prefer === "discriminated-union"

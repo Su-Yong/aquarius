@@ -28,6 +28,7 @@ export const parseResultItem = <T>(schema: z.ZodType<T>, value: unknown, name: s
       `Invalid ${name} structure: ${parsed.error.message}`,
     );
   }
+
   return parsed.data;
 };
 
@@ -35,6 +36,7 @@ export const resultEnvelope = (value: unknown, arrays: string[]): Record<string,
   const fieldEntries = arrays.map((key) => [key, z.array(z.unknown())] as const);
   const fields = Object.fromEntries(fieldEntries);
   const envelopeSchema = z.strictObject(fields);
+
   const parsed = envelopeSchema.safeParse(value);
   if (!parsed.success) {
     throw new AquariusError(
@@ -42,6 +44,7 @@ export const resultEnvelope = (value: unknown, arrays: string[]): Record<string,
       "AI response must contain only the expected result arrays.",
     );
   }
+
   return parsed.data;
 };
 
@@ -64,12 +67,14 @@ export const references = (
       "AI result contains an unknown, repeated, or missing rule reference.",
     );
   }
+
   if (parsed.data.some((id) => skipped?.has(id))) {
     throw new AquariusError(
       "CONFLICTING_RULE_RESULT",
       "A rule reported as not applicable also has a finding or change.",
     );
   }
+
   return parsed.data;
 };
 
@@ -95,6 +100,7 @@ export const collectErrors = (items: unknown[], known: Set<string>, output: RunE
       const ruleIds = references(supplied.ruleIds, known, true);
       nonempty(supplied.code, "Error code");
       nonempty(supplied.message, "Error message");
+
       output.push({ code: supplied.code, message: supplied.message, ruleIds });
     } catch (cause) {
       output.push(toRunError(cause, "INVALID_EXECUTION_ERROR"));
@@ -110,6 +116,7 @@ export const checkCompletion = (
 ): SkippedRule[] => {
   const projectFailed = errors.some(({ ruleIds }) => ruleIds.length === 0);
   const failed = new Set(errors.flatMap((entry) => entry.ruleIds));
+
   const readCompletedRuleIds = (): string[] => {
     try {
       return references(items, known, true);
@@ -118,6 +125,7 @@ export const checkCompletion = (
       return [];
     }
   };
+
   const completed = readCompletedRuleIds();
   const completedSet = new Set(completed);
   const conflicting = completed.filter((id) => failed.has(id));
@@ -165,6 +173,7 @@ export const checkCompletion = (
       ruleIds: missing,
     });
   }
+
   return [...skipped.values()];
 };
 
@@ -201,6 +210,7 @@ export const beginResponseNormalization = (
       globalFailure ??= error.message;
       return;
     }
+
     for (const path of affected) failures.set(path, error.message);
   };
 
@@ -215,6 +225,7 @@ export const beginResponseNormalization = (
       }
       return file;
     };
+
     return {
       errors,
       skippedRules,
@@ -242,6 +253,7 @@ export const beginResponseNormalization = (
   collectErrors(body.errors!, knownRules, errors);
   skippedRules = checkCompletion(body.completedRuleIds!, body.skippedRules!, knownRules, errors);
   const completionErrors = [...errors];
+
   for (const item of body.skippedRules!) {
     if (
       typeof item === "object" &&
@@ -264,6 +276,7 @@ export const beginResponseNormalization = (
       targets.has(item.path)
         ? item.path
         : undefined;
+
     try {
       if (path !== undefined && seen.has(path)) {
         throw new AquariusError(
@@ -272,6 +285,7 @@ export const beginResponseNormalization = (
         );
       }
       if (path !== undefined) seen.add(path);
+
       const file = parseResultItem(fileResultSchema, item, "file processing result");
       normalizedPath(file.path);
       if (!targets.has(file.path)) {
@@ -280,6 +294,7 @@ export const beginResponseNormalization = (
           `File processing result is outside the selected targets: ${file.path}`,
         );
       }
+
       if (file.status !== "completed") nonempty(file.reason, "File processing reason");
       reported.set(file.path, file);
     } catch (cause) {

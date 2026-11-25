@@ -28,6 +28,7 @@ export const selectTargets = async (
   const projectRoot = await realpath(config.projectRoot);
   const configIgnore = createMatcher(config.configDirectory, config.ignore);
   const { positive, negative } = await createScopes(config, options);
+
   const [manualIgnores, gitInfoIgnore, gitIgnoreMatchers, allFiles] = await Promise.all([
     loadManualIgnores(config, options),
     loadGitInfoExclude(projectRoot),
@@ -59,6 +60,7 @@ export const selectTargets = async (
     return matchesGitIgnore;
   };
   const gitDiscovered = candidates.filter((path) => !isGitIgnored(path));
+
   const selected = new Set<string>();
   const unmatched: string[] = [];
 
@@ -79,6 +81,7 @@ export const selectTargets = async (
     if (failsWriteChecks) {
       return false;
     }
+
     const matchingScopes = positive.filter((scope) => scopeMatches(scope, path));
     const isWritableScope =
       matchingScopes.length > 0 &&
@@ -105,6 +108,7 @@ const discoverFiles = async (projectRoot: string): Promise<string[]> => {
     ignore: vcsIgnoreGlobs,
     onlyFiles: true,
   };
+
   try {
     return await globby("**/*", discoveryOptions);
   } catch (error) {

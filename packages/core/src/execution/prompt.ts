@@ -14,6 +14,7 @@ export const buildTaskPrompt = (
     applicability,
     detailsPath,
   });
+
   return [
     ...taskInstructions,
     "Project files outside the selected targets may be read as context, including related implementations, callers, tests, configuration, documentation, and dependencies. The configured files patterns and ignore settings restrict analysis targets and changes, not reference reading. Inspect available project files before reporting evidence as missing; never invent unavailable contents.",

@@ -32,6 +32,7 @@ export const runToolExecution = async <Details extends object, SnapshotDetails e
   const signal = options.signal ?? new AbortController().signal;
   const progress = (message: string): void => notify(options.onProgress, message);
   const { tool, unreviewedFile, preparationFailedFile } = hooks;
+
   let activeRules = 0;
   let totalFiles: number | null = null;
   let ai: AdapterRunInfo | undefined;
@@ -47,6 +48,7 @@ export const runToolExecution = async <Details extends object, SnapshotDetails e
   };
   let analysis: ReturnType<typeof hooks.createAnalysis> | undefined;
   let finishBatches: ((result: ReviewResponse & Details) => void) | undefined;
+
   const reviewExitCode = (): 0 | 2 | 130 => {
     if (signal.aborted) return 130;
     return hasFailedReview(response) ? 2 : 0;
@@ -85,6 +87,7 @@ export const runToolExecution = async <Details extends object, SnapshotDetails e
     progress("Selecting files");
     const policy = await selectTargets(config, options);
     totalFiles = policy.targets.length;
+
     const selectInitialOutcome = () => {
       if (preparationFailed) return preparationFailedFile;
       return activeRules === 0
@@ -94,6 +97,7 @@ export const runToolExecution = async <Details extends object, SnapshotDetails e
     const initialOutcome = selectInitialOutcome();
     response.fileResults = policy.targets.map((path) => ({ path, ...initialOutcome }));
     assertNotCancelled(signal);
+
     const reviewIsUnnecessary = totalFiles === 0 || activeRules === 0 || nextStep === "select";
     if (reviewIsUnnecessary) {
       return buildResult();
@@ -105,12 +109,14 @@ export const runToolExecution = async <Details extends object, SnapshotDetails e
     const batched = fileOnly && (totalFiles > fileBatchSize || hooks.retrySingleFileGroup);
     const shouldTrackAnalysis =
       options.onAnalysisUpdate !== undefined || options.onWarning !== undefined;
+
     if (!batched && shouldTrackAnalysis) {
       analysis = hooks.createAnalysis(rules, policy, ruleResources, {
         onUpdate: options.onAnalysisUpdate,
         onWarning: options.onWarning,
       });
     }
+
     assertNotCancelled(signal);
     await hooks.beforeReview?.(policy);
     assertNotCancelled(signal);
@@ -135,10 +141,12 @@ export const runToolExecution = async <Details extends object, SnapshotDetails e
     try {
       ai = session.info;
       if (ai) notify(options.onAdapterInfo, ai);
+
       assertNotCancelled(signal);
       progress(hooks.reviewProgress);
       assertNotCancelled(signal);
       requestStarted = true;
+
       const request = { ...context, outputSchema: hooks.outputSchema };
       if (batched) {
         const batches = await reviewBatches({
@@ -157,6 +165,7 @@ export const runToolExecution = async <Details extends object, SnapshotDetails e
         });
         response = batches.response;
         finishBatches = batches.finish;
+
         if (!signal.aborted && hooks.afterBatches) {
           response = await hooks.afterBatches(response, {
             session,
@@ -179,10 +188,12 @@ export const runToolExecution = async <Details extends object, SnapshotDetails e
           signal,
           { keepAlive: true },
         );
+
         await analysis?.flush();
         assertNotCancelled(signal);
         response = await hooks.normalize(rawResponse, rules, policy, ruleResources);
       }
+
       reviewed = true;
     } finally {
       try {
@@ -191,11 +202,13 @@ export const runToolExecution = async <Details extends object, SnapshotDetails e
         disposalError = toRunError(cause);
       }
     }
+
     const hadDisposalError = disposalError !== undefined;
     if (disposalError) {
       response.errors = [...response.errors, disposalError];
       disposalError = undefined;
     }
+
     if (preparationFailed) {
       response.errors = [...preparationErrors, ...response.errors];
       response.fileResults = response.fileResults.map((file) => ({
@@ -203,11 +216,13 @@ export const runToolExecution = async <Details extends object, SnapshotDetails e
         ...preparationFailedFile,
       }));
     }
+
     if (!signal.aborted) progress("Checking results");
     if (signal.aborted && !response.errors.some(({ code }) => code === "AI_ABORTED")) {
       if (unreviewedFile.status === "failed" && !finishBatches) reviewed = false;
       throw cancelled();
     }
+
     if (hooks.afterReview) {
       const canRunAfterReview =
         !signal.aborted &&
@@ -218,6 +233,7 @@ export const runToolExecution = async <Details extends object, SnapshotDetails e
         response = await hooks.afterReview(response, policy, rules);
       }
     }
+
     if (finishBatches) finishBatches(response);
     else await analysis?.finish(response);
     if (signal.aborted && !response.errors.some(({ code }) => code === "AI_ABORTED")) {
@@ -227,6 +243,7 @@ export const runToolExecution = async <Details extends object, SnapshotDetails e
   } catch (cause) {
     const error = toRunError(cause);
     response.errors = [...response.errors, error, ...(disposalError ? [disposalError] : [])];
+
     if (!reviewed && (requestStarted || unreviewedFile.status === "failed")) {
       response.fileResults = response.fileResults.map((file) => ({
         ...file,
@@ -234,6 +251,7 @@ export const runToolExecution = async <Details extends object, SnapshotDetails e
         reason: error.message,
       }));
     }
+
     if (finishBatches) finishBatches(response);
     else await analysis?.interrupt(response.errors);
     return buildResult();

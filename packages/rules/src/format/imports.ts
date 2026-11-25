@@ -111,6 +111,7 @@ function buildOrganizeImportsPrompt({
   unmatched = "end",
 }: z.output<typeof organizeImportsOptionsSchema>) {
   const groupOrder = JSON.stringify(order);
+
   return {
     applicability: "Two or more import declarations in a file.",
     transformation: [
@@ -164,6 +165,7 @@ function buildNamespaceStylePrompt({
     namespace: `By default, combine named imports of at least ${namespaceMinSymbols} symbols from one module into a namespace import and qualify their uses.`,
     preserve: "Keep the current import style for modules without an explicit preference.",
   };
+
   const hasModulePreferences = namespaceFor.length > 0 || namedFor.length > 0;
 
   return {

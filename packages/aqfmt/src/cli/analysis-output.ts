@@ -16,10 +16,12 @@ export const incompleteAnalysisLines = (
   const confirmedPaths = new Set(result.proposedFiles);
   const confirmedWarningKeys = result.warnings.map(warningKey);
   const confirmedWarnings = new Set(confirmedWarningKeys);
+
   const proposedFiles = snapshot.proposedFiles.filter((path) => !confirmedPaths.has(path));
   const warnings = snapshot.warnings.filter(
     (warning) => !confirmedWarnings.has(warningKey(warning)),
   );
+
   if (!proposedFiles.length && !warnings.length) return [];
   return analysisLines({ ...snapshot, proposedFiles, warnings });
 };
@@ -30,6 +32,7 @@ export const analysisLines = (
 ): ProgressLine[] => {
   const incomplete = snapshot.phase === "incomplete";
   const lines = Array.from(snapshot.proposedFiles, proposedFileLine);
+
   for (const warning of snapshot.warnings) {
     const rules = warning.ruleIds.length ? ` [${warning.ruleIds.join(", ")}]` : "";
     lines.push({
@@ -40,6 +43,7 @@ export const analysisLines = (
       ],
       status: "warning",
     });
+
     for (const path of warning.paths) {
       lines.push({
         text: [

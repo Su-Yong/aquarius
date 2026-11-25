@@ -56,6 +56,7 @@ export const codexAdapter: SessionAdapter<ReturnType<typeof codexOptionsSchema.p
     async createSession(context) {
       const { readableFiles, ruleResources, signal, onProgress } = context;
       assertActive(signal);
+
       onProgress?.("Locating Codex");
       const {
         executable: explicitExecutable,
@@ -69,6 +70,7 @@ export const codexAdapter: SessionAdapter<ReturnType<typeof codexOptionsSchema.p
         config,
       } = context.options;
       const executable = await resolveCodexExecutable(explicitExecutable);
+
       const projectRoot = await realpath(context.projectRoot);
       const tempRoot = await realpath(tmpdir());
       const runDirectoryPrefix = join(tempRoot, "aquarius-codex-");
@@ -106,6 +108,7 @@ export const codexAdapter: SessionAdapter<ReturnType<typeof codexOptionsSchema.p
           ...Object.entries(config ?? {}).map(([key, value]) => `${key}=${tomlValue(value)}`),
           ...buildCodexConfigOverrides(viewRoot, deniedPaths),
         ];
+
         onProgress?.("Checking Codex configuration");
         const effectiveConfig = await readEffectiveConfig(
           executable,
@@ -119,6 +122,7 @@ export const codexAdapter: SessionAdapter<ReturnType<typeof codexOptionsSchema.p
         if (effective.windowsSandbox) {
           overrides.push(`windows.sandbox=${tomlString(effective.windowsSandbox)}`);
         }
+
         const settings: CodexSettings = {
           model: inheritSetting(model, effective.model),
           serviceTier: inheritSetting(serviceTier, effective.serviceTier),
@@ -135,6 +139,7 @@ export const codexAdapter: SessionAdapter<ReturnType<typeof codexOptionsSchema.p
             effective.autoCompactTokenLimitScope,
           ),
         };
+
         onProgress?.("Checking Codex read-only access");
         await verifySandbox(executable, viewRoot, projectRoot, overrides, signal);
 
@@ -145,14 +150,17 @@ export const codexAdapter: SessionAdapter<ReturnType<typeof codexOptionsSchema.p
         const execute = async (request: AdapterExecuteRequest): Promise<unknown> => {
           const requestSignal = AbortSignal.any([signal, request.signal, disposal.signal]);
           assertActive(requestSignal);
+
           const id = randomUUID();
           const schemaPath = join(runRoot, `schema-${id}.json`);
           const resultPath = join(runRoot, `result-${id}.json`);
+
           try {
             await writeFile(schemaPath, JSON.stringify(request.outputSchema), {
               flag: "wx",
               mode: SCHEMA_FILE_MODE,
             });
+
             return await runExec(
               executable,
               { ...request, readableFiles, ruleResources, signal: requestSignal },
@@ -174,6 +182,7 @@ export const codexAdapter: SessionAdapter<ReturnType<typeof codexOptionsSchema.p
           async execute(request: AdapterExecuteRequest) {
             const pending = execute(request);
             activeRequests.add(pending);
+
             try {
               return await pending;
             } finally {
@@ -214,6 +223,7 @@ const codexRunInfo = (settings: CodexSettings): AdapterRunInfo => {
   if (settings.verbosity !== undefined) details.verbosity = settings.verbosity;
   if (settings.contextWindow !== undefined)
     details["context.window"] = String(settings.contextWindow);
+
   return {
     adapter: "codex",
     ...(settings.model !== undefined && { model: settings.model }),

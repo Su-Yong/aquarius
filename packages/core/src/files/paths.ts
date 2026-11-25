@@ -11,6 +11,7 @@ export const toProjectRelative = (
   allowRoot = false,
 ): string => {
   const path = relative(projectRoot, absolute);
+
   const isOutsideAllowedRoot = (!allowRoot && path === "") || !isInside(projectRoot, absolute);
   if (isOutsideAllowedRoot) {
     throw new AquariusError(
@@ -18,6 +19,7 @@ export const toProjectRelative = (
       `Target escapes the project root: ${absolute}`,
     );
   }
+
   return toPosix(path);
 };
 
@@ -34,25 +36,30 @@ export const isRegularPath = async (projectRoot: string, path: string): Promise<
 
 export const hasSymlinkComponent = async (projectRoot: string, path: string): Promise<boolean> => {
   let currentPath = projectRoot;
+
   for (const part of path.split("/")) {
     currentPath = join(currentPath, part);
     const stats = await tryLstat(currentPath);
     if (!stats) return false;
     if (stats.isSymbolicLink()) return true;
   }
+
   return false;
 };
 
 export const hasSymlinkComponentSync = (projectRoot: string, path: string): boolean => {
   let currentPath = projectRoot;
+
   for (const part of path.split("/")) {
     currentPath = join(currentPath, part);
+
     try {
       if (lstatSync(currentPath).isSymbolicLink()) return true;
     } catch (error) {
       return !isNodeError(error, "ENOENT");
     }
   }
+
   return false;
 };
 

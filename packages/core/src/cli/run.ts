@@ -91,6 +91,7 @@ export const runToolCli = async <
     const progress = startProgress(showProgress);
     const controller = new AbortController();
     const abort = (): void => controller.abort();
+
     const warningCounts = new Map<string, number>();
     const printWarning = (message: string): void => {
       const warningText = safeText(`${tool.name}: ${message}`).replace(
@@ -99,11 +100,14 @@ export const runToolCli = async <
       );
       console.error(statusText(warningText, "warning", process.stderr));
     };
+
     process.on("SIGINT", abort);
     process.on("SIGTERM", abort);
+
     let execution: Execution;
     let ai: AdapterRunInfo | undefined;
     let latestAnalysis: (AnalysisSnapshot & Details) | undefined;
+
     try {
       const onAdapterInfo = (info: AdapterRunInfo) => {
         ai = info;
@@ -112,18 +116,22 @@ export const runToolCli = async <
           : [`AI: ${formatAdapterRunInfo(info)}`];
         progress.updateDetails(lines);
       };
+
       const onAnalysisUpdate = (snapshot: AnalysisSnapshot & Details) => {
         latestAnalysis = snapshot;
         if (snapshot.phase === "incomplete" && tool.incompleteAnalysisLines) return;
         progress.updateDetails(tool.analysisLines(snapshot, ai));
       };
+
       const onWarning = (message: string) => {
         const count = (warningCounts.get(message) ?? 0) + 1;
         warningCounts.set(message, count);
         if (count > 1) return;
+
         progress.clear();
         printWarning(message);
       };
+
       execution = await tool.execute(
         {
           cwd: process.cwd(),
@@ -149,9 +157,11 @@ export const runToolCli = async <
       );
     } finally {
       progress.stop();
+
       for (const [message, count] of warningCounts) {
         if (count > 1) printWarning(`${message} (+${count - 1} more)`);
       }
+
       process.removeListener("SIGINT", abort);
       process.removeListener("SIGTERM", abort);
     }
@@ -167,6 +177,7 @@ export const runToolCli = async <
         printAnalysisSnapshot(lines);
       }
     }
+
     return execution.exitCode;
   } catch (cause) {
     reportError(cause);
@@ -181,10 +192,12 @@ const parseCliArgs = (args: string[], extraOptions: ParseArgsOptionsConfig | und
     strict: true,
     allowPositionals: true,
   });
+
   const { format, help, version } = parsed.values;
   const hasInvalidFormat = !help && !version && format !== "text" && format !== "json";
   if (hasInvalidFormat) {
     throw new Error("--format must be text or json.");
   }
+
   return parsed;
 };

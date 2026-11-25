@@ -58,6 +58,7 @@ function validateLayerDependencies(
       });
     }
   }
+
   for (const [source, targets] of Object.entries(allowedDependencies)) {
     if (!Object.hasOwn(layers, source)) {
       context.addIssue({
@@ -66,6 +67,7 @@ function validateLayerDependencies(
         message: "must reference a defined layer",
       });
     }
+
     for (const [index, target] of targets.entries()) {
       if (!Object.hasOwn(layers, target)) {
         context.addIssue({
@@ -83,6 +85,7 @@ function buildLayerDirectionPrompt(
 ): LintInstructions {
   const configuredLayersStep = `Configured layers map names to project-relative glob patterns: ${JSON.stringify(options.layers)}`;
   const allowedDependenciesStep = `Allowed direct cross-layer dependencies: ${JSON.stringify(options.allowedDependencies)}`;
+
   return {
     applicability: "Dependencies between layers governed by a project direction policy.",
     criteria:

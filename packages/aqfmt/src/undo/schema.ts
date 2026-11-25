@@ -46,7 +46,9 @@ export const parseUndoManifest = (value: unknown, expectedRoot: string): UndoMan
     if (file.before === null && file.after === null) {
       throw new AquariusError("UNDO_RECORD_INVALID", `Undo path has no state: ${file.path}`);
     }
+
     seenPaths.add(pathKey);
   }
+
   return parsed.data;
 };

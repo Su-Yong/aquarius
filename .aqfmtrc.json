@@ -1,0 +1,18 @@
+{
+  "files": ["packages/*/src/**/*.ts"],
+  "ai": {
+    "adapter": "@aquarius/codex",
+    "timeoutMs": 300000,
+    "fileBatchSize": 4,
+    "maxConcurrency": 4,
+    "options": {
+      "ephemeral": true,
+      "model": "gpt-6.2-sol",
+      "serviceTier": "ultrafast",
+      "reasoning": { "effort": "low" }
+    }
+  },
+  "plugins": ["@aquarius/rules"],
+  "preset": ["aquarius/format-recommended"],
+  "rules": {}
+}

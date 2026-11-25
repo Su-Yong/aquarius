@@ -34,6 +34,7 @@ export const readEffectiveConfig = async (
   diagnosticPaths: readonly string[],
 ): Promise<EffectiveConfigResponse> => {
   if (signal.aborted) throw new AquariusError("CODEX_ABORTED", "Codex execution was aborted.");
+
   const child = spawn(
     executable,
     [
@@ -47,6 +48,7 @@ export const readEffectiveConfig = async (
   );
   const detachAbort = attachAbort(child, signal);
   const readStderr = captureStderr(child.stderr);
+
   const probeError = (message: string, reason: unknown = readStderr()) => {
     const diagnosticMessage = withDiagnostic(message, reason, diagnosticPaths);
     return new AquariusError("CODEX_CONFIG_PROBE_FAILED", diagnosticMessage);
@@ -66,6 +68,7 @@ export const readEffectiveConfig = async (
 
       const finish = (error?: Error, value?: EffectiveConfigResponse) => {
         if (settled) return;
+
         settled = true;
         clearTimeout(timer);
         reader.close();
@@ -80,12 +83,14 @@ export const readEffectiveConfig = async (
           finish(probeError("Codex config probe returned invalid JSON."));
           return;
         }
+
         if (message.id === 0) {
           if (message.error) {
             const errorMessage = asRecord(message.error)?.message;
             finish(probeError("Codex rejected config probe initialization.", errorMessage));
             return;
           }
+
           child.stdin.write(`${JSON.stringify({ method: "initialized", params: {} })}\n`);
           const configRequest = {
             method: "config/read",
@@ -95,12 +100,14 @@ export const readEffectiveConfig = async (
           child.stdin.write(`${JSON.stringify(configRequest)}\n`);
           return;
         }
+
         if (message.id !== 2) return;
         if (message.error) {
           const errorMessage = asRecord(message.error)?.message;
           finish(probeError("Codex rejected the effective configuration probe.", errorMessage));
           return;
         }
+
         finish(undefined, (message.result ?? {}) as EffectiveConfigResponse);
       };
       reader.on("line", onResponseLine);
@@ -123,10 +130,12 @@ export const readEffectiveConfig = async (
           finish(new AquariusError("CODEX_ABORTED", "Codex execution was aborted."));
           return;
         }
+
         const message = `Codex config probe exited before responding (${code ?? "signal"}).`;
         finish(probeError(message));
       };
       child.once("close", onClose);
+
       const initializeRequest = {
         method: "initialize",
         id: 0,
@@ -134,6 +143,7 @@ export const readEffectiveConfig = async (
       };
       child.stdin.write(`${JSON.stringify(initializeRequest)}\n`);
     };
+
     return await new Promise<EffectiveConfigResponse>(runProbe);
   } finally {
     detachAbort();
@@ -151,6 +161,7 @@ export const validateEffectiveConfig = (
       "CODEX_POLICY_UNVERIFIED",
       "Codex did not return an effective configuration.",
     );
+
   const defaultPermissions = config.defaultPermissions ?? config.default_permissions;
   if (defaultPermissions !== PROFILE_NAME)
     throw new AquariusError(
@@ -176,6 +187,7 @@ export const validateEffectiveConfig = (
       "Codex did not retain the Aquarius read-only filesystem profile.",
     );
   }
+
   const network = asRecord(profile?.network);
   if (network?.enabled !== undefined && network.enabled !== false) {
     throw new AquariusError(
@@ -183,6 +195,7 @@ export const validateEffectiveConfig = (
       "Codex did not retain the Aquarius network restriction.",
     );
   }
+
   const projectDocMaxBytes = config.projectDocMaxBytes ?? config.project_doc_max_bytes;
   const webSearch = config.webSearch ?? config.web_search;
   if (projectDocMaxBytes !== 0 || webSearch !== "disabled") {
@@ -211,6 +224,7 @@ export const validateEffectiveConfig = (
         "A non-user legacy Codex sandbox setting would override read-deny permissions.",
       );
     }
+
     if (key.startsWith("mcp_servers.") && source !== "user") {
       throw new AquariusError(
         "CODEX_MCP_ACTIVE",
@@ -224,6 +238,7 @@ export const validateEffectiveConfig = (
     const sources = Object.entries(origins)
       .filter(([key]) => key.startsWith(prefix))
       .map(([, origin]) => originType(origin));
+
     if (sources.length === 0 || sources.some((source) => source !== "user")) {
       throw new AquariusError(
         "CODEX_MCP_ACTIVE",
@@ -239,6 +254,7 @@ export const validateEffectiveConfig = (
       "Codex uses a custom provider that cannot be isolated from user configuration.",
     );
   }
+
   const settings: CodexSettings = {
     model: configuredText(config.model),
     serviceTier: configuredText(config.serviceTier ?? config.service_tier),
@@ -255,6 +271,7 @@ export const validateEffectiveConfig = (
       config.modelAutoCompactTokenLimitScope ?? config.model_auto_compact_token_limit_scope,
     ),
   };
+
   if (process.platform !== "win32") return settings;
   const windowsSandbox = asRecord(config.windows)?.sandbox;
   if (windowsSandbox !== "elevated" && windowsSandbox !== "mxc") {
@@ -263,6 +280,7 @@ export const validateEffectiveConfig = (
       "Codex has no Windows sandbox capable of enforcing read-deny permissions.",
     );
   }
+
   return { ...settings, windowsSandbox };
 };
 

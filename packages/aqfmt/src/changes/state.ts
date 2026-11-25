@@ -26,6 +26,7 @@ export const assertStableParent = async (root: string, relativePath: string): Pr
       `Cannot resolve path parent for ${relativePath}: ${String(error)}`,
     );
   }
+
   const normalizeParentPath = (value: string): string =>
     process.platform === "win32" ? value.toLowerCase() : value;
   const actualParent = normalizeParentPath(path.resolve(actual));
@@ -33,6 +34,7 @@ export const assertStableParent = async (root: string, relativePath: string): Pr
   if (actualParent !== expectedParent) {
     fail("SYMLINK_UNSUPPORTED", `Path parent changed through a symbolic link: ${relativePath}`);
   }
+
   const info = await lstat(expected);
   if (info.isSymbolicLink() || !info.isDirectory()) {
     fail("PATH_PARENT_INVALID", `Path parent is not a stable directory: ${relativePath}`);
@@ -44,6 +46,7 @@ export const assertNoAlternateDataStreams = async (
   relativePaths: readonly string[],
 ): Promise<void> => {
   if (process.platform !== "win32" || relativePaths.length === 0) return;
+
   const absolutePaths = relativePaths.map((relativePath) => absolutePath(root, relativePath));
   const paths = [...new Set(absolutePaths)];
   const command = [
@@ -57,6 +60,7 @@ export const assertNoAlternateDataStreams = async (
     "  } catch [System.Management.Automation.ItemNotFoundException] { }",
     "}",
   ].join("\n");
+
   const collectStreamOutput = (
     resolve: (value: string | PromiseLike<string>) => void,
     reject: (reason?: unknown) => void,
@@ -65,12 +69,14 @@ export const assertNoAlternateDataStreams = async (
       windowsHide: true,
       stdio: ["pipe", "pipe", "pipe"],
     });
+
     const stdout: Buffer[] = [];
     const stderr: Buffer[] = [];
     const collectStdout = (chunk: Buffer) => stdout.push(chunk);
     child.stdout.on("data", collectStdout);
     const collectStderr = (chunk: Buffer) => stderr.push(chunk);
     child.stderr.on("data", collectStderr);
+
     const rejectSpawnError = (error: Error) =>
       reject(
         new AquariusError(
@@ -79,11 +85,13 @@ export const assertNoAlternateDataStreams = async (
         ),
       );
     child.once("error", rejectSpawnError);
+
     const settleStreamCheck = (code: number | null): void => {
       if (code === 0) {
         resolve(Buffer.concat(stdout).toString("utf8"));
         return;
       }
+
       const stderrText = Buffer.concat(stderr).toString("utf8");
       reject(
         new AquariusError(
@@ -93,18 +101,22 @@ export const assertNoAlternateDataStreams = async (
       );
     };
     child.once("close", settleStreamCheck);
+
     const ignoreStdinError = () => undefined;
     child.stdin.on("error", ignoreStdinError);
     child.stdin.end(JSON.stringify(paths));
   };
+
   const output = await new Promise<string>(collectStreamOutput);
   const outputLines = output.split(OUTPUT_LINE_SEPARATOR);
   const firstStreamLine = outputLines.find((line) => line.trim() !== "");
   if (!firstStreamLine) return;
+
   const [indexText, stream = "unknown"] = firstStreamLine.split("\t", 2);
   const index = Number(indexText);
   const relativePath =
     Number.isInteger(index) && paths[index] ? slash(path.relative(root, paths[index])) : "unknown file";
+
   fail(
     "FILE_METADATA_UNSUPPORTED",
     `NTFS alternate data stream ${stream} is not supported: ${relativePath}`,
@@ -123,6 +135,7 @@ export const requireSourceState = async (
   if (expected.hash !== sha256(state.content) || expected.mode !== state.mode) {
     fail("SOURCE_CHANGED", `File changed after the AI baseline was captured: ${relativePath}`);
   }
+
   return state;
 };
 
@@ -133,22 +146,26 @@ export const captureBaseline = async (
   const projectRoot = await canonicalProjectRoot(root);
   const baselines = new Map<string, FileBaseline>();
   const relativePaths = paths.map((input) => normalizeRelativePath(projectRoot, input));
+
   for (const relativePath of relativePaths) {
     const key = pathKey(relativePath);
     if (baselines.has(key)) fail("PATH_CONFLICT", `Duplicate baseline path: ${relativePath}`);
     const state = await readProjectFileState(projectRoot, relativePath);
     if (state === null) fail("SOURCE_MISSING", `Cannot capture a missing file: ${relativePath}`);
+
     baselines.set(key, {
       hash: sha256(state.content),
       mode: state.mode,
       identity: fileIdentity(state),
     });
   }
+
   return baselines;
 };
 
 export const assertFilePlanState = async (plan: FileChangePlan, side: PlanSide): Promise<void> => {
   const current = await currentStates(plan);
+
   for (const file of plan.files) {
     const currentState = current.get(pathKey(file.path)) ?? null;
     if (!fileStatesAndIdentityEqual(currentState, file[side])) {
@@ -178,8 +195,10 @@ export const assertSafePath = async (root: string, relativePath: string): Promis
   const normalized = normalizeRelativePath(root, relativePath);
   const parts = normalized.split("/");
   let current = root;
+
   for (let index = 0; index < parts.length; index += 1) {
     current = path.join(current, parts[index]!);
+
     try {
       const stat = await lstat(current);
       if (stat.isSymbolicLink())
@@ -195,6 +214,7 @@ export const assertSafePath = async (root: string, relativePath: string): Promis
       throw error;
     }
   }
+
   return absolutePath(root, normalized);
 };
 
@@ -206,6 +226,7 @@ export const normalizeRelativePath = (root: string, input: string): string => {
   if (isAbsolutePath) {
     fail("PATH_OUTSIDE_ROOT", `Path must be relative to the project root: ${input}`);
   }
+
   const portable = input.replaceAll("\\", "/");
   const rawParts = portable.split("/");
   if (rawParts.some((part) => part === "." || part === "..")) {
@@ -214,6 +235,7 @@ export const normalizeRelativePath = (root: string, input: string): string => {
   if (process.platform === "win32" && rawParts.some(isInvalidWindowsPathPart)) {
     fail("PATH_INVALID", `Path uses a reserved Windows name or alias: ${input}`);
   }
+
   const absolute = path.resolve(root, ...rawParts);
   const relative = path.relative(root, absolute);
   const escapesOrNamesRoot =
@@ -221,6 +243,7 @@ export const normalizeRelativePath = (root: string, input: string): string => {
   if (escapesOrNamesRoot) {
     fail("PATH_OUTSIDE_ROOT", `Path escapes or names the project root: ${input}`);
   }
+
   return slash(relative);
 };
 
@@ -235,9 +258,11 @@ export const canonicalProjectRoot = async (root: string): Promise<string> => {
       `Cannot resolve project root ${resolved}: ${String(error)}`,
     );
   }
+
   const stat = await lstat(canonical);
   if (!stat.isDirectory())
     fail("PROJECT_ROOT_INVALID", `Project root is not a directory: ${canonical}`);
+
   return canonical;
 };
 
@@ -255,10 +280,12 @@ export const readAbsoluteFileState = async (
     }
     throw error;
   }
+
   try {
     const stat = await handle.stat();
     if (!stat.isFile())
       fail("FILE_TYPE_UNSUPPORTED", `Only regular files are supported: ${displayPath}`);
+
     const state = { content: new Uint8Array(await handle.readFile()), mode: fileMode(stat.mode) };
     fileIdentities.set(state, `${stat.dev}:${stat.ino}`);
     return state;

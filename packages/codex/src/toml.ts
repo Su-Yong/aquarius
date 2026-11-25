@@ -21,6 +21,7 @@ export const tomlValue = (value: TomlValue): string => {
     const serializedItems = value.map(tomlValue);
     return `[${serializedItems.join(",")}]`;
   }
+
   const tableEntries = Object.entries(value);
   const serializedEntries = tableEntries.map(([key, item]) => `${tomlString(key)}=${tomlValue(item)}`);
   return `{${serializedEntries.join(",")}}`;

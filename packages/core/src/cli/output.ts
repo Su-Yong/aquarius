@@ -53,6 +53,7 @@ export const printSummaryCounts = (
 ): void => {
   const stream = process.stdout;
   const color = terminalColors(stream);
+
   const counts: SummaryCount[] = [
     ["Files:", summary.totalFiles ?? "undetermined", "info"],
     ...reviewCounts,
@@ -62,6 +63,7 @@ export const printSummaryCounts = (
     ...additionalCounts,
   ];
   if (ai) counts.push(["AI:", formatAdapterRunInfo(ai), "info"]);
+
   for (const [label, count, status] of counts) {
     const text = `${label.padEnd(17)} ${color.bold(String(count))}`;
     const line = statusText(text, status, stream);
@@ -73,6 +75,7 @@ export const printReportDetails = (result: ReportDetails): void => {
   const stdout = process.stdout;
   const stderr = process.stderr;
   const color = terminalColors(stdout);
+
   if (result.skippedRules.length > 0) {
     console.log("");
     console.log(
@@ -99,6 +102,7 @@ export const printReportDetails = (result: ReportDetails): void => {
   for (const warning of result.warnings ?? []) {
     printIssue(warning, "warning");
   }
+
   if (result.errors.length > 0) {
     console.error("");
     const heading = terminalColors(stderr).bold(`Execution errors (${result.errors.length})`);
@@ -127,6 +131,7 @@ const printIssue = (
 ): void => {
   const stream = process.stderr;
   const color = terminalColors(stream);
+
   const label = status === "error" ? color.red("error") : color.yellow("warn");
   const codeColor = status === "error" ? color.red : color.yellow;
   const rules = issue.ruleIds.length
@@ -135,7 +140,9 @@ const printIssue = (
   const issueCode = codeColor(safeText(issue.code));
   const issueMessage = color.bold(safeText(issue.message));
   const issueText = `${label} ${issueCode}${rules}: ${issueMessage}`;
+
   console.error(statusText(issueText, status, stream));
+
   for (const path of issue.paths ?? []) {
     console.error(`  ${color.dim("at")} ${color.cyan(safeText(path))}`);
   }

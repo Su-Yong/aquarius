@@ -46,6 +46,7 @@ export const loadManualIgnores = async (
   options: TargetOptions,
 ): Promise<IgnoreMatcher[]> => {
   const matchers: IgnoreMatcher[] = [];
+
   for (const ignorePath of options.ignorePaths ?? []) {
     const path = resolve(config.cwd, ignorePath);
     const text = await readOptionalFile(path, true);
@@ -55,9 +56,11 @@ export const loadManualIgnores = async (
       matchers.push(createMatcher(baseDirectory, patterns));
     }
   }
+
   if (options.ignorePatterns?.length) {
     matchers.push(createMatcher(config.cwd, options.ignorePatterns));
   }
+
   return matchers;
 };
 
@@ -67,6 +70,7 @@ export const loadGitInfoExclude = async (
   const dotGit = join(projectRoot, ".git");
   const dotGitStats = await tryLstat(dotGit);
   if (!dotGitStats) return undefined;
+
   const gitDirectory = dotGitStats.isFile()
     ? resolveGitDirectory(projectRoot, await readFile(dotGit, "utf8"))
     : dotGit;
@@ -89,20 +93,24 @@ export const loadGitignoreMatchers = async (projectRoot: string): Promise<Ignore
   });
   const rootIgnore = join(projectRoot, ".gitignore");
   if (await tryLstat(rootIgnore)) paths.push(rootIgnore);
+
   const uniqueIgnorePaths = [...new Set(paths)].sort(
     (left, right) => left.split(sep).length - right.split(sep).length,
   );
+
   const matchers: IgnoreMatcher[] = [];
   for (const path of uniqueIgnorePaths) {
     const ignoreFileStats = await lstat(path);
     const projectPath = toPosix(relative(projectRoot, path));
     if (!ignoreFileStats.isFile() || isInternalPath(projectPath)) continue;
     if (isIgnoredByMatchers(matchers, projectRoot, projectPath)) continue;
+
     const baseDirectory = dirname(path);
     const ignoreText = await readFile(path, "utf8");
     const patterns = splitPatterns(ignoreText);
     matchers.push(createMatcher(baseDirectory, patterns));
   }
+
   return matchers;
 };
 
@@ -132,6 +140,7 @@ export const isIgnoredByMatchers = (
   path: string,
 ): boolean => {
   let ignored = false;
+
   for (const matcher of matchers) {
     const relativePath = pathFromMatcher(matcher, projectRoot, path);
     if (relativePath === undefined) continue;
@@ -139,6 +148,7 @@ export const isIgnoredByMatchers = (
     if (ignoreTest.ignored) ignored = true;
     else if (ignoreTest.unignored) ignored = false;
   }
+
   return ignored;
 };
 
@@ -155,9 +165,11 @@ const pathFromMatcher = (
   const pathSegments = projectPath.split("/");
   const absolute = resolve(projectRoot, ...pathSegments);
   const path = relative(rule.baseDirectory, absolute);
+
   if (path === "" || !isInside(rule.baseDirectory, absolute)) {
     return undefined;
   }
+
   return toPosix(path);
 };
 

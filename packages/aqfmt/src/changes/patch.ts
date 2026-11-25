@@ -71,6 +71,7 @@ export const applyReplacementPatches = (
   const source = readSourceLines(hasBom ? original.slice(1) : original);
   const ending = source.find((line) => line.ending)?.ending || "\n";
   const patchDeltas: number[] = [];
+
   const locateChangeHunks = (change: ReplaceChange, changeIndex: number): LocatedHunk[] => {
     let lineDelta = 0;
     const locatedHunks = readHunks(relativePath, change, changeIndex).map((hunk) => {
@@ -81,6 +82,7 @@ export const applyReplacementPatches = (
     patchDeltas.push(lineDelta);
     return locatedHunks;
   };
+
   const hunks = replacements.flatMap(locateChangeHunks);
   hunks.sort((left, right) => left.start - right.start || left.end - right.end);
   assertNonoverlapping(relativePath, hunks);
@@ -116,12 +118,14 @@ export const applyReplacementPatches = (
         );
       }
     }
+
     while (cursor < hunk.start) output.push(source[cursor++]!);
     for (const line of hunk.lines) {
       if (line.prefix === "-") {
         cursor += 1;
         continue;
       }
+
       const next =
         line.prefix === " "
           ? source[cursor++]!
@@ -146,6 +150,7 @@ export const applyReplacementPatches = (
     }
     return line.text + (final ? finalEnding : line.ending || ending);
   };
+
   const transformed = output.map(renderOutputLine).join("");
   return { content: encoder.encode((hasBom ? "\uFEFF" : "") + transformed), mode: state.mode };
 };
@@ -169,6 +174,7 @@ const readHunks = (path: string, change: ReplaceChange, changeIndex: number): Hu
       change.ruleIds,
     );
   };
+
   const lines = change.patch.split(patchLineSeparator);
   while (lines.at(-1) === "") lines.pop();
 
@@ -203,9 +209,11 @@ const readHunks = (path: string, change: ReplaceChange, changeIndex: number): Hu
     cursor += 1;
     let nextHunk = cursor;
     while (nextHunk < lines.length && !lines[nextHunk]!.startsWith("@@")) nextHunk += 1;
+
     // Bare blanks at the boundary are separators, while interior blanks are context.
     let bodyEnd = nextHunk;
     while (bodyEnd > cursor && lines[bodyEnd - 1] === "") bodyEnd -= 1;
+
     let oldNoNewline = false;
     let newNoNewline = false;
     while (cursor < bodyEnd) {
@@ -232,19 +240,24 @@ const readHunks = (path: string, change: ReplaceChange, changeIndex: number): Hu
       }
       cursor += 1;
     }
+
     cursor = nextHunk;
     if (hunk.lines.length === 0) invalid(hunk.patchLine - 1, "The hunk body is empty.");
     hunks.push(hunk);
   }
+
   if (hunks.length === 0) invalid(cursor, "Expected at least one hunk.");
+
   return hunks;
 };
 
 const readSourceLines = (text: string): SourceLine[] => {
   if (text === "") return [];
+
   const lines = text.split("\n");
   const hasFinalNewline = lines.at(-1) === "";
   if (hasFinalNewline) lines.pop();
+
   return lines.map((line, index) => {
     if (index === lines.length - 1 && !hasFinalNewline) return { text: line, ending: "" };
     return line.endsWith("\r")
@@ -258,11 +271,13 @@ const hunkLabel = (hunk: Hunk): string =>
 
 const sourceSnippet = (source: readonly SourceLine[], start: number): string => {
   if (!source.length) return "Original source is empty.";
+
   const lastSourceIndex = source.length - 1;
   const boundedStart = Math.min(start, lastSourceIndex);
   const center = Math.max(0, boundedStart);
   const from = Math.max(0, center - offsetWindow);
   const to = Math.min(source.length, center + offsetWindow + 1);
+
   return source
     .slice(from, to)
     .map(({ text }, index) => `${from + index + 1} | ${text}`)
@@ -292,9 +307,11 @@ const locateHunk = (
   const { oldLines, newCount } = hunk;
   // Unified Diff numbers an empty old range after the given line, and a nonempty range from it.
   const start = oldLines.length === 0 ? hunk.oldStart : hunk.oldStart - 1;
+
   const reject = (code: PatchErrorCode, message: string): never => {
     throw hunkError(code, path, source, hunk, message);
   };
+
   const invalidLineNumbers =
     !Number.isSafeInteger(start) ||
     start < 0 ||
@@ -321,6 +338,7 @@ const locateHunk = (
     };
     return oldLines.every(matchesOriginalLine);
   };
+
   if (oldLines.length === 0 || matches(start)) {
     return { ...hunk, start, end: start + oldLines.length, priorPatchDelta };
   }
@@ -337,6 +355,7 @@ const locateHunk = (
       reject("REPLACE_MISMATCH", "Original hunk text matches multiple positions within ±3 lines.");
     match = index;
   }
+
   if (match !== undefined) {
     return { ...hunk, start: match, end: match + oldLines.length, priorPatchDelta };
   }
@@ -357,6 +376,7 @@ const assertNonoverlapping = (path: string, hunks: readonly LocatedHunk[]): void
     ) {
       const describe = (hunk: LocatedHunk): string =>
         `${hunkLabel(hunk)} [${hunk.ruleIds.join(", ")}], ${describeRange(hunk)}`;
+
       throw new ReplacementPatchError(
         "REPLACE_OVERLAP",
         `${path}: overlapping hunks: ${describe(previous)}; ${describe(current)}`,

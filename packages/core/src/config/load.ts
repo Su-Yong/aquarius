@@ -28,12 +28,14 @@ export const loadConfig = async (
   const configPath = options.configPath
     ? await resolveConfigPath(cwd, options.configPath)
     : await findConfig(cwd, CONFIG_NAMES[tool]);
+
   if (!configPath) {
     throw new AquariusError(
       "CONFIG_NOT_FOUND",
       `No ${CONFIG_NAMES[tool].join(" or ")} configuration found from ${cwd}.`,
     );
   }
+
   const projectRoot = dirname(configPath);
   const rawConfig = await readConfig(configPath);
   const config = validateConfig(tool, rawConfig);
@@ -60,12 +62,14 @@ export const loadConfig = async (
 
 const resolveDirectory = async (directory: string): Promise<string> => {
   const absolute = resolve(directory);
+
   try {
     const resolved = await realpath(absolute);
     const stats = await lstat(resolved);
     if (!stats.isDirectory()) {
       throw new AquariusError("CONFIG_CWD_INVALID", `Not a directory: ${directory}`);
     }
+
     return resolved;
   } catch (error) {
     if (error instanceof AquariusError) throw error;
@@ -78,11 +82,13 @@ const resolveDirectory = async (directory: string): Promise<string> => {
 
 const findConfig = async (cwd: string, names: readonly string[]): Promise<string | undefined> => {
   let directory = cwd;
+
   while (true) {
     for (const name of names) {
       const candidate = join(directory, name);
       if (await pathExists(candidate)) return realpath(candidate);
     }
+
     const parent = dirname(directory);
     if (parent === directory) return undefined;
     directory = parent;
@@ -91,12 +97,14 @@ const findConfig = async (cwd: string, names: readonly string[]): Promise<string
 
 const resolveConfigPath = async (cwd: string, configPath: string): Promise<string> => {
   const absolute = isAbsolute(configPath) ? configPath : resolve(cwd, configPath);
+
   try {
     const resolved = await realpath(absolute);
     const stats = await lstat(resolved);
     if (!stats.isFile()) {
       throw new AquariusError("CONFIG_NOT_FOUND", `Configuration is not a file: ${configPath}`);
     }
+
     return resolved;
   } catch (error) {
     if (error instanceof AquariusError) throw error;
@@ -128,6 +136,7 @@ const readConfig = async (configPath: string): Promise<unknown> => {
       `${configPath}:${line}:${column}: ${printParseErrorCode(firstError.error)}`,
     );
   }
+
   return parsedConfig;
 };
 
@@ -139,13 +148,16 @@ const validateConfig = (tool: ToolKind, input: unknown): ProjectConfig => {
 
   const patterns = [...(config.files ?? []), ...(config.ignore ?? [])];
   for (const pattern of patterns) validateRelativePattern(pattern);
+
   if (config.plugins) rejectDuplicates(config.plugins, "plugins");
+
   for (const [index, preset] of (config.preset ?? []).entries()) {
     if (!isRuleReference(preset)) {
       invalid(`preset[${index}] must be a namespace/preset-name string`);
     }
   }
   validateRules(config.rules ?? {});
+
   return config;
 };
 
@@ -174,6 +186,7 @@ const validateRelativePattern = (pattern: string): void => {
     WINDOWS_DRIVE_PREFIX.test(normalized) ||
     parsePath(withoutAnchor).root !== "" ||
     withoutAnchor.split("/").includes("..");
+
   if (escapesBaseDirectory) {
     invalid(`patterns must stay within their base directory: ${pattern}`);
   }
@@ -197,6 +210,7 @@ const pathExists = async (path: string): Promise<boolean> => {
     if (isNodeError(error, "ENOENT")) return false;
     throw error;
   }
+
   return true;
 };
 

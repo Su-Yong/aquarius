@@ -13,6 +13,7 @@ export const printHuman = (execution: LintExecutionResult): void => {
   const result = execution.result;
   const color = terminalColors(process.stdout);
   const summary = result.summary;
+
   const selectLintHeading = (): [string, "success" | "warning" | "error" | "info"] => {
     if (execution.exitCode === 130) {
       return ["Lint cancelled", "error"];
@@ -23,6 +24,7 @@ export const printHuman = (execution: LintExecutionResult): void => {
         result.errors.length ||
         result.fileResults.some(({ status }) => status === "failed") ||
         execution.exitCode === 2;
+
       if (lintFailed) {
         return ["Lint failed", "error"];
       } else if (execution.exitCode !== 0) {
@@ -35,8 +37,10 @@ export const printHuman = (execution: LintExecutionResult): void => {
         return ["Lint complete with warnings", "warning"];
       }
     }
+
     return ["Lint complete", "success"];
   };
+
   const [heading, status] = selectLintHeading();
 
   console.log("");
@@ -54,6 +58,7 @@ export const printHuman = (execution: LintExecutionResult): void => {
     const diagnosticStatus = result.diagnostics.some(({ severity }) => severity === "error")
       ? "error"
       : "warning";
+
     console.log("");
     console.log(
       statusText(
@@ -63,17 +68,20 @@ export const printHuman = (execution: LintExecutionResult): void => {
       ),
     );
   }
+
   const locationText = (location: { path: string; line: number; column?: number }) => {
     const coordinates = `${location.path}:${location.line}${location.column === undefined ? "" : `:${location.column}`}`;
     const safeCoordinates = safeText(coordinates);
     return color.cyan(safeCoordinates);
   };
+
   for (const diagnostic of result.diagnostics) {
     const [location, ...additionalLocations] = diagnostic.locations;
     const ruleLabels = diagnostic.rules
       .map(({ rule, severity }) => `${safeText(rule)}:${severity}`)
       .join(", ");
     const colorSeverity = diagnostic.severity === "error" ? color.red : color.yellow;
+
     console.log(
       statusText(
         `${locationText(location!)} ${colorSeverity(diagnostic.severity)} ${color.magenta(`[${ruleLabels}]`)} ${color.bold(safeText(diagnostic.message))}`,
@@ -81,14 +89,17 @@ export const printHuman = (execution: LintExecutionResult): void => {
         process.stdout,
       ),
     );
+
     for (const additional of additionalLocations) {
       console.log(`  ${color.dim("at")} ${locationText(additional)}`);
     }
+
     for (const evidence of diagnostic.evidence) {
       console.log(
         `  ${color.dim("evidence")} ${locationText(evidence)}: ${color.dim(safeText(evidence.message))}`,
       );
     }
   }
+
   printReportDetails(result);
 };

@@ -33,6 +33,7 @@ export const existingSensitivePaths = async (projectRoot: string): Promise<strin
     join(homedir(), ".netrc"),
     join(homedir(), ".npmrc"),
   ]);
+
   const existing: string[] = [];
   for (const candidate of candidates) {
     try {
@@ -42,6 +43,7 @@ export const existingSensitivePaths = async (projectRoot: string): Promise<strin
       // Missing paths cannot expose current credentials to the sandboxed command.
     }
   }
+
   const uniquePaths = new Set(existing);
   return [...uniquePaths].sort();
 };
@@ -51,6 +53,7 @@ export const buildCodexConfigOverrides = (
   deniedPaths: readonly string[],
 ): string[] => {
   const projectTrust = `projects={${tomlString(viewRoot)}={trust_level=${tomlString("untrusted")}}}`;
+
   return [
     `default_permissions=${tomlString(PROFILE_NAME)}`,
     filesystemOverride(deniedPaths),
@@ -81,6 +84,7 @@ export const verifySandbox = async (
       { flag: "wx" },
     );
   }
+
   const probeCommand = buildProbeCommand(windowsProbeScript);
   const sandboxOverrides = overrides.filter(
     (override) =>
@@ -97,6 +101,7 @@ export const verifySandbox = async (
     ...overrideArguments,
     ...probeCommand,
   ];
+
   const snapshotExitCode = await runSandboxCommand(
     executable,
     [...sandboxArguments, viewRoot],
@@ -109,6 +114,7 @@ export const verifySandbox = async (
       "CODEX_SANDBOX_PROBE_FAILED",
       "Codex could not read the approved snapshot through its sandbox.",
     );
+
   const projectExitCode = await runSandboxCommand(
     executable,
     [...sandboxArguments, projectRoot],
@@ -130,12 +136,14 @@ const filesystemOverride = (deniedPaths: readonly string[]): string => {
     (deniedPath) => `${tomlString(deniedPath)}=${tomlString("deny")}`,
   );
   const entries = [rootEntry, ...deniedEntries];
+
   return `permissions.${PROFILE_NAME}.filesystem={${entries.join(",")}}`;
 };
 
 const buildProbeCommand = (windowsProbeScript: string | undefined): string[] => {
   if (windowsProbeScript === undefined)
     return ["/bin/sh", "-c", 'ls -A -- "$1" >/dev/null', "aquarius-probe"];
+
   const powershell = join(
     process.env.SystemRoot ?? "C:\\Windows",
     "System32",
@@ -143,6 +151,7 @@ const buildProbeCommand = (windowsProbeScript: string | undefined): string[] => 
     "v1.0",
     "powershell.exe",
   );
+
   return [
     powershell,
     "-NoLogo",
@@ -162,14 +171,17 @@ const runSandboxCommand = async (
   signal: AbortSignal,
 ): Promise<number | null> => {
   if (signal.aborted) throw new AquariusError("CODEX_ABORTED", "Codex execution was aborted.");
+
   const child = spawn(executable, args, {
     cwd,
     stdio: ["ignore", "ignore", "ignore"],
     windowsHide: true,
   });
+
   const timeout = AbortSignal.timeout(SANDBOX_PROBE_TIMEOUT_MS);
   const probeSignal = AbortSignal.any([signal, timeout]);
   const detachAbort = attachAbort(child, probeSignal);
+
   try {
     const registerProbeListeners = (
       resolveExit: (exitCode: number | null) => void,
@@ -179,9 +191,11 @@ const runSandboxCommand = async (
         rejectProbe(
           new AquariusError("CODEX_SANDBOX_PROBE_FAILED", "Codex sandbox probe could not start."),
         );
+
       child.once("error", rejectOnSpawnError);
       child.once("close", resolveExit);
     };
+
     const exitCode = await new Promise<number | null>(registerProbeListeners);
     if (timeout.aborted && !signal.aborted) {
       throw new AquariusError("CODEX_SANDBOX_PROBE_FAILED", "Codex sandbox probe timed out.");

@@ -1,0 +1,23 @@
+{
+  "git": {
+    "requireBranch": "master",
+    "commit": false,
+    "tagMatch": "v[0-9]*",
+    "tagName": "v${version}",
+    "tagAnnotation": "Aquarius v${version}",
+    "pushArgs": ["--atomic", "--follow-tags"],
+    "changelog": "git log --pretty=format:'* %s (%h)' ${from}...${to} | sed 's/@/\\&#64;/g'"
+  },
+  "npm": {
+    "ignoreVersion": true,
+    "publish": false
+  },
+  "github": {
+    "release": true,
+    "releaseName": "Aquarius v${version}",
+    "comments": { "submit": false }
+  },
+  "hooks": {
+    "before:git:release": "pnpm publish-packages"
+  }
+}

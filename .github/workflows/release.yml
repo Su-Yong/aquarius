@@ -22,6 +22,8 @@ jobs:
       id-token: write
     steps:
       - uses: actions/checkout@v7.0.1
+        with:
+          fetch-depth: 0
       - uses: actions/setup-node@v7.0.0
         with:
           node-version: "24"
@@ -34,5 +36,9 @@ jobs:
       - uses: changesets/action@v2.1.2
         with:
           version-script: pnpm version-packages
-          publish-script: pnpm release
+          publish-script: pnpm release --ci
           pr-base-branch: master
+          create-github-releases: false
+          push-git-tags: false
+        env:
+          GITHUB_TOKEN: ${{ github.token }}

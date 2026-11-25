@@ -17,7 +17,8 @@
     "test": "pnpm -r test",
     "changeset": "changeset",
     "version-packages": "changeset version",
-    "release": "pnpm build && changeset publish"
+    "publish-packages": "pnpm build && changeset publish",
+    "release": "node scripts/release.mjs"
   },
   "devDependencies": {
     "@changesets/cli": "3.0.3",
@@ -25,6 +26,8 @@
     "oxfmt": "0.76.0",
     "oxlint": "1.91.0",
     "oxlint-tsgolint": "7.0.2005",
+    "release-it": "20.2.1",
+    "semver": "7.8.5",
     "tsdown": "0.23.0",
     "typescript": "7.0.2",
     "vitest": "5.0.1",

@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 import { basename } from "node:path";
 import { createInterface } from "node:readline";
+
 import {
   AquariusError,
   attachAbort,
@@ -11,62 +12,22 @@ import {
   waitForTermination,
   type AdapterExecuteRequest,
 } from "@aquarius/core/adapter";
+
 import { asRecord } from "./config-probe";
 import { captureStderr, withDiagnostic } from "./diagnostic";
 import { featureArguments, type CodexOptions, type CodexSettings } from "./options";
 import { configArguments, tomlValue } from "./toml";
 
 const FORBIDDEN_EVENT_ITEMS = new Set(["file_change", "mcp_tool_call", "web_search"]);
+const MAX_VISIBLE_REFERENCES = 3;
+const COMMAND_TOKEN_START = /[\s"'`=(:,;|&<>[]/u;
+const COMMAND_TOKEN_END = /[\s"'`:),;|&<>\]]/u;
+const INPUT_LENGTH_ERROR = /Input exceeds the maximum length of ([0-9]{1,12}) characters\b/u;
+const STDERR_LINE_BREAK = /\r?\n/u;
+const CONFIG_ERROR_PATTERN =
+  /\b(?:config(?:uration)?|service_tier|toml|unknown field|unknown feature|unrecognized (?:key|field|option))\b/iu;
 const ANALYSIS_TRANSPORT =
   "Send each provisional analysis frame as the sole JSON value in a public commentary message. Codex command output, private reasoning, Markdown fences, and surrounding prose cannot carry a frame.";
-
-const containsPath = (value: unknown, paths: readonly string[]): boolean => {
-  if (typeof value === "string") {
-    const pathText = toPosix(value);
-    const candidate = process.platform === "win32" ? pathText.toLowerCase() : pathText;
-    return paths.some((path) => candidate.includes(path));
-  }
-  if (Array.isArray(value)) return value.some((item) => containsPath(item, paths));
-  if (value && typeof value === "object") {
-    return Object.entries(value).some(
-      ([key, item]) => containsPath(key, paths) || containsPath(item, paths),
-    );
-  }
-  return false;
-};
-
-const commandMentionsPath = (command: string, path: string, viewRoot: string): boolean => {
-  const candidates = [path, `./${path}`, `${toPosix(viewRoot)}/${path}`];
-  for (const candidate of candidates) {
-    let index = command.indexOf(candidate);
-    while (index !== -1) {
-      const before = command[index - 1];
-      const after = command[index + candidate.length];
-      const startsToken = before === undefined || /[\s"'`=(:,;|&<>[]/u.test(before);
-      const endsToken = after === undefined || /[\s"'`:),;|&<>\]]/u.test(after);
-      if (startsToken && endsToken) {
-        return true;
-      }
-      index = command.indexOf(candidate, index + candidate.length);
-    }
-  }
-  return false;
-};
-
-const commandReferences = (
-  command: string,
-  input: AdapterExecuteRequest,
-  viewRoot: string,
-): string => {
-  const references = [
-    ...input.readableFiles.filter((path) => commandMentionsPath(command, path, viewRoot)),
-    ...input.ruleResources
-      .filter(({ detailsPath }) => commandMentionsPath(command, detailsPath, viewRoot))
-      .map(({ ruleId }) => `rule ${ruleId}`),
-  ];
-  const visible = references.slice(0, 3).join(", ");
-  return references.length > 3 ? `${visible} (+${references.length - 3} more)` : visible;
-};
 
 export const runExec = async (
   executable: string,
@@ -123,7 +84,8 @@ export const runExec = async (
   const detachAbort = attachAbort(child, input.signal);
   const stderr = captureStderr(child.stderr);
   // An early child exit also closes stdin. Its exit status provides the execution error.
-  child.stdin.on("error", () => {});
+  const ignoreStdinError = () => {};
+  child.stdin.on("error", ignoreStdinError);
   const reader = createInterface({ input: child.stdout });
   const internalPaths = [runRoot, viewRoot].map((path) => {
     const normalized = toPosix(path);
@@ -134,18 +96,15 @@ export const runExec = async (
   let lastReferences = "";
   const activeCommands = new Map<string, string>();
   const reportAnalysis = () => {
-    const active = [...activeCommands.values()].at(-1);
+    const activeCommand = [...activeCommands.values()].at(-1);
     input.onProgress?.(
-      active ??
+      activeCommand ??
         (lastReferences ? `AI analyzing; last referenced: ${lastReferences}` : "AI analyzing"),
     );
   };
-  reader.on("line", (line) => {
+  const handleProgressLine = (line: string) => {
     if (eventFailure || input.signal.aborted) return;
-    let event: Record<string, unknown> | undefined;
-    try {
-      event = asRecord(JSON.parse(line));
-    } catch {}
+    const event = parseProgressRecord(() => line);
     if (!event) {
       eventFailure = new AquariusError(
         "CODEX_EVENT_INVALID",
@@ -155,25 +114,19 @@ export const runExec = async (
       return;
     }
     const item = asRecord(event.item);
-    if (item && typeof item.type === "string" && FORBIDDEN_EVENT_ITEMS.has(item.type)) {
+    const attemptedForbiddenAction =
+      item && typeof item.type === "string" && FORBIDDEN_EVENT_ITEMS.has(item.type);
+    if (attemptedForbiddenAction) {
       eventFailure = new AquariusError(
         "CODEX_TOOL_VIOLATION",
         "Codex attempted a disabled tool or file change.",
       );
       terminateChild(child);
-    } else if (event.type === "turn.failed") {
+      return;
+    }
+    if (event.type === "turn.failed") {
       const message = asRecord(event.error)?.message;
-      let errorCode: unknown;
-      let detail = message ?? reportedError;
-      if (typeof message === "string") {
-        try {
-          const error = asRecord(asRecord(JSON.parse(message))?.error);
-          errorCode = error?.code;
-          detail = error?.message ?? message;
-        } catch {
-          // Codex can report failures as plain text rather than JSON.
-        }
-      }
+      const { errorCode, detail } = describeTurnFailure(message, reportedError);
       const summary =
         errorCode === "model_not_found"
           ? "The configured Codex model is unavailable for this account. Choose a supported model in Codex or Aquarius configuration."
@@ -187,17 +140,8 @@ export const runExec = async (
     } else if (event.type === "turn.completed") {
       reportedError = undefined;
       input.onProgress?.("Reading Codex response");
-    } else if (
-      event.type === "item.completed" &&
-      item?.type === "agent_message" &&
-      typeof item.text === "string"
-    ) {
-      let update: Record<string, unknown> | undefined;
-      try {
-        update = asRecord(JSON.parse(item.text));
-      } catch {
-        return;
-      }
+    } else if (isCompletedAgentMessage(event, item)) {
+      const update = parseProgressRecord(() => item.text);
       if (update?.type !== "aquarius.analysis_update") return;
       if (containsPath(update, internalPaths)) {
         eventFailure = new AquariusError(
@@ -223,45 +167,48 @@ export const runExec = async (
     } else if (event.type === "turn.started" || item?.type === "reasoning") {
       reportAnalysis();
     }
-  });
+  };
+  reader.on("line", handleProgressLine);
 
   let detachExitAbort: (() => void) | undefined;
   try {
-    const exit = new Promise<number | null>((resolvePromise, rejectPromise) => {
+    const observeChildExit = (
+      resolvePromise: (exitCode: number | null) => void,
+      rejectPromise: (error: AquariusError) => void,
+    ) => {
       const onAbort = () => {
-        void waitForTermination(child).then(() => resolvePromise(null));
+        const resolveAbortedExit = () => resolvePromise(null);
+        void waitForTermination(child).then(resolveAbortedExit);
       };
       input.signal.addEventListener("abort", onAbort, { once: true });
       detachExitAbort = () => input.signal.removeEventListener("abort", onAbort);
       if (input.signal.aborted) onAbort();
-      child.once("error", () =>
-        rejectPromise(new AquariusError("CODEX_EXECUTION_FAILED", "Codex could not start.")),
-      );
+      const rejectStartFailure = () =>
+        rejectPromise(new AquariusError("CODEX_EXECUTION_FAILED", "Codex could not start."));
+      child.once("error", rejectStartFailure);
       child.once("close", resolvePromise);
-    });
+    };
+    const exit = new Promise<number | null>(observeChildExit);
     input.onProgress?.("Starting Codex analysis");
-    child.stdin.end(buildSnapshotEnvironmentPrompt(`${ANALYSIS_TRANSPORT}\n\n${input.prompt}`));
+    const prompt = input.onAnalysisUpdate
+      ? `${ANALYSIS_TRANSPORT}\n\n${input.prompt}`
+      : input.prompt;
+    child.stdin.end(buildSnapshotEnvironmentPrompt(prompt));
     const exitCode = await exit;
     if (input.signal.aborted)
       throw new AquariusError("CODEX_ABORTED", "Codex execution was aborted.");
     if (eventFailure) throw eventFailure;
     if (exitCode !== 0) {
       const output = stderr();
-      const maximum = /Input exceeds the maximum length of ([0-9]{1,12}) characters\b/u.exec(
-        output,
-      )?.[1];
+      const maximum = INPUT_LENGTH_ERROR.exec(output)?.[1];
       if (maximum) {
         throw new AquariusError(
           "CODEX_INPUT_TOO_LARGE",
           `Codex rejected an input longer than ${maximum} characters.`,
         );
       }
-      const lines = output.split(/\r?\n/u);
-      const configError = lines.findIndex((line) =>
-        /\b(?:config(?:uration)?|service_tier|toml|unknown field|unknown feature|unrecognized (?:key|field|option))\b/iu.test(
-          line,
-        ),
-      );
+      const lines = output.split(STDERR_LINE_BREAK);
+      const configError = lines.findIndex((line) => CONFIG_ERROR_PATTERN.test(line));
       const detail = configError === -1 ? reportedError : lines.slice(configError).join("\n");
       throw new AquariusError(
         "CODEX_EXECUTION_FAILED",
@@ -281,7 +228,8 @@ export const runExec = async (
     let result: unknown;
     try {
       const { content } = await readStableRegularFile(runRoot, basename(resultPath), input.signal);
-      result = JSON.parse(content.toString("utf8")) as unknown;
+      const resultText = content.toString("utf8");
+      result = JSON.parse(resultText) as unknown;
     } catch {
       if (input.signal.aborted)
         throw new AquariusError("CODEX_ABORTED", "Codex execution was aborted.");
@@ -307,4 +255,86 @@ export const runExec = async (
     child.stdout.destroy();
     child.stderr.destroy();
   }
+};
+
+const containsPath = (value: unknown, paths: readonly string[]): boolean => {
+  if (typeof value === "string") {
+    const pathText = toPosix(value);
+    const candidate = process.platform === "win32" ? pathText.toLowerCase() : pathText;
+    return paths.some((path) => candidate.includes(path));
+  }
+  if (Array.isArray(value)) return value.some((item) => containsPath(item, paths));
+  if (value && typeof value === "object") {
+    return Object.entries(value).some(
+      ([key, item]) => containsPath(key, paths) || containsPath(item, paths),
+    );
+  }
+  return false;
+};
+
+const commandMentionsPath = (command: string, path: string, viewRoot: string): boolean => {
+  const candidates = [path, `./${path}`, `${toPosix(viewRoot)}/${path}`];
+  for (const candidate of candidates) {
+    let index = command.indexOf(candidate);
+    while (index !== -1) {
+      const before = command[index - 1];
+      const after = command[index + candidate.length];
+      const startsToken = before === undefined || COMMAND_TOKEN_START.test(before);
+      const endsToken = after === undefined || COMMAND_TOKEN_END.test(after);
+      if (startsToken && endsToken) {
+        return true;
+      }
+      index = command.indexOf(candidate, index + candidate.length);
+    }
+  }
+  return false;
+};
+
+const commandReferences = (
+  command: string,
+  input: AdapterExecuteRequest,
+  viewRoot: string,
+): string => {
+  const references = [
+    ...input.readableFiles.filter((path) => commandMentionsPath(command, path, viewRoot)),
+    ...input.ruleResources
+      .filter(({ detailsPath }) => commandMentionsPath(command, detailsPath, viewRoot))
+      .map(({ ruleId }) => `rule ${ruleId}`),
+  ];
+  const visible = references.slice(0, MAX_VISIBLE_REFERENCES).join(", ");
+  const omittedCount = references.length - MAX_VISIBLE_REFERENCES;
+  return omittedCount > 0 ? `${visible} (+${omittedCount} more)` : visible;
+};
+
+const parseProgressRecord = (readText: () => string): Record<string, unknown> | undefined => {
+  try {
+    const parsed: unknown = JSON.parse(readText());
+    return asRecord(parsed);
+  } catch {
+    return undefined;
+  }
+};
+
+const describeTurnFailure = (message: unknown, reportedError: string | true | undefined) => {
+  if (typeof message !== "string")
+    return { errorCode: undefined, detail: message ?? reportedError };
+  try {
+    const parsed = asRecord(JSON.parse(message));
+    const error = asRecord(parsed?.error);
+    return { errorCode: error?.code, detail: error?.message ?? message };
+  } catch {
+    // Codex can report failures as plain text rather than JSON.
+    return { errorCode: undefined, detail: message };
+  }
+};
+
+const isCompletedAgentMessage = (
+  event: Record<string, unknown>,
+  item: Record<string, unknown> | undefined,
+): item is Record<string, unknown> & { text: string } => {
+  const completedAgentMessage =
+    event.type === "item.completed" &&
+    item?.type === "agent_message" &&
+    typeof item.text === "string";
+  return completedAgentMessage;
 };

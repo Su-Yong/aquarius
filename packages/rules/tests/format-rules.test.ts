@@ -4,6 +4,7 @@ import type { JsonObject, RuleSettings } from "@aquarius/core";
 import type { LoadedConfig } from "../../core/src/config/types";
 import { prepareRules } from "../../core/src/rules/prepare";
 import { formatInstructionsSchema, formatRuleSchema } from "../../core/src/rules/schemas";
+import { COMMON_FORMAT_INVARIANTS } from "../src/format/shared";
 import plugin from "../src/index";
 
 const formatRules = plugin.formatRules!;
@@ -160,6 +161,15 @@ const validOptions: Record<string, JsonObject> = {
     style: "immutable-reducer",
     minFieldsPerTransition: 3,
     minSites: 4,
+  },
+  "structure/organize-blocks": {
+    order: ["  입력 검증  ", '결과 "조립"', "helper"],
+    reorder: "concern",
+    gap: 1,
+    groupGap: 2,
+    density: "spacious",
+    minLines: 4,
+    unmatched: "end",
   },
   "types/enforce-declaration-style": {
     objectType: { publicContract: "interface", dataDto: "type", default: "preserve" },
@@ -324,11 +334,11 @@ describe("format rule contracts", () => {
     expect(result.rules.map(({ id }) => id)).toEqual(Object.keys(options));
   });
 
-  test("prepares 44 rules with empty options and rejects the three missing required options", async () => {
+  test("prepares 45 rules with empty options and rejects the three missing required options", async () => {
     const result = await prepareFormatRules(
       Object.fromEntries(formatRules.map(({ id }) => [ruleId(id), {}])),
     );
-    expect(result.rules).toHaveLength(44);
+    expect(result.rules).toHaveLength(45);
     expect(result.errors.map(({ code, ruleIds }) => [code, ...ruleIds])).toEqual(
       requiredRuleIds.map((id) => ["RULE_OPTIONS_INVALID", ruleId(id)]),
     );
@@ -383,6 +393,15 @@ describe("format rule contracts", () => {
     { id: "comments/enforce-policy", options: { docs: { mode: "keep", maxSummarySentences: 6 } } },
     { id: "structure/order-properties", options: { profiles: {} } },
     { id: "structure/order-properties", options: { profiles: { config: [] } } },
+    { id: "structure/organize-blocks", options: { order: [] } },
+    { id: "structure/organize-blocks", options: { order: ["  "] } },
+    { id: "structure/organize-blocks", options: { reorder: "safe" } },
+    { id: "structure/organize-blocks", options: { gap: 3 } },
+    { id: "structure/organize-blocks", options: { groupGap: -1 } },
+    { id: "structure/organize-blocks", options: { minLines: 1 } },
+    { id: "structure/organize-blocks", options: { minLines: 2.5 } },
+    { id: "structure/organize-blocks", options: { density: "loose" } },
+    { id: "structure/organize-blocks", options: { unmatched: "start" } },
     { id: "architecture/shared-utilities-policy", options: { sharedDir: "../shared" } },
     { id: "architecture/shared-utilities-policy", options: { sharedDir: "/shared" } },
     { id: "architecture/shared-utilities-policy", options: { sharedDir: "\\shared" } },
@@ -526,6 +545,18 @@ describe("format rule directions", () => {
       defaultTarget: /descriptive/i,
       selectedTarget: /concise/i,
     },
+    {
+      id: "structure/organize-blocks",
+      options: { reorder: "declarations" },
+      defaultTarget: /preserve statement and declaration order/i,
+      selectedTarget: /preserve the relative order of all other statements/i,
+    },
+    {
+      id: "structure/organize-blocks",
+      options: { reorder: "concern" },
+      defaultTarget: /preserve statement and declaration order/i,
+      selectedTarget: /independent groups of executable statements/i,
+    },
   ])(
     "$id changes applicability and transformation with $options",
     async ({ id, options, defaultTarget, selectedTarget }) => {
@@ -538,6 +569,98 @@ describe("format rule directions", () => {
       expect(selected.transformation).toMatch(selectedTarget);
     },
   );
+});
+
+describe("structure/organize-blocks", () => {
+  const id = "structure/organize-blocks";
+  const rule = formatRules.find((rule) => rule.id === id)!;
+
+  test("preserves empty options and defaults to spacing without reordering", async () => {
+    expect(isDeepStrictEqual(rule.optionsSchema?.parse({}), {})).toBe(true);
+    const defaults = await rule.buildPrompt({ options: {} });
+    expect(defaults).toStrictEqual(
+      await rule.buildPrompt({
+        options: {
+          reorder: "none",
+          minLines: 6,
+          gap: 0,
+          groupGap: 1,
+          density: "balanced",
+          unmatched: "preserve",
+        },
+      }),
+    );
+    expect(defaults.transformation).toMatch(/6 non-?blank body lines/i);
+    expect(defaults.transformation).toMatch(/infer concerns/i);
+    expect(defaults.transformation).toMatch(/0 blank lines between statements/i);
+    expect(defaults.transformation).toMatch(/1 blank lines? at each concern/i);
+  });
+
+  test("keeps the configured labels intact and applies the configured block threshold", async () => {
+    const options = validOptions[id]!;
+    const result = await prepareFormatRules({ [ruleId(id)]: options });
+    expect(result.errors).toEqual([]);
+    const { transformation } = formatInstructionsSchema.parse(result.rules[0]?.instructions);
+    expect(transformation).toContain(JSON.stringify(options.order));
+    expect(transformation).toMatch(/4 non-?blank body lines/i);
+    expect(transformation).toMatch(/ignore labels that do not apply to the current nested block/i);
+    expect(transformation).toMatch(/sub-concerns within long groups/i);
+    expect(transformation).toMatch(/end of the safely movable region.*relative order/i);
+    expect(transformation).toMatch(
+      /1 blank lines? between statements.*2 blank lines at each concern/i,
+    );
+    expect(transformation).toMatch(/2 blank lines above the comment.*attached to the code/i);
+  });
+
+  test("keeps unmatched statements in place when reordering is disabled", async () => {
+    const { transformation } = await rule.buildPrompt({
+      options: { order: ["logic"], reorder: "none", unmatched: "end" },
+    });
+    expect(transformation).toMatch(
+      /keep unmatched or ambiguous statements in their current positions/i,
+    );
+  });
+
+  describe.each(["none", "declarations", "concern"])("with %s reordering", (reorder) => {
+    test.each([
+      ["compact", /only clear changes/i],
+      ["balanced", /meaningful changes in concern or execution phase/i],
+      ["spacious", /finer logical units/i],
+    ])(
+      "applies %s density with valid applicability and constraints",
+      async (density, densityTarget) => {
+        const order = ["  입력 검증  ", "logic"];
+        for (const options of [
+          { reorder, density, unmatched: "preserve" },
+          { reorder, density, unmatched: "end" },
+          { reorder, density, order, unmatched: "preserve" },
+          { reorder, density, order, unmatched: "end" },
+        ]) {
+          const { applicability, transformation, constraints } = await rule.buildPrompt({
+            options,
+          });
+          expect(transformation).toMatch(densityTarget);
+          expect(applicability.trim()).not.toBe("");
+          expect(applicability).not.toMatch(/[\r\n]/u);
+          expect(applicability.length).toBeLessThanOrEqual(160);
+          expect(constraints.slice(0, COMMON_FORMAT_INVARIANTS.length)).toEqual(
+            COMMON_FORMAT_INVARIANTS,
+          );
+
+          const ruleConstraints = constraints.slice(COMMON_FORMAT_INVARIANTS.length).join(" ");
+          expect(ruleConstraints).toMatch(/React function component/i);
+          expect(ruleConstraints).toMatch(/blank lines only between.*opening \{.*closing \}/i);
+          expect(ruleConstraints).toContain("imports/organize");
+          expect(ruleConstraints).toContain("structure/order-sections");
+          expect(ruleConstraints).toContain("structure/order-properties");
+          expect(ruleConstraints).toContain("tests/enforce-structure");
+          expect(ruleConstraints).toMatch(
+            /keep the existing execution order.*side-effect order.*exception timing.*TDZ.*hoisting.*closure capture/i,
+          );
+        }
+      },
+    );
+  });
 });
 
 const safeRules = [
@@ -570,6 +693,7 @@ describe("format presets", () => {
         "expressions/object-build-style",
         "naming/identifier-clarity",
         "structure/order-sections",
+        "structure/organize-blocks",
         "types/enforce-declaration-style",
       ],
     },
@@ -601,6 +725,21 @@ describe("format presets", () => {
     expect(result.errors).toEqual([]);
     expect(result.rules.map(({ id }) => id)).toEqual(expected.map(ruleId));
     expect(result.rules.every(({ scope }) => scope === "file")).toBe(fileOnly);
+  });
+
+  test("keeps an explicit block order after declaration placement in the recommended preset", async () => {
+    const id = ruleId("structure/organize-blocks");
+    const order = ["declare-local-variables", "logic"];
+    const result = await prepareFormatRules({ [id]: { order, reorder: "declarations" } }, [
+      ruleId("format-recommended"),
+    ]);
+    expect(result.errors).toEqual([]);
+    const ids = result.rules.map(({ id }) => id);
+    expect(ids.indexOf(id)).toBeGreaterThan(ids.indexOf(ruleId("structure/declaration-placement")));
+    const { transformation } = formatInstructionsSchema.parse(
+      result.rules.find((rule) => rule.id === id)?.instructions,
+    );
+    expect(transformation).toContain(JSON.stringify(order));
   });
 
   test("applies the distinct comment policies in safe and recommended presets", async () => {

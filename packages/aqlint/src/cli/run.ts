@@ -1,6 +1,8 @@
 import { runToolCli } from "@aquarius/core/cli";
+
 import { executeLint } from "../lint/execute";
 import type { LintExecutionResult, LintFindings } from "../lint/types";
+
 import { analysisLines } from "./analysis-output";
 import { printHuman } from "./output";
 

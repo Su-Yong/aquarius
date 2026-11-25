@@ -40,9 +40,9 @@ describe("provided rules", () => {
   test("registers the lint and format catalogs without duplicate IDs", async () => {
     expect(plugin.namespace).toBe("aquarius");
     expect(plugin.lintRules).toHaveLength(377);
-    expect(plugin.formatRules).toHaveLength(47);
+    expect(plugin.formatRules).toHaveLength(48);
     const all = [...plugin.lintRules!, ...plugin.formatRules!];
-    expect(new Set(all.map((rule) => rule.id)).size).toBe(424);
+    expect(new Set(all.map((rule) => rule.id)).size).toBe(425);
     for (const rule of plugin.lintRules!) {
       const instructions = await rule.buildPrompt({ options: presetOptions(rule.id) });
       expect(instructions.applicability).not.toBe("");

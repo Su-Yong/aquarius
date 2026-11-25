@@ -1,12 +1,7 @@
 import type { LintRule } from "@aquarius/core";
 
-// Source: https://chatgpt.com/space/page_dd6ffadaf0448191aa29ee9e19e7d2ad
-// Source block: 3a0785d3-0cea-4c46-bcf4-7dfd0aaa46bf
-export const noDependencyCycles: LintRule = {
-  id: "architecture/no-dependency-cycles",
-  description: "프로젝트가 금지한 의존 순환과 실제 초기화·실행 계약을 깨는 순환을 구분해 검사하며, 허용된 지연 참조를 순환 존재만으로 결함 처리하지 않습니다.",
-  scope: "project",
-  buildPrompt: () => ({
+const buildPrompt: LintRule["buildPrompt"] = () => {
+  return {
     applicability:
       "Module dependencies that may form cycles or are subject to a no-cycle policy.",
     criteria: "Report a cycle forbidden by the applicable policy, or a cycle with a concrete initialization or execution path that breaks an established contract. Preserve the distinction between structural prohibition and observed semantic failure. A strongly connected component alone is not proof of a defect when the policy permits cycles. Account for ESM live bindings, CommonJS partial exports, dynamic imports, lazy references, and the inspected host and resolver.",
@@ -47,5 +42,14 @@ export const noDependencyCycles: LintRule = {
         reason: "No cycle exists in the inspected scope."
       }
     ]
-  }),
+  };
+};
+
+// Source: https://chatgpt.com/space/page_dd6ffadaf0448191aa29ee9e19e7d2ad
+// Source block: 3a0785d3-0cea-4c46-bcf4-7dfd0aaa46bf
+export const noDependencyCycles: LintRule = {
+  id: "architecture/no-dependency-cycles",
+  description: "프로젝트가 금지한 의존 순환과 실제 초기화·실행 계약을 깨는 순환을 구분해 검사하며, 허용된 지연 참조를 순환 존재만으로 결함 처리하지 않습니다.",
+  scope: "project",
+  buildPrompt,
 };

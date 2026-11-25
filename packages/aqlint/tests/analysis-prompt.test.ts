@@ -24,6 +24,26 @@ test("embeds the same delta schema consumed by the analysis receiver", () => {
   const metadata = JSON.parse(prompt.split("\n\n").at(-1)!);
 
   expect(metadata.analysisUpdates.schema).toEqual(z.toJSONSchema(analysisUpdateSchema));
+  expect(metadata.analysisUpdates.schema).toMatchObject({
+    required: expect.arrayContaining(["diagnostics", "fileResults", "ruleResults"]),
+    properties: {
+      diagnostics: { default: [] },
+      fileResults: {
+        default: [],
+        items: {
+          required: expect.arrayContaining(["reason"]),
+          properties: { reason: { default: "" } },
+        },
+      },
+      ruleResults: {
+        default: [],
+        items: {
+          required: expect.arrayContaining(["reason"]),
+          properties: { reason: { default: "" } },
+        },
+      },
+    },
+  });
   expect(metadata.rules).toEqual([rule]);
   expect(metadata.targets).toEqual(["src/example.ts"]);
   expect(metadata.task).toBe("lint");
@@ -53,6 +73,13 @@ test("keeps provisional updates separate from the final lint response contract",
   expect(analysisUpdateSchema.safeParse(delta).success).toBe(true);
   expect(lintResponseSchema.safeParse(delta).success).toBe(false);
   expect(lintResponseSchema.safeParse(final).success).toBe(true);
+  expect(lintResponseSchema.safeParse({ ...final, diagnostics: undefined }).success).toBe(false);
+  expect(
+    lintResponseSchema.safeParse({
+      ...final,
+      fileResults: [{ path: "src/example.ts", status: "completed" }],
+    }).success,
+  ).toBe(false);
   expect(analysisUpdateSchema.safeParse(final).success).toBe(false);
 });
 

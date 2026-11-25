@@ -6,7 +6,11 @@ import {
   skippedRuleSchema,
   type JsonObject,
 } from "@aquarius/core/runtime";
+
 import { fileChangeSchema } from "../changes/schema";
+
+export type FormatWarning = z.infer<typeof formatWarningSchema>;
+export type FormatAnalysisUpdate = z.infer<typeof formatAnalysisUpdateSchema>;
 
 export const formatWarningSchema = z.strictObject({
   code: z.string(),
@@ -31,6 +35,3 @@ export const formatResponseSchema = z.strictObject({
 });
 
 export const formatResponseJsonSchema = z.toJSONSchema(formatResponseSchema) as JsonObject;
-
-export type FormatWarning = z.infer<typeof formatWarningSchema>;
-export type FormatAnalysisUpdate = z.infer<typeof formatAnalysisUpdateSchema>;

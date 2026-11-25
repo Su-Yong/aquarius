@@ -1,12 +1,7 @@
 import type { LintRule } from "@aquarius/core";
 
-// Source: https://chatgpt.com/space/page_dd6ffadaf0448191aa29ee9e19e7d2ad
-// Source block: 54220cb1-e040-42e8-ad4c-3b65f3756240
-export const isolateLegacyBoundaries: LintRule = {
-  id: "architecture/isolate-legacy-boundaries",
-  description: "레거시의 특수 계약이 격리 대상으로 정한 새 코드에 새어 변경·오류 처리 계약을 깨는지 검토하며, 검증된 연결 계층이나 동등한 격리를 인정합니다.",
-  scope: "project",
-  buildPrompt: () => ({
+const buildPrompt: LintRule["buildPrompt"] = () => {
+  return {
     applicability:
       "New code required to be isolated from a legacy system's contracts.",
     criteria: "Report a legacy-specific assumption that escapes the designated boundary and breaks the new code's established change or error-handling contract. Do not equate old code with incorrect code, and do not require a particular wrapper class. Recognize an adapter, facade, translation, or other verified equivalent isolation. If the issue is only a possible design improvement without a violated obligation, retain it as optional review rather than an established violation.",
@@ -47,5 +42,14 @@ export const isolateLegacyBoundaries: LintRule = {
         reason: "Legacy-specific handling is in the allowed boundary scope."
       }
     ]
-  }),
+  };
+};
+
+// Source: https://chatgpt.com/space/page_dd6ffadaf0448191aa29ee9e19e7d2ad
+// Source block: 54220cb1-e040-42e8-ad4c-3b65f3756240
+export const isolateLegacyBoundaries: LintRule = {
+  id: "architecture/isolate-legacy-boundaries",
+  description: "레거시의 특수 계약이 격리 대상으로 정한 새 코드에 새어 변경·오류 처리 계약을 깨는지 검토하며, 검증된 연결 계층이나 동등한 격리를 인정합니다.",
+  scope: "project",
+  buildPrompt,
 };

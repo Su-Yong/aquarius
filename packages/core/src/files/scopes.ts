@@ -1,8 +1,11 @@
 import { isAbsolute, matchesGlob, posix, relative, resolve } from "node:path";
+
 import { isDynamicPattern } from "globby";
-import type { LoadedConfig } from "../config/types";
+
 import { AquariusError } from "../shared/errors";
 import { isInside, toPosix } from "../shared/path";
+import type { LoadedConfig } from "../config/types";
+
 import { hasSymlinkComponent, toProjectRelative, tryLstat } from "./paths";
 import type { TargetOptions } from "./types";
 
@@ -33,24 +36,27 @@ export const createScopes = async (
     }
 
     const absolute = resolve(config.cwd, raw);
-    const info = await tryLstat(absolute);
-    if (info) {
-      const path = toProjectRelative(config.projectRoot, absolute, info.isDirectory());
+    const targetStats = await tryLstat(absolute);
+    if (targetStats) {
+      const path = toProjectRelative(config.projectRoot, absolute, targetStats.isDirectory());
       if (await hasSymlinkComponent(config.projectRoot, path)) {
         throw new AquariusError(
           "TARGET_SYMLINK_UNSUPPORTED",
           `Symbolic link targets are not supported: ${raw}`,
         );
       }
-      if (info.isFile()) positive.push({ kind: "file", path, raw });
-      else if (info.isDirectory()) positive.push({ kind: "directory", path, raw });
-      else {
-        throw new AquariusError(
-          "TARGET_PATH_INVALID",
-          `Target is not a regular file or directory: ${raw}`,
-        );
+      if (targetStats.isFile()) {
+        positive.push({ kind: "file", path, raw });
+        continue;
       }
-      continue;
+      if (targetStats.isDirectory()) {
+        positive.push({ kind: "directory", path, raw });
+        continue;
+      }
+      throw new AquariusError(
+        "TARGET_PATH_INVALID",
+        `Target is not a regular file or directory: ${raw}`,
+      );
     }
 
     if (isDynamicPattern(raw)) {
@@ -69,7 +75,9 @@ export const createScopes = async (
 export const scopeMatches = (scope: Scope, path: string): boolean => {
   if (scope.kind === "file") return scope.path === path;
   if (scope.kind === "directory") {
-    return scope.path === "" || path === scope.path || path.startsWith(`${scope.path}/`);
+    const matchesDirectory =
+      scope.path === "" || path === scope.path || path.startsWith(`${scope.path}/`);
+    return matchesDirectory;
   }
   return matchesPath(path, scope.pattern);
 };
@@ -77,9 +85,9 @@ export const scopeMatches = (scope: Scope, path: string): boolean => {
 export const matchesFilePatterns = (path: string, patterns: readonly string[]): boolean => {
   let matched = false;
   for (const raw of patterns) {
-    const negative = raw.startsWith("!");
-    const pattern = negative ? raw.slice(1) : raw;
-    if (matchesPath(path, pattern)) matched = !negative;
+    const isExclusion = raw.startsWith("!");
+    const pattern = isExclusion ? raw.slice(1) : raw;
+    if (matchesPath(path, pattern)) matched = !isExclusion;
   }
   return matched;
 };
@@ -106,17 +114,24 @@ const normalizePattern = (config: LoadedConfig, input: string): string => {
         `Target pattern escapes the project root: ${input}`,
       );
     }
-    return toPosix(relative(config.projectRoot, absolute)) || "**/*";
+    const projectPath = relative(config.projectRoot, absolute);
+    return toPosix(projectPath) || "**/*";
   }
 
-  const normalized = toPosix(input);
-  const cwd = toPosix(relative(config.projectRoot, config.cwd));
-  const combined = posix.normalize(cwd === "" ? normalized : `${cwd}/${normalized}`);
-  if (combined === ".." || combined.startsWith("../") || posix.isAbsolute(combined)) {
+  const normalizedInput = toPosix(input);
+  const relativeCwd = toPosix(relative(config.projectRoot, config.cwd));
+  const projectPattern = relativeCwd === "" ? normalizedInput : `${relativeCwd}/${normalizedInput}`;
+  const normalizedPattern = posix.normalize(projectPattern);
+  const escapesProjectRoot =
+    normalizedPattern === ".." ||
+    normalizedPattern.startsWith("../") ||
+    posix.isAbsolute(normalizedPattern);
+  if (escapesProjectRoot) {
     throw new AquariusError(
       "TARGET_PATH_OUTSIDE_ROOT",
       `Target pattern escapes the project root: ${input}`,
     );
   }
-  return combined.replace(/^\.\//, "");
+  const currentDirectoryPrefix = /^\.\//;
+  return normalizedPattern.replace(currentDirectoryPrefix, "");
 };

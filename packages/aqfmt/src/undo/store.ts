@@ -1,7 +1,9 @@
 import { createHash, randomUUID } from "node:crypto";
 import { access, mkdir, open, readFile, rename, unlink, type FileHandle } from "node:fs/promises";
 import path from "node:path";
+
 import { AquariusError, errorMessage } from "@aquarius/core/runtime";
+
 import {
   FileTransitionRecoveredError,
   removeEmptyDirectories,
@@ -9,6 +11,7 @@ import {
 } from "../changes/apply";
 import { assertFilePlanState, canonicalProjectRoot } from "../changes/state";
 import type { FileChangePlan, FileState, UndoStore, UndoTransaction } from "../changes/types";
+
 import { findGitDirectory, runGit } from "./git";
 import {
   parseUndoManifest,
@@ -17,37 +20,30 @@ import {
   type UndoManifest,
 } from "./schema";
 
-const fail: (code: string, message: string) => never = (code, message) => {
-  throw new AquariusError(code, message);
+const GIT_OBJECT_ID_PATTERN = /^[0-9a-f]{40,64}$/;
+
+export const undoLastFileChanges = async (root: string): Promise<string[]> => {
+  const store = await createGitUndoStore(root);
+  if (!store)
+    fail(
+      "UNDO_UNAVAILABLE",
+      "Git undo is unavailable because the project is not in a Git worktree",
+    );
+  return await store.undo();
 };
 
-const rootKey = (root: string): string => {
-  return createHash("sha256").update(root).digest("hex").slice(0, 24);
-};
-
-const exists = async (file: string): Promise<boolean> => {
-  try {
-    await access(file);
-    return true;
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
-    throw error;
+export const createGitUndoStore = async (root: string): Promise<GitUndoStore | null> => {
+  const projectRoot = await canonicalProjectRoot(root);
+  const gitDirectory = await findGitDirectory(projectRoot);
+  if (gitDirectory === null) return null;
+  const store = new GitUndoStore(projectRoot, path.join(gitDirectory, "aquarius", "aqfmt-undo"));
+  if (await store.hasPending()) {
+    fail(
+      "UNDO_INCOMPLETE",
+      `An incomplete aqfmt transaction must be recovered first: ${store.pendingPath}`,
+    );
   }
-};
-
-const writeJsonAtomic = async (file: string, value: unknown): Promise<void> => {
-  const temporary = path.join(path.dirname(file), `.${path.basename(file)}-${randomUUID()}.tmp`);
-  const handle = await open(temporary, "wx", 0o600);
-  try {
-    await handle.writeFile(`${JSON.stringify(value, null, 2)}\n`, "utf8");
-    await handle.sync();
-    await handle.close();
-    await rename(temporary, file);
-  } catch (error) {
-    await handle.close().catch(() => undefined);
-    await unlink(temporary).catch(() => undefined);
-    throw error;
-  }
+  return store;
 };
 
 export class GitUndoTransaction implements UndoTransaction {
@@ -143,7 +139,6 @@ export class GitUndoStore implements UndoStore {
       try {
         await lock.writeFile(`${process.pid}\n`, "utf8");
         await lock.sync();
-        return lock;
       } catch (error) {
         await lock.close().catch(() => undefined);
         await unlink(this.lockPath).catch((caught: NodeJS.ErrnoException) => {
@@ -151,6 +146,7 @@ export class GitUndoStore implements UndoStore {
         });
         throw error;
       }
+      return lock;
     };
 
     const immediate = await createOwnedLock();
@@ -179,22 +175,17 @@ export class GitUndoStore implements UndoStore {
           `An incomplete aqfmt transaction must be recovered first: ${this.pendingPath}`,
         );
       }
-      let owner = Number.NaN;
+      let ownerPid: number;
       try {
-        owner = Number.parseInt((await readFile(this.lockPath, "utf8")).trim(), 10);
+        const lockContents = await readFile(this.lockPath, "utf8");
+        ownerPid = Number.parseInt(lockContents.trim(), 10);
       } catch {
         fail("UNDO_BUSY", `The aqfmt transaction lock owner cannot be verified: ${this.lockPath}`);
       }
-      if (!Number.isInteger(owner) || owner <= 0) {
+      if (!Number.isInteger(ownerPid) || ownerPid <= 0) {
         fail("UNDO_BUSY", `The aqfmt transaction lock owner is invalid: ${this.lockPath}`);
       }
-      let alive = true;
-      try {
-        process.kill(owner, 0);
-      } catch (caught) {
-        alive = (caught as NodeJS.ErrnoException).code !== "ESRCH";
-      }
-      if (alive)
+      if (isProcessAlive(ownerPid))
         fail("UNDO_BUSY", `Another aqfmt file transaction owns the lock: ${this.lockPath}`);
       await unlink(this.lockPath).catch((caught: NodeJS.ErrnoException) => {
         if (caught.code !== "ENOENT") throw caught;
@@ -230,12 +221,11 @@ export class GitUndoStore implements UndoStore {
   }
 
   private async hashObject(content: Uint8Array): Promise<string> {
-    const oid = (await runGit(this.projectRoot, ["hash-object", "-w", "--stdin"], content))
-      .toString("utf8")
-      .trim();
-    if (!/^[0-9a-f]{40,64}$/.test(oid))
+    const gitOutput = await runGit(this.projectRoot, ["hash-object", "-w", "--stdin"], content);
+    const objectId = gitOutput.toString("utf8").trim();
+    if (!GIT_OBJECT_ID_PATTERN.test(objectId))
       fail("GIT_UNDO_FAILED", "git hash-object returned an invalid object ID");
-    return oid;
+    return objectId;
   }
 
   private async storeState(state: FileState | null): Promise<StoredFileState | null> {
@@ -245,18 +235,18 @@ export class GitUndoStore implements UndoStore {
 
   private async loadState(state: StoredFileState | null): Promise<FileState | null> {
     if (state === null) return null;
+    const blob = await runGit(this.projectRoot, ["cat-file", "blob", state.blob]);
     return {
-      content: new Uint8Array(await runGit(this.projectRoot, ["cat-file", "blob", state.blob])),
+      content: new Uint8Array(blob),
       mode: state.mode,
     };
   }
 
   private async readRef(ref: string): Promise<string | undefined> {
     try {
-      const oid = (await runGit(this.projectRoot, ["rev-parse", "--verify", ref]))
-        .toString("utf8")
-        .trim();
-      return /^[0-9a-f]{40,64}$/.test(oid) ? oid : undefined;
+      const gitOutput = await runGit(this.projectRoot, ["rev-parse", "--verify", ref]);
+      const objectId = gitOutput.toString("utf8").trim();
+      return GIT_OBJECT_ID_PATTERN.test(objectId) ? objectId : undefined;
     } catch {
       return undefined;
     }
@@ -287,12 +277,11 @@ export class GitUndoStore implements UndoStore {
         entries.push({ name: `${index.toString().padStart(6, "0")}-after`, blob: file.after.blob });
     }
     const treeInput = entries.map(({ name, blob }) => `100644 blob ${blob}\t${name}\n`).join("");
-    const tree = (await runGit(this.projectRoot, ["mktree"], Buffer.from(treeInput)))
-      .toString("utf8")
-      .trim();
-    if (!/^[0-9a-f]{40,64}$/.test(tree))
+    const gitOutput = await runGit(this.projectRoot, ["mktree"], Buffer.from(treeInput));
+    const treeId = gitOutput.toString("utf8").trim();
+    if (!GIT_OBJECT_ID_PATTERN.test(treeId))
       fail("GIT_UNDO_FAILED", "git mktree returned an invalid object ID");
-    return tree;
+    return treeId;
   }
 
   async hasPending(): Promise<boolean> {
@@ -391,14 +380,15 @@ export class GitUndoStore implements UndoStore {
           `An incomplete aqfmt transaction must be recovered first: ${this.pendingPath}`,
         );
       }
-      const raw = await this.readManifest();
-      let decoded: unknown;
-      try {
-        decoded = JSON.parse(raw);
-      } catch {
-        fail("UNDO_RECORD_INVALID", `Undo record is not valid JSON: ${this.manifestPath}`);
-      }
-      const manifest = parseUndoManifest(decoded, this.projectRoot);
+      const manifestJson = await this.readManifest();
+      const decodeUndoManifest = (): unknown => {
+        try {
+          return JSON.parse(manifestJson);
+        } catch {
+          fail("UNDO_RECORD_INVALID", `Undo record is not valid JSON: ${this.manifestPath}`);
+        }
+      };
+      const manifest = parseUndoManifest(decodeUndoManifest(), this.projectRoot);
       const files = [];
       for (const file of manifest.files) {
         files.push({
@@ -458,26 +448,45 @@ export class GitUndoStore implements UndoStore {
   }
 }
 
-export const createGitUndoStore = async (root: string): Promise<GitUndoStore | null> => {
-  const projectRoot = await canonicalProjectRoot(root);
-  const gitDirectory = await findGitDirectory(projectRoot);
-  if (gitDirectory === null) return null;
-  const store = new GitUndoStore(projectRoot, path.join(gitDirectory, "aquarius", "aqfmt-undo"));
-  if (await store.hasPending()) {
-    fail(
-      "UNDO_INCOMPLETE",
-      `An incomplete aqfmt transaction must be recovered first: ${store.pendingPath}`,
-    );
-  }
-  return store;
+const fail: (code: string, message: string) => never = (code, message) => {
+  throw new AquariusError(code, message);
 };
 
-export const undoLastFileChanges = async (root: string): Promise<string[]> => {
-  const store = await createGitUndoStore(root);
-  if (!store)
-    fail(
-      "UNDO_UNAVAILABLE",
-      "Git undo is unavailable because the project is not in a Git worktree",
-    );
-  return await store.undo();
+const rootKey = (root: string): string => {
+  const rootHash = createHash("sha256").update(root);
+  return rootHash.digest("hex").slice(0, 24);
+};
+
+const exists = async (file: string): Promise<boolean> => {
+  try {
+    await access(file);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
+    throw error;
+  }
+  return true;
+};
+
+const writeJsonAtomic = async (file: string, value: unknown): Promise<void> => {
+  const temporary = path.join(path.dirname(file), `.${path.basename(file)}-${randomUUID()}.tmp`);
+  const handle = await open(temporary, "wx", 0o600);
+  try {
+    await handle.writeFile(`${JSON.stringify(value, null, 2)}\n`, "utf8");
+    await handle.sync();
+    await handle.close();
+    await rename(temporary, file);
+  } catch (error) {
+    await handle.close().catch(() => undefined);
+    await unlink(temporary).catch(() => undefined);
+    throw error;
+  }
+};
+
+const isProcessAlive = (pid: number): boolean => {
+  try {
+    process.kill(pid, 0);
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code !== "ESRCH";
+  }
+  return true;
 };

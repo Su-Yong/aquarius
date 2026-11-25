@@ -1,4 +1,5 @@
 import type { z } from "zod";
+
 import type {
   AdapterExecuteRequest,
   AdapterRunInfo,
@@ -9,6 +10,7 @@ import type {
 import type { PathPolicy, TargetOptions } from "../files/types";
 import type { PreparedRule, RulePlugin } from "../rules/types";
 import type { JsonObject, RunError, SkippedRule, ToolKind } from "../shared/types";
+
 import type { fileResultSchema, reviewUpdateFields } from "./schemas";
 
 export type FileResult = z.infer<typeof fileResultSchema>;

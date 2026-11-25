@@ -1,5 +1,8 @@
 import { z } from "zod";
 
+export type FileChange = z.infer<typeof fileChangeSchema>;
+export type ReplaceChange = Extract<FileChange, { op: "replace" }>;
+
 const ruleIdsSchema = z.array(z.string());
 
 export const fileChangeSchema = z.union([
@@ -27,6 +30,3 @@ export const fileChangeSchema = z.union([
     ruleIds: ruleIdsSchema,
   }),
 ]);
-
-export type FileChange = z.infer<typeof fileChangeSchema>;
-export type ReplaceChange = Extract<FileChange, { op: "replace" }>;

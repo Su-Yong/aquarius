@@ -1,7 +1,9 @@
 import { randomUUID } from "node:crypto";
 import { link, lstat, mkdir, open, rename, rmdir, unlink } from "node:fs/promises";
 import path from "node:path";
+
 import { AquariusError, errorMessage } from "@aquarius/core/runtime";
+
 import {
   absolutePath,
   assertFilePlanState,
@@ -27,211 +29,56 @@ export class FileTransitionRecoveredError extends Error {
   }
 }
 
-const fail: (code: string, message: string) => never = (code, message) => {
-  throw new AquariusError(code, message);
-};
-
-const missingParentDirectories = async (
-  root: string,
-  files: readonly PlannedFile[],
-  side: PlanSide,
-): Promise<string[]> => {
-  const missing = new Map<string, string>();
-  for (const file of files) {
-    if (file[side] === null) continue;
-    let parent = path.posix.dirname(file.path);
-    while (parent !== ".") {
-      const key = pathKey(parent);
-      if (missing.has(key)) {
-        parent = path.posix.dirname(parent);
-        continue;
-      }
-      const absolute = await assertSafePath(root, parent);
-      try {
-        const stat = await lstat(absolute);
-        if (stat.isSymbolicLink())
-          fail("SYMLINK_UNSUPPORTED", `Symbolic links are not supported: ${parent}`);
-        if (!stat.isDirectory())
-          fail("PATH_PARENT_INVALID", `Path parent is not a directory: ${parent}`);
-        break;
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-        missing.set(key, parent);
-      }
-      parent = path.posix.dirname(parent);
-    }
-  }
-  return [...missing.values()].sort(
-    (left, right) => left.split("/").length - right.split("/").length,
-  );
-};
-
-const createDirectories = async (
-  root: string,
-  directories: readonly string[],
-  createdOutput: string[],
-): Promise<void> => {
-  const created: string[] = [];
+export const applyFileChanges = async (
+  plan: FileChangePlan,
+  store: UndoStore | null,
+): Promise<{ changedFiles: string[]; undoAvailable: boolean }> => {
+  if (plan.files.length === 0) return { changedFiles: [], undoAvailable: store !== null };
+  await assertFilePlanState(plan, "before");
+  const directoryCandidates = await missingParentDirectories(plan.projectRoot, plan.files, "after");
+  const transaction = store ? await store.begin(plan, directoryCandidates) : null;
+  const createdDirectories: string[] = [];
   try {
-    for (const relativePath of directories) {
-      const absolute = await assertSafePath(root, relativePath);
-      try {
-        await mkdir(absolute);
-        created.push(relativePath);
-        createdOutput.push(relativePath);
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
-        const stat = await lstat(absolute);
-        if (stat.isSymbolicLink() || !stat.isDirectory()) {
-          fail("PATH_PARENT_INVALID", `Path parent became unsafe: ${relativePath}`);
-        }
-      }
-    }
+    await transitionFilePlan(plan, "before", "after", false, createdDirectories);
+    if (transaction) await transaction.commit(createdDirectories);
   } catch (error) {
-    try {
-      await removeEmptyDirectories(root, created);
-    } catch (cleanupError) {
+    if (transaction?.committed) throw error;
+    if (error instanceof FileTransitionRecoveredError) {
+      try {
+        await removeEmptyDirectories(plan.projectRoot, createdDirectories);
+        if (transaction) await transaction.abort();
+      } catch (cleanupError) {
+        if (transaction) await transaction.preserve().catch(() => undefined);
+        throw new AquariusError(
+          "APPLY_ROLLBACK_INCOMPLETE",
+          `File change was restored but cleanup failed (${String(cleanupError)}). Recovery data was preserved.`,
+        );
+      }
+      throw error.original;
+    }
+    if (error instanceof AquariusError && error.code === "FILE_TRANSACTION_INCOMPLETE") {
+      if (transaction) await transaction.preserve().catch(() => undefined);
       throw new AquariusError(
-        "DIRECTORY_ROLLBACK_INCOMPLETE",
-        `Directory creation failed (${String(error)}) and cleanup failed (${String(cleanupError)}).`,
+        "APPLY_ROLLBACK_INCOMPLETE",
+        `${error.message}${transaction ? " Recovery data was preserved." : " Git recovery data is unavailable."}`,
+      );
+    }
+    try {
+      await transitionFilePlan(plan, "after", "before", true);
+      await removeEmptyDirectories(plan.projectRoot, createdDirectories);
+      if (transaction) await transaction.abort();
+    } catch (rollbackError) {
+      if (transaction) await transaction.preserve();
+      throw new AquariusError(
+        "APPLY_ROLLBACK_INCOMPLETE",
+        `File change failed (${String(error)}) and rollback was incomplete (${String(rollbackError)}).${
+          transaction ? " Recovery data was preserved." : " Git recovery data is unavailable."
+        }`,
       );
     }
     throw error;
   }
-};
-
-export const removeEmptyDirectories = async (
-  root: string,
-  directories: readonly string[],
-): Promise<void> => {
-  const sorted = [...new Set(directories)].sort(
-    (left, right) => right.split("/").length - left.split("/").length,
-  );
-  for (const relativePath of sorted) {
-    try {
-      const absolute = await assertSafePath(root, relativePath);
-      await rmdir(absolute);
-    } catch (error) {
-      const code = (error as NodeJS.ErrnoException).code;
-      if (
-        code !== "ENOENT" &&
-        code !== "ENOTEMPTY" &&
-        code !== "EEXIST" &&
-        code !== "SYMLINK_UNSUPPORTED"
-      ) {
-        throw error;
-      }
-    }
-  }
-};
-
-const stageFile = async (root: string, relativePath: string, state: FileState): Promise<string> => {
-  const target = absolutePath(root, relativePath);
-  const temporary = path.join(path.dirname(target), `.aqfmt-${randomUUID()}.tmp`);
-  await assertStableParent(root, relativePath);
-  const handle = await open(temporary, "wx", state.mode);
-  try {
-    await handle.writeFile(state.content);
-    await handle.chmod(state.mode);
-    await handle.sync();
-    await handle.close();
-    await assertStableParent(root, relativePath);
-    return temporary;
-  } catch (error) {
-    await handle.close().catch(() => undefined);
-    await unlink(temporary).catch(() => undefined);
-    throw error;
-  }
-};
-
-const cleanupTemporaryFiles = async (files: Iterable<string>): Promise<void> => {
-  for (const file of files) {
-    try {
-      await unlink(file);
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-    }
-  }
-};
-
-const siblingArtifact = (root: string, relativePath: string, suffix: string): string => {
-  const target = absolutePath(root, relativePath);
-  return path.join(path.dirname(target), `.aqfmt-${randomUUID()}.${suffix}`);
-};
-
-const assertPlanContentState = async (plan: FileChangePlan, side: PlanSide): Promise<void> => {
-  const current = await currentStates(plan);
-  for (const file of plan.files) {
-    if (!fileStatesEqual(current.get(pathKey(file.path)) ?? null, file[side])) {
-      fail("FILE_CHANGED", `File no longer matches the expected ${side} content: ${file.path}`);
-    }
-  }
-};
-
-const restoreMovedSources = async (
-  plan: FileChangePlan,
-  activeFiles: readonly PlannedFile[],
-  from: PlanSide,
-  to: PlanSide,
-  backups: ReadonlyMap<string, string>,
-  installed: ReadonlyMap<string, string>,
-): Promise<void> => {
-  await assertNoAlternateDataStreams(
-    plan.projectRoot,
-    activeFiles.map(({ path }) => path),
-  );
-  for (const file of [...activeFiles].reverse()) {
-    const key = pathKey(file.path);
-    const target = absolutePath(plan.projectRoot, file.path);
-    const backup = backups.get(key);
-    const current = await readProjectFileState(plan.projectRoot, file.path);
-    if (backup) {
-      let displaced: string | undefined;
-      if (current !== null) {
-        const installedIdentity = installed.get(key);
-        if (
-          !installedIdentity ||
-          fileIdentity(current) !== installedIdentity ||
-          !fileStatesEqual(current, file[to])
-        ) {
-          fail(
-            "FILE_CHANGED",
-            `A user file appeared while restoring ${file.path}; backup was preserved at ${backup}`,
-          );
-        }
-        displaced = siblingArtifact(plan.projectRoot, file.path, "rollback");
-        await assertStableParent(plan.projectRoot, file.path);
-        await rename(target, displaced);
-        await assertStableParent(plan.projectRoot, file.path);
-      }
-      try {
-        await link(backup, target);
-        await assertStableParent(plan.projectRoot, file.path);
-        await unlink(backup);
-      } catch (error) {
-        if (displaced && (await readProjectFileState(plan.projectRoot, file.path)) === null) {
-          await link(displaced, target).catch(() => undefined);
-        }
-        throw error;
-      }
-      if (displaced) await unlink(displaced);
-    } else if (file[from] === null && current !== null) {
-      const installedIdentity = installed.get(key);
-      if (
-        !installedIdentity ||
-        fileIdentity(current) !== installedIdentity ||
-        !fileStatesEqual(current, file[to])
-      ) {
-        fail("FILE_CHANGED", `A user file replaced the created path during rollback: ${file.path}`);
-      }
-      const discarded = siblingArtifact(plan.projectRoot, file.path, "rollback");
-      await assertStableParent(plan.projectRoot, file.path);
-      await rename(target, discarded);
-      await assertStableParent(plan.projectRoot, file.path);
-      await unlink(discarded);
-    }
-  }
-  await assertPlanContentState(plan, from);
+  return { changedFiles: plan.files.map((file) => file.path), undoAvailable: store !== null };
 };
 
 export const transitionFilePlan = async (
@@ -251,7 +98,8 @@ export const transitionFilePlan = async (
       const actual = current.get(pathKey(file.path)) ?? null;
       const matchesFrom = fileStatesAndIdentityEqual(actual, file[from]);
       const matchesTo = fileStatesEqual(actual, file[to]);
-      if (!matchesFrom && (!allowMixedKnownStates || !matchesTo)) {
+      const sourceChanged = !matchesFrom && (!allowMixedKnownStates || !matchesTo);
+      if (sourceChanged) {
         fail("FILE_CHANGED", `File changed while applying the transaction: ${file.path}`);
       }
     }
@@ -327,7 +175,6 @@ export const transitionFilePlan = async (
     await assertPlanContentState(plan, to);
     finalStateVerified = true;
     for (const backup of backups.values()) await unlink(backup);
-    return createdDirectories;
   } catch (error) {
     let cleanupError: unknown;
     try {
@@ -348,56 +195,215 @@ export const transitionFilePlan = async (
     if (!finalStateVerified) throw new FileTransitionRecoveredError(error);
     throw error;
   }
+  return createdDirectories;
 };
 
-export const applyFileChanges = async (
-  plan: FileChangePlan,
-  store: UndoStore | null,
-): Promise<{ changedFiles: string[]; undoAvailable: boolean }> => {
-  if (plan.files.length === 0) return { changedFiles: [], undoAvailable: store !== null };
-  await assertFilePlanState(plan, "before");
-  const directoryCandidates = await missingParentDirectories(plan.projectRoot, plan.files, "after");
-  const transaction = store ? await store.begin(plan, directoryCandidates) : null;
-  const createdDirectories: string[] = [];
-  try {
-    await transitionFilePlan(plan, "before", "after", false, createdDirectories);
-    if (transaction) await transaction.commit(createdDirectories);
-  } catch (error) {
-    if (transaction?.committed) throw error;
-    if (error instanceof FileTransitionRecoveredError) {
-      try {
-        await removeEmptyDirectories(plan.projectRoot, createdDirectories);
-        if (transaction) await transaction.abort();
-      } catch (cleanupError) {
-        if (transaction) await transaction.preserve().catch(() => undefined);
-        throw new AquariusError(
-          "APPLY_ROLLBACK_INCOMPLETE",
-          `File change was restored but cleanup failed (${String(cleanupError)}). Recovery data was preserved.`,
-        );
-      }
-      throw error.original;
-    }
-    if (error instanceof AquariusError && error.code === "FILE_TRANSACTION_INCOMPLETE") {
-      if (transaction) await transaction.preserve().catch(() => undefined);
-      throw new AquariusError(
-        "APPLY_ROLLBACK_INCOMPLETE",
-        `${error.message}${transaction ? " Recovery data was preserved." : " Git recovery data is unavailable."}`,
-      );
-    }
+export const removeEmptyDirectories = async (
+  root: string,
+  directories: readonly string[],
+): Promise<void> => {
+  const sortedDirectories = [...new Set(directories)].sort(
+    (left, right) => right.split("/").length - left.split("/").length,
+  );
+  for (const relativePath of sortedDirectories) {
     try {
-      await transitionFilePlan(plan, "after", "before", true);
-      await removeEmptyDirectories(plan.projectRoot, createdDirectories);
-      if (transaction) await transaction.abort();
-    } catch (rollbackError) {
-      if (transaction) await transaction.preserve();
+      const absolute = await assertSafePath(root, relativePath);
+      await rmdir(absolute);
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      const unexpectedRemovalError =
+        code !== "ENOENT" &&
+        code !== "ENOTEMPTY" &&
+        code !== "EEXIST" &&
+        code !== "SYMLINK_UNSUPPORTED";
+      if (unexpectedRemovalError) {
+        throw error;
+      }
+    }
+  }
+};
+
+const fail: (code: string, message: string) => never = (code, message) => {
+  throw new AquariusError(code, message);
+};
+
+const missingParentDirectories = async (
+  root: string,
+  files: readonly PlannedFile[],
+  side: PlanSide,
+): Promise<string[]> => {
+  const missing = new Map<string, string>();
+  for (const file of files) {
+    if (file[side] === null) continue;
+    let parent = path.posix.dirname(file.path);
+    while (parent !== ".") {
+      const key = pathKey(parent);
+      if (missing.has(key)) {
+        parent = path.posix.dirname(parent);
+        continue;
+      }
+      const absolute = await assertSafePath(root, parent);
+      try {
+        const stat = await lstat(absolute);
+        if (stat.isSymbolicLink())
+          fail("SYMLINK_UNSUPPORTED", `Symbolic links are not supported: ${parent}`);
+        if (!stat.isDirectory())
+          fail("PATH_PARENT_INVALID", `Path parent is not a directory: ${parent}`);
+        break;
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+        missing.set(key, parent);
+      }
+      parent = path.posix.dirname(parent);
+    }
+  }
+  return [...missing.values()].sort(
+    (left, right) => left.split("/").length - right.split("/").length,
+  );
+};
+
+const createDirectories = async (
+  root: string,
+  directories: readonly string[],
+  createdOutput: string[],
+): Promise<void> => {
+  const created: string[] = [];
+  try {
+    for (const relativePath of directories) {
+      const absolute = await assertSafePath(root, relativePath);
+      try {
+        await mkdir(absolute);
+        created.push(relativePath);
+        createdOutput.push(relativePath);
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+        const stat = await lstat(absolute);
+        if (stat.isSymbolicLink() || !stat.isDirectory()) {
+          fail("PATH_PARENT_INVALID", `Path parent became unsafe: ${relativePath}`);
+        }
+      }
+    }
+  } catch (error) {
+    try {
+      await removeEmptyDirectories(root, created);
+    } catch (cleanupError) {
       throw new AquariusError(
-        "APPLY_ROLLBACK_INCOMPLETE",
-        `File change failed (${String(error)}) and rollback was incomplete (${String(rollbackError)}).${
-          transaction ? " Recovery data was preserved." : " Git recovery data is unavailable."
-        }`,
+        "DIRECTORY_ROLLBACK_INCOMPLETE",
+        `Directory creation failed (${String(error)}) and cleanup failed (${String(cleanupError)}).`,
       );
     }
     throw error;
   }
-  return { changedFiles: plan.files.map((file) => file.path), undoAvailable: store !== null };
+};
+
+const stageFile = async (root: string, relativePath: string, state: FileState): Promise<string> => {
+  const target = absolutePath(root, relativePath);
+  const temporary = path.join(path.dirname(target), `.aqfmt-${randomUUID()}.tmp`);
+  await assertStableParent(root, relativePath);
+  const handle = await open(temporary, "wx", state.mode);
+  try {
+    await handle.writeFile(state.content);
+    await handle.chmod(state.mode);
+    await handle.sync();
+    await handle.close();
+    await assertStableParent(root, relativePath);
+  } catch (error) {
+    await handle.close().catch(() => undefined);
+    await unlink(temporary).catch(() => undefined);
+    throw error;
+  }
+  return temporary;
+};
+
+const cleanupTemporaryFiles = async (files: Iterable<string>): Promise<void> => {
+  for (const file of files) {
+    try {
+      await unlink(file);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
+  }
+};
+
+const siblingArtifact = (root: string, relativePath: string, suffix: string): string => {
+  const target = absolutePath(root, relativePath);
+  return path.join(path.dirname(target), `.aqfmt-${randomUUID()}.${suffix}`);
+};
+
+const assertPlanContentState = async (plan: FileChangePlan, side: PlanSide): Promise<void> => {
+  const current = await currentStates(plan);
+  for (const file of plan.files) {
+    if (!fileStatesEqual(current.get(pathKey(file.path)) ?? null, file[side])) {
+      fail("FILE_CHANGED", `File no longer matches the expected ${side} content: ${file.path}`);
+    }
+  }
+};
+
+const restoreMovedSources = async (
+  plan: FileChangePlan,
+  activeFiles: readonly PlannedFile[],
+  from: PlanSide,
+  to: PlanSide,
+  backups: ReadonlyMap<string, string>,
+  installed: ReadonlyMap<string, string>,
+): Promise<void> => {
+  await assertNoAlternateDataStreams(
+    plan.projectRoot,
+    activeFiles.map(({ path }) => path),
+  );
+  for (const file of [...activeFiles].reverse()) {
+    const key = pathKey(file.path);
+    const target = absolutePath(plan.projectRoot, file.path);
+    const backup = backups.get(key);
+    const current = await readProjectFileState(plan.projectRoot, file.path);
+    if (backup) {
+      const selectRollbackPath = (): string | undefined => {
+        if (current === null) return undefined;
+        const installedIdentity = installed.get(key);
+        const installedFileChanged =
+          !installedIdentity ||
+          fileIdentity(current) !== installedIdentity ||
+          !fileStatesEqual(current, file[to]);
+        if (installedFileChanged) {
+          fail(
+            "FILE_CHANGED",
+            `A user file appeared while restoring ${file.path}; backup was preserved at ${backup}`,
+          );
+        }
+        return siblingArtifact(plan.projectRoot, file.path, "rollback");
+      };
+      const displaced = selectRollbackPath();
+      if (displaced) {
+        await assertStableParent(plan.projectRoot, file.path);
+        await rename(target, displaced);
+        await assertStableParent(plan.projectRoot, file.path);
+      }
+      try {
+        await link(backup, target);
+        await assertStableParent(plan.projectRoot, file.path);
+        await unlink(backup);
+      } catch (error) {
+        if (displaced && (await readProjectFileState(plan.projectRoot, file.path)) === null) {
+          await link(displaced, target).catch(() => undefined);
+        }
+        throw error;
+      }
+      if (displaced) await unlink(displaced);
+    } else if (file[from] === null && current !== null) {
+      const installedIdentity = installed.get(key);
+      const installedFileChanged =
+        !installedIdentity ||
+        fileIdentity(current) !== installedIdentity ||
+        !fileStatesEqual(current, file[to]);
+      if (installedFileChanged) {
+        fail("FILE_CHANGED", `A user file replaced the created path during rollback: ${file.path}`);
+      }
+      const discarded = siblingArtifact(plan.projectRoot, file.path, "rollback");
+      await assertStableParent(plan.projectRoot, file.path);
+      await rename(target, discarded);
+      await assertStableParent(plan.projectRoot, file.path);
+      await unlink(discarded);
+    }
+  }
+  await assertPlanContentState(plan, from);
 };

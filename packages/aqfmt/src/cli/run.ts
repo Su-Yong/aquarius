@@ -1,6 +1,8 @@
 import { runToolCli } from "@aquarius/core/cli";
+
 import { executeFormat } from "../format/execute";
 import type { FormatExecutionResult, FormatSnapshotDetails } from "../format/types";
+
 import { analysisLines, incompleteAnalysisLines } from "./analysis-output";
 import { printHuman } from "./output";
 

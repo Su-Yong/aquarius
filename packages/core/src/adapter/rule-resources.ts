@@ -1,16 +1,21 @@
 import { createHash, randomUUID } from "node:crypto";
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
+
 import { z } from "zod";
+
 import { formatInstructionsSchema, lintInstructionsSchema } from "../rules/schemas";
-import type { PreparedRule } from "../rules/types";
 import { AquariusError, isNodeError } from "../shared/errors";
 import { safeRelativePath } from "../shared/path";
-import type { ToolKind } from "../shared/types";
 import { nonEmptyStringSchema } from "../shared/zod";
+import type { PreparedRule } from "../rules/types";
+import type { ToolKind } from "../shared/types";
+
 import { snapshotRoot, writeSnapshotFile } from "./snapshot";
 import type { RuleResource } from "./types";
 
+const CONTENT_HASH_PATTERN = /^[a-f0-9]{64}$/u;
+const RULE_RESOURCE_PATH_PATTERN = /^\.aquarius-rules-[A-Za-z0-9_-]+\/[^/]+\.json$/u;
 const scopeSchema = z.enum(["file", "module", "project"]);
 const resourceSchema = z.strictObject({
   ruleId: nonEmptyStringSchema,
@@ -18,16 +23,8 @@ const resourceSchema = z.strictObject({
   applicability: nonEmptyStringSchema,
   detailsPath: z.string(),
   content: z.string(),
-  contentHash: z.string().regex(/^[a-f0-9]{64}$/u),
+  contentHash: z.string().regex(CONTENT_HASH_PATTERN),
 });
-
-const hash = (content: string): string => createHash("sha256").update(content).digest("hex");
-
-const assertActive = (signal: AbortSignal | undefined): void => {
-  if (signal?.aborted) {
-    throw new AquariusError("AI_ABORTED", "Rule resource writing was cancelled.");
-  }
-};
 
 export const buildRuleResources = (
   tool: ToolKind,
@@ -40,13 +37,15 @@ export const buildRuleResources = (
     instructions: tool === "lint" ? lintInstructionsSchema : formatInstructionsSchema,
   });
   const seen = new Set<string>();
-  return rules.map((rule) => {
+  const buildRuleResource = (rule: PreparedRule): RuleResource => {
     const parsed = detailSchema.safeParse({
       ruleId: rule.id,
       scope: rule.scope,
       instructions: rule.instructions,
     });
-    if (!parsed.success || parsed.data.ruleId !== rule.id || seen.has(rule.id)) {
+    const isInvalidOrRepeated =
+      !parsed.success || parsed.data.ruleId !== rule.id || seen.has(rule.id);
+    if (isInvalidOrRepeated) {
       throw new AquariusError("INVALID_RULE_RESOURCE", `Invalid or repeated rule: ${rule.id}`);
     }
     seen.add(rule.id);
@@ -55,45 +54,12 @@ export const buildRuleResources = (
       ruleId: rule.id,
       scope: parsed.data.scope,
       applicability: parsed.data.instructions.applicability,
-      detailsPath: `${runDirectory}/${tool}-${hash(rule.id)}.json`,
+      detailsPath: `${runDirectory}/${tool}-${hashContent(rule.id)}.json`,
       content,
-      contentHash: hash(content),
+      contentHash: hashContent(content),
     };
-  });
-};
-
-const checkedResources = (resources: readonly RuleResource[]): RuleResource[] => {
-  const parsed = z.array(resourceSchema).safeParse(resources);
-  if (!parsed.success) {
-    throw new AquariusError("INVALID_RULE_RESOURCE", "Expected valid rule resources.");
-  }
-
-  const paths = new Set<string>();
-  const names = new Set<string>();
-  for (const resource of parsed.data) {
-    const path = resource.detailsPath;
-    const key = process.platform === "win32" ? path.toLowerCase() : path;
-    if (
-      safeRelativePath(path) !== path ||
-      !/^\.aquarius-rules-[A-Za-z0-9_-]+\/[^/]+\.json$/u.test(path) ||
-      paths.has(key) ||
-      names.has(resource.ruleId)
-    ) {
-      throw new AquariusError(
-        "INVALID_RULE_RESOURCE",
-        "Invalid or repeated rule resource path or ID.",
-      );
-    }
-    if (hash(resource.content) !== resource.contentHash) {
-      throw new AquariusError(
-        "RULE_RESOURCE_CHANGED",
-        "A rule file does not match its content hash.",
-      );
-    }
-    paths.add(key);
-    names.add(resource.ruleId);
-  }
-  return parsed.data;
+  };
+  return rules.map(buildRuleResource);
 };
 
 export const writeRuleResources = async (
@@ -102,12 +68,13 @@ export const writeRuleResources = async (
   signal?: AbortSignal,
 ): Promise<string[]> => {
   assertActive(signal);
-  const files = checkedResources(resources);
+  const files = validateRuleResources(resources);
   const view = await snapshotRoot(viewRoot);
   const directories = new Set<string>();
   for (const file of files) {
     assertActive(signal);
-    const directory = file.detailsPath.split("/")[0]!;
+    const pathSegments = file.detailsPath.split("/");
+    const directory = pathSegments[0]!;
     const destination = join(view, file.detailsPath);
     try {
       if (!directories.has(directory)) {
@@ -126,4 +93,50 @@ export const writeRuleResources = async (
   }
   assertActive(signal);
   return files.map(({ detailsPath }) => detailsPath);
+};
+
+const hashContent = (content: string): string => {
+  const hash = createHash("sha256");
+  return hash.update(content).digest("hex");
+};
+
+const assertActive = (signal: AbortSignal | undefined): void => {
+  if (signal?.aborted) {
+    throw new AquariusError("AI_ABORTED", "Rule resource writing was cancelled.");
+  }
+};
+
+const validateRuleResources = (resources: readonly RuleResource[]): RuleResource[] => {
+  const resourcesSchema = z.array(resourceSchema);
+  const parsed = resourcesSchema.safeParse(resources);
+  if (!parsed.success) {
+    throw new AquariusError("INVALID_RULE_RESOURCE", "Expected valid rule resources.");
+  }
+
+  const pathKeys = new Set<string>();
+  const ruleIds = new Set<string>();
+  for (const resource of parsed.data) {
+    const path = resource.detailsPath;
+    const pathKey = process.platform === "win32" ? path.toLowerCase() : path;
+    const isInvalidOrRepeated =
+      safeRelativePath(path) !== path ||
+      !RULE_RESOURCE_PATH_PATTERN.test(path) ||
+      pathKeys.has(pathKey) ||
+      ruleIds.has(resource.ruleId);
+    if (isInvalidOrRepeated) {
+      throw new AquariusError(
+        "INVALID_RULE_RESOURCE",
+        "Invalid or repeated rule resource path or ID.",
+      );
+    }
+    if (hashContent(resource.content) !== resource.contentHash) {
+      throw new AquariusError(
+        "RULE_RESOURCE_CHANGED",
+        "A rule file does not match its content hash.",
+      );
+    }
+    pathKeys.add(pathKey);
+    ruleIds.add(resource.ruleId);
+  }
+  return parsed.data;
 };

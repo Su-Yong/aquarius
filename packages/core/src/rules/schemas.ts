@@ -1,5 +1,7 @@
 import { z } from "zod";
+
 import { jsonObjectSchema, nonEmptyStringSchema } from "../shared/zod";
+
 import type { FormatRule, LintRule } from "./types";
 
 const severitySchema = z.enum(["off", "warn", "error"]);
@@ -13,11 +15,14 @@ export const ruleSettingSchema = z.union([lintRuleSettingSchema, formatRuleSetti
 const stringArraySchema = z.array(nonEmptyStringSchema);
 const scopeSchema = z.enum(["file", "module", "project"]);
 const optionsSchema = z.custom<z.ZodType>(
-  (value) =>
-    value !== null &&
-    typeof value === "object" &&
-    "safeParse" in value &&
-    typeof value.safeParse === "function",
+  (value) => {
+    const hasSafeParseMethod =
+      value !== null &&
+      typeof value === "object" &&
+      "safeParse" in value &&
+      typeof value.safeParse === "function";
+    return hasSafeParseMethod;
+  },
   "must be a Zod schema",
 );
 const buildPromptSchema = z.custom<LintRule["buildPrompt"] | FormatRule["buildPrompt"]>(

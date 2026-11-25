@@ -1,4 +1,5 @@
 import { z } from "zod";
+
 import { createFormatRule, fileOverrideSchema, intRangeSchema } from "./shared";
 
 const exitStyle = createFormatRule({
@@ -109,11 +110,11 @@ const ternaryStyle = createFormatRule({
     flattenTarget = "helper-function",
     allowInJsx = true,
   }) => {
-    const target = ternaryTargets[flattenTarget];
-    const changes = {
-      "flatten-nested": `Replace nested ternaries with ${target}. Keep existing non-nested ternaries.`,
-      "no-ternary": `Replace ternaries with ${target}, including single-level ternaries.`,
-      "prefer-concise": `Use a single ternary for a simple if/else that returns or assigns a value. Replace existing nested ternaries with ${target}.`,
+    const replacementStyle = ternaryTargets[flattenTarget];
+    const transformationsByMode = {
+      "flatten-nested": `Replace nested ternaries with ${replacementStyle}. Keep existing non-nested ternaries.`,
+      "no-ternary": `Replace ternaries with ${replacementStyle}, including single-level ternaries.`,
+      "prefer-concise": `Use a single ternary for a simple if/else that returns or assigns a value. Replace existing nested ternaries with ${replacementStyle}.`,
     };
 
     return {
@@ -122,13 +123,12 @@ const ternaryStyle = createFormatRule({
           ? ternarySources[mode]
           : `${ternarySources[mode]} Also consider single-level JSX ternaries.`,
       transformation: [
-        changes[mode],
+        transformationsByMode[mode],
         allowInJsx
           ? "Allow single-level ternaries in JSX as an exception."
-          : `Replace JSX ternaries, including single-level ones, with ${target}. Introduce no new ternaries in JSX.`,
+          : `Replace JSX ternaries, including single-level ones, with ${replacementStyle}. Introduce no new ternaries in JSX.`,
       ].join("\n"),
       constraints: [
-        "Preserve the conditional evaluation of both branches, the number of predicate evaluations, and the resulting type and value.",
       ],
     };
   },
@@ -150,25 +150,31 @@ const loopGranularity = createFormatRule({
     excludeContexts = ["hot-path", "streaming"],
     overrides = [],
   }) => {
-    const changes = {
+    const transformationsByMode = {
       split:
         "Split a multi-purpose loop into independent passes, each focused on one responsibility.",
       fuse: "Fuse adjacent loops over the same collection into one pass when their work can be interleaved safely.",
     };
 
+    const describeLoopApplicability = () => {
+      if (overrides.length) {
+        return "Multi-purpose loops and adjacent loops that traverse the same collection, subject to file overrides.";
+      }
+      if (mode === "split") {
+        return "Loops combining independent responsibilities.";
+      }
+      return "Adjacent loops traversing the same collection.";
+    };
+
     return {
-      applicability: overrides.length
-        ? "Multi-purpose loops and adjacent loops that traverse the same collection, subject to file overrides."
-        : mode === "split"
-          ? "Loops combining independent responsibilities."
-          : "Adjacent loops traversing the same collection.",
+      applicability: describeLoopApplicability(),
       transformation: [
-        changes[mode],
+        transformationsByMode[mode],
         `Skip loops in these contexts: ${JSON.stringify(excludeContexts)}.`,
         ...(overrides.length > 0
           ? [
               `For files matching these project-relative glob overrides, use the configured mode: ${JSON.stringify(overrides)}.`,
-              `For split overrides: ${changes.split} For fuse overrides: ${changes.fuse}`,
+              `For split overrides: ${transformationsByMode.split} For fuse overrides: ${transformationsByMode.fuse}`,
             ]
           : []),
       ].join("\n"),

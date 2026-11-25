@@ -1,7 +1,8 @@
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "vitest";
+import { buildSnapshotEnvironmentPrompt } from "@aquarius/core/adapter";
 import { runExec } from "../src/exec";
 import type { AdapterExecuteRequest } from "@aquarius/core/adapter";
 
@@ -18,13 +19,16 @@ const message = (text: string, type = "item.completed") => ({
   item: { id: "message", type: "agent_message", text },
 });
 
+const taskPrompt = "Inspect the selected files.";
+
 const runWithEvents = async (
   events: object[],
   onAnalysisUpdate?: (value: unknown) => void,
   onProgress?: (value: string) => void,
-): Promise<unknown> => {
+) => {
   const root = await mkdtemp(join(tmpdir(), "aquarius-analysis-transport-"));
   const executable = join(root, "codex");
+  const promptPath = join(root, "prompt.txt");
   const resultPath = join(root, "result.json");
   const finalResult = { diagnostics: [], completedRuleIds: ["fixture/check"] };
   try {
@@ -32,8 +36,11 @@ const runWithEvents = async (
       executable,
       `#!${process.execPath}\n` +
         'const fs = require("node:fs");\n' +
-        'process.stdin.on("data", () => {});\n' +
+        'let prompt = "";\n' +
+        'process.stdin.setEncoding("utf8");\n' +
+        'process.stdin.on("data", (chunk) => { prompt += chunk; });\n' +
         'process.stdin.on("end", () => {\n' +
+        `  fs.writeFileSync(${JSON.stringify(promptPath)}, prompt);\n` +
         `  for (const event of ${JSON.stringify(events)}) console.log(JSON.stringify(event));\n` +
         `  fs.writeFileSync(${JSON.stringify(resultPath)}, ${JSON.stringify(JSON.stringify(finalResult))});\n` +
         '  console.log(JSON.stringify({ type: "turn.completed" }));\n' +
@@ -43,7 +50,7 @@ const runWithEvents = async (
     const input: AdapterExecuteRequest = {
       projectRoot: root,
       readableFiles: ["first.ts", "second.ts"],
-      prompt: "Inspect the selected files and emit commentary updates before the final response.",
+      prompt: taskPrompt,
       ruleResources: [],
       outputSchema: { type: "object" },
       options: {},
@@ -51,7 +58,7 @@ const runWithEvents = async (
       onAnalysisUpdate,
       onProgress,
     };
-    return await runExec(
+    const result = await runExec(
       executable,
       input,
       {},
@@ -61,6 +68,7 @@ const runWithEvents = async (
       resultPath,
       [],
     );
+    return { result, prompt: await readFile(promptPath, "utf8") };
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -89,7 +97,7 @@ test.skipIf(process.platform === "win32")(
     const received: unknown[] = [];
     const order: string[] = [];
     let resolved = false;
-    const result = await runWithEvents(
+    const { result, prompt } = await runWithEvents(
       events,
       (value) => {
         expect(resolved).toBe(false);
@@ -110,7 +118,20 @@ test.skipIf(process.platform === "win32")(
       "Inspecting second.ts",
       "update-3",
     ]);
+    expect(prompt).toContain(
+      "Send each provisional analysis frame as the sole JSON value in a public commentary message.",
+    );
+    expect(prompt.endsWith(taskPrompt)).toBe(true);
     expect(result).toEqual({ diagnostics: [], completedRuleIds: ["fixture/check"] });
+  },
+);
+
+test.skipIf(process.platform === "win32")(
+  "sends only the environment-wrapped task prompt when no analysis observer is registered",
+  async () => {
+    const { prompt } = await runWithEvents([]);
+
+    expect(prompt).toBe(buildSnapshotEnvironmentPrompt(taskPrompt));
   },
 );
 

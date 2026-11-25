@@ -1,12 +1,7 @@
 import type { LintRule } from "@aquarius/core";
 
-// Source: https://chatgpt.com/space/page_dd6ffadaf0448191aa29ee9e19e7d2ad
-// Source block: 4efdb9a9-83da-4d2b-a574-194926358517
-export const frameworkIndependentDomain: LintRule = {
-  id: "architecture/framework-independent-domain",
-  description: "선언된 도메인 경계가 프레임워크로부터 독립적이어야 하는 프로젝트에서, 프레임워크의 요청·수명·실행 계약이 도메인 정책으로 새는 경로를 검사합니다. 의도된 프레임워크 중심 설계는 구분하되, 설정에 명시된 금지 의존성은 직접 참조만으로도 해당 계약 위반이 될 수 있습니다.",
-  scope: "project",
-  buildPrompt: () => ({
+const buildPrompt: LintRule["buildPrompt"] = () => {
+  return {
     applicability:
       "Domain code covered by a framework-independence or forbidden-framework-dependency policy.",
     criteria: "Report a dependency or behavior that violates this independence contract: framework request, scheduling, container, lifecycle, or execution assumptions govern domain policy. An explicitly prohibited framework import may establish a violation without additionally proving runtime coupling. Do not impose framework independence on an intentionally framework-centered design, but do not let that design excuse a separate explicit prohibition.",
@@ -42,5 +37,14 @@ export const frameworkIndependentDomain: LintRule = {
         reason: "The independence boundary does not include this scope."
       }
     ]
-  }),
+  };
+};
+
+// Source: https://chatgpt.com/space/page_dd6ffadaf0448191aa29ee9e19e7d2ad
+// Source block: 4efdb9a9-83da-4d2b-a574-194926358517
+export const frameworkIndependentDomain: LintRule = {
+  id: "architecture/framework-independent-domain",
+  description: "선언된 도메인 경계가 프레임워크로부터 독립적이어야 하는 프로젝트에서, 프레임워크의 요청·수명·실행 계약이 도메인 정책으로 새는 경로를 검사합니다. 의도된 프레임워크 중심 설계는 구분하되, 설정에 명시된 금지 의존성은 직접 참조만으로도 해당 계약 위반이 될 수 있습니다.",
+  scope: "project",
+  buildPrompt,
 };

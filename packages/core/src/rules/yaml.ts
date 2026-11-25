@@ -1,11 +1,15 @@
 import { parseDocument } from "yaml";
 import { z } from "zod";
+
 import { AquariusError, errorMessage } from "../shared/errors";
 import { isPlainObject } from "../shared/json";
 import { formatZodIssues, jsonObjectSchema } from "../shared/zod";
 import type { JsonObject } from "../shared/types";
+
 import { formatInstructionsSchema, lintInstructionsSchema } from "./schemas";
 import type { FormatInstructions, FormatRule, LintInstructions, LintRule } from "./types";
+
+const YAML_MAX_ALIAS_COUNT = 100;
 
 const yamlRuleBaseShape = {
   id: z.string().min(1),
@@ -59,9 +63,10 @@ const parseYaml = <T>(text: string, schema: z.ZodType<T>): T => {
   try {
     const document = parseDocument(text, { prettyErrors: true, uniqueKeys: true });
     if (document.errors.length > 0) {
-      throw new Error(document.errors.map(({ message }) => message).join("; "));
+      const messages = document.errors.map(({ message }) => message);
+      throw new Error(messages.join("; "));
     }
-    value = document.toJS({ maxAliasCount: 100 });
+    value = document.toJS({ maxAliasCount: YAML_MAX_ALIAS_COUNT });
   } catch (error) {
     throw new AquariusError("YAML_PARSE_FAILED", `Cannot parse YAML rule: ${errorMessage(error)}`);
   }
@@ -81,7 +86,9 @@ const createOptionsSchema = (schema: JsonObject | undefined): z.ZodType | undefi
 };
 
 const validateRuleId = (id: string): void => {
-  if (id.startsWith("/") || id.endsWith("/") || id.split("/").some((part) => part.trim() === "")) {
+  const hasEmptyPathSegment =
+    id.startsWith("/") || id.endsWith("/") || id.split("/").some((part) => part.trim() === "");
+  if (hasEmptyPathSegment) {
     invalid("id must contain non-empty path segments");
   }
 };
@@ -111,8 +118,8 @@ const renderValue = (value: unknown, options: Readonly<JsonObject>): unknown => 
   return value;
 };
 
-const renderString = (template: string, options: Readonly<JsonObject>): string =>
-  template.replace(/{{\s*([^{}]+?)\s*}}/g, (_match, expression: string) => {
+const renderString = (template: string, options: Readonly<JsonObject>): string => {
+  const renderPlaceholder = (_match: string, expression: string): string => {
     const path = expression.trim().split(".");
     let value: unknown = options;
     for (const part of path.slice(1)) {
@@ -135,17 +142,22 @@ const renderString = (template: string, options: Readonly<JsonObject>): string =
         `Cannot render ${path.join(".")}: ${errorMessage(error)}`,
       );
     }
-  });
+  };
+  return template.replace(/{{\s*([^{}]+?)\s*}}/g, renderPlaceholder);
+};
 
 const validateTemplateSyntax = (template: string): void => {
-  const token = /{{\s*([^{}]+?)\s*}}/g;
-  const remainder = template.replace(token, (_match, expression: string) => {
+  const removeValidatedPlaceholder = (_match: string, expression: string): string => {
     const path = expression.trim().split(".");
-    if (path[0] !== "options" || path.length < 2 || path.some((part) => part === "")) {
+    const isInvalidOptionPath =
+      path[0] !== "options" || path.length < 2 || path.some((part) => part === "");
+    if (isInvalidOptionPath) {
       invalid(`only options dot paths are allowed in templates: ${expression.trim()}`);
     }
     return "";
-  });
+  };
+  const placeholderPattern = /{{\s*([^{}]+?)\s*}}/g;
+  const remainder = template.replace(placeholderPattern, removeValidatedPlaceholder);
   if (remainder.includes("{{") || remainder.includes("}}"))
     invalid("template contains a malformed placeholder");
 };

@@ -400,10 +400,20 @@ describe("format file groups", () => {
     ]);
   });
 
-  test("times out a group without retrying and keeps results from other groups", async () => {
+  test("keeps provisional analysis when a group times out without retrying", async () => {
     const run = vi.fn(async (input: AdapterExecuteRequest) => {
       const [path] = selected(input);
-      if (path === "b.ts") return new Promise(() => {});
+      if (path === "b.ts") {
+        input.onAnalysisUpdate?.({
+          type: "aquarius.analysis_update",
+          revision: 1,
+          fileResults: [{ path, status: "in_progress" }],
+          ruleResults: [{ ruleId: "fixture/style", status: "in_progress" }],
+          proposedFiles: [path],
+          warnings: [warning(path)],
+        });
+        return new Promise(() => {});
+      }
       return reply([path!], { changes: [replacement(path!)] });
     });
     const current = fixture(["a.ts", "b.ts", "c.ts"], run);
@@ -417,6 +427,21 @@ describe("format file groups", () => {
       "failed",
       "completed",
     ]);
+    expect(current.onWarning).not.toHaveBeenCalled();
+    expect(current.snapshots).toContainEqual(
+      expect.objectContaining({
+        phase: "provisional",
+        fileResults: expect.arrayContaining([{ path: "b.ts", status: "in_progress", reason: "" }]),
+        ruleResults: [expect.objectContaining({ ruleId: "fixture/style", status: "in_progress" })],
+        proposedFiles: expect.arrayContaining(["b.ts"]),
+        warnings: [warning("b.ts")],
+      }),
+    );
+    expect(current.snapshots.at(-1)).toMatchObject({
+      phase: "incomplete",
+      proposedFiles: expect.arrayContaining(["a.ts", "b.ts", "c.ts"]),
+      warnings: [warning("b.ts")],
+    });
   });
 
   test("cancels in-flight requests, preserves known results, and leaves unstarted groups skipped", async () => {

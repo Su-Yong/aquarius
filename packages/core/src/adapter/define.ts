@@ -1,4 +1,5 @@
 import type { JsonObject } from "../shared/types";
+
 import type { AiAdapter, SessionAdapter, StandaloneAdapter } from "./types";
 
 export function defineAdapter<Options extends JsonObject = JsonObject>(

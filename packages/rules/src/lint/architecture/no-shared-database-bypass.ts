@@ -1,12 +1,7 @@
 import type { LintRule } from "@aquarius/core";
 
-// Source: https://chatgpt.com/space/page_dd6ffadaf0448191aa29ee9e19e7d2ad
-// Source block: 4c877ee3-bf2e-4b30-8ffc-79cd6998a5c8
-export const noSharedDatabaseBypass: LintRule = {
-  id: "architecture/no-shared-database-bypass",
-  description: "데이터 소유 모듈의 불변조건·권한 계약을 우회하는 직접 쓰기를 검사하고, 검증된 공용 저장 경계와 승인된 운영·마이그레이션 경로를 구분합니다.",
-  scope: "project",
-  buildPrompt: () => ({
+const buildPrompt: LintRule["buildPrompt"] = () => {
+  return {
     applicability:
       "Writes to another module's data across an ownership boundary.",
     criteria: "Report direct or indirect writes that bypass the owner's required invariant, authorization, or effect-enforcement boundary. Trace stored procedures, bulk writes, administrative tools, migrations, and shared persistence adapters. Shared storage or a direct write alone is not a violation when a verified common boundary provides the same required guarantees or an authorized operational path permits it.",
@@ -47,5 +42,14 @@ export const noSharedDatabaseBypass: LintRule = {
         reason: "No foreign-owner write boundary is crossed."
       }
     ]
-  }),
+  };
+};
+
+// Source: https://chatgpt.com/space/page_dd6ffadaf0448191aa29ee9e19e7d2ad
+// Source block: 4c877ee3-bf2e-4b30-8ffc-79cd6998a5c8
+export const noSharedDatabaseBypass: LintRule = {
+  id: "architecture/no-shared-database-bypass",
+  description: "데이터 소유 모듈의 불변조건·권한 계약을 우회하는 직접 쓰기를 검사하고, 검증된 공용 저장 경계와 승인된 운영·마이그레이션 경로를 구분합니다.",
+  scope: "project",
+  buildPrompt,
 };

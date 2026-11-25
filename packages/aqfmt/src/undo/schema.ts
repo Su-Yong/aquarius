@@ -1,8 +1,15 @@
 import { z } from "zod";
+
 import { AquariusError } from "@aquarius/core/runtime";
 
+export type StoredFileState = z.infer<typeof storedFileStateSchema>;
+export type StoredFile = z.infer<typeof storedFileSchema>;
+export type UndoManifest = z.infer<typeof undoManifestSchema>;
+
+const GIT_OBJECT_ID_PATTERN = /^[0-9a-f]{40,64}$/;
+
 const storedFileStateSchema = z.strictObject({
-  blob: z.string().regex(/^[0-9a-f]{40,64}$/),
+  blob: z.string().regex(GIT_OBJECT_ID_PATTERN),
   mode: z.number().int().min(0).max(0o777),
 });
 
@@ -19,10 +26,6 @@ export const undoManifestSchema = z.strictObject({
   createdDirectories: z.array(z.string()),
 });
 
-export type StoredFileState = z.infer<typeof storedFileStateSchema>;
-export type StoredFile = z.infer<typeof storedFileSchema>;
-export type UndoManifest = z.infer<typeof undoManifestSchema>;
-
 export const parseUndoManifest = (value: unknown, expectedRoot: string): UndoManifest => {
   const parsed = undoManifestSchema.safeParse(value);
   if (!parsed.success) {
@@ -35,15 +38,15 @@ export const parseUndoManifest = (value: unknown, expectedRoot: string): UndoMan
     throw new AquariusError("UNDO_RECORD_INVALID", "Undo record project root does not match");
   }
 
-  const seen = new Set<string>();
+  const seenPaths = new Set<string>();
   for (const file of parsed.data.files) {
-    const key = process.platform === "win32" ? file.path.toLowerCase() : file.path;
-    if (seen.has(key))
+    const pathKey = process.platform === "win32" ? file.path.toLowerCase() : file.path;
+    if (seenPaths.has(pathKey))
       throw new AquariusError("UNDO_RECORD_INVALID", `Duplicate undo path: ${file.path}`);
     if (file.before === null && file.after === null) {
       throw new AquariusError("UNDO_RECORD_INVALID", `Undo path has no state: ${file.path}`);
     }
-    seen.add(key);
+    seenPaths.add(pathKey);
   }
   return parsed.data;
 };

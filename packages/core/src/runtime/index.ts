@@ -1,3 +1,18 @@
+export type {
+  AdapterExecuteRequest,
+  AdapterRunInfo,
+  AdapterSession,
+  AiAdapter,
+  RuleReference,
+  RuleResource,
+  StandaloneAdapter,
+} from "../adapter/types";
+export type * from "../config/types";
+export type * from "../execution/types";
+export type * from "../files/types";
+export type * from "../rules/types";
+export type * from "../shared/types";
+
 export { loadConfig } from "../config/load";
 export { prepareRules } from "../rules/prepare";
 export { importProjectModule } from "../shared/modules";
@@ -26,17 +41,3 @@ export {
 export { fileResultSchema, reviewUpdateFields } from "../execution/schemas";
 export { AquariusError, toRunError, errorMessage } from "../shared/errors";
 export { readStableRegularFile } from "../shared/safe-fs";
-export type {
-  AdapterExecuteRequest,
-  AdapterRunInfo,
-  AdapterSession,
-  AiAdapter,
-  RuleReference,
-  RuleResource,
-  StandaloneAdapter,
-} from "../adapter/types";
-export type * from "../config/types";
-export type * from "../execution/types";
-export type * from "../files/types";
-export type * from "../rules/types";
-export type * from "../shared/types";

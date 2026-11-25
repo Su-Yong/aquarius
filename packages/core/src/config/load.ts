@@ -1,10 +1,13 @@
 import { lstat, readFile, realpath } from "node:fs/promises";
 import { dirname, isAbsolute, join, parse as parsePath, resolve } from "node:path";
+
 import { parse, printParseErrorCode, type ParseError } from "jsonc-parser";
+
 import { AquariusError, errorMessage, isNodeError } from "../shared/errors";
-import type { ToolKind } from "../shared/types";
 import { formatZodIssues } from "../shared/zod";
 import type { RuleSettings } from "../rules/types";
+import type { ToolKind } from "../shared/types";
+
 import { formatConfigSchema, lintConfigSchema } from "./schemas";
 import type { LoadedConfig, ProjectConfig } from "./types";
 
@@ -14,6 +17,8 @@ const CONFIG_NAMES: Record<ToolKind, readonly string[]> = {
 };
 
 const DEFAULT_TIMEOUT_MS = 600_000;
+const WINDOWS_DRIVE_PREFIX = /^[A-Za-z]:\//;
+const LINE_BREAK = /\r\n|\r|\n/;
 
 export const loadConfig = async (
   tool: ToolKind,
@@ -30,7 +35,8 @@ export const loadConfig = async (
     );
   }
   const projectRoot = dirname(configPath);
-  const config = validateConfig(tool, await readConfig(configPath));
+  const rawConfig = await readConfig(configPath);
+  const config = validateConfig(tool, rawConfig);
 
   return {
     tool,
@@ -56,7 +62,8 @@ const resolveDirectory = async (directory: string): Promise<string> => {
   const absolute = resolve(directory);
   try {
     const resolved = await realpath(absolute);
-    if (!(await lstat(resolved)).isDirectory()) {
+    const stats = await lstat(resolved);
+    if (!stats.isDirectory()) {
       throw new AquariusError("CONFIG_CWD_INVALID", `Not a directory: ${directory}`);
     }
     return resolved;
@@ -86,7 +93,8 @@ const resolveConfigPath = async (cwd: string, configPath: string): Promise<strin
   const absolute = isAbsolute(configPath) ? configPath : resolve(cwd, configPath);
   try {
     const resolved = await realpath(absolute);
-    if (!(await lstat(resolved)).isFile()) {
+    const stats = await lstat(resolved);
+    if (!stats.isFile()) {
       throw new AquariusError("CONFIG_NOT_FOUND", `Configuration is not a file: ${configPath}`);
     }
     return resolved;
@@ -100,9 +108,9 @@ const resolveConfigPath = async (cwd: string, configPath: string): Promise<strin
 };
 
 const readConfig = async (configPath: string): Promise<unknown> => {
-  let text: string;
+  let configText: string;
   try {
-    text = await readFile(configPath, "utf8");
+    configText = await readFile(configPath, "utf8");
   } catch (error) {
     throw new AquariusError(
       "CONFIG_READ_FAILED",
@@ -111,16 +119,16 @@ const readConfig = async (configPath: string): Promise<unknown> => {
   }
 
   const errors: ParseError[] = [];
-  const value = parse(text, errors, { allowTrailingComma: true, disallowComments: false });
+  const parsedConfig = parse(configText, errors, { allowTrailingComma: true, disallowComments: false });
   if (errors.length > 0) {
-    const first = errors[0];
-    const { line, column } = lineAndColumn(text, first.offset);
+    const firstError = errors[0];
+    const { line, column } = lineAndColumn(configText, firstError.offset);
     throw new AquariusError(
       "CONFIG_PARSE_FAILED",
-      `${configPath}:${line}:${column}: ${printParseErrorCode(first.error)}`,
+      `${configPath}:${line}:${column}: ${printParseErrorCode(firstError.error)}`,
     );
   }
-  return value;
+  return parsedConfig;
 };
 
 const validateConfig = (tool: ToolKind, input: unknown): ProjectConfig => {
@@ -129,8 +137,8 @@ const validateConfig = (tool: ToolKind, input: unknown): ProjectConfig => {
   if (!parsed.success) invalid(formatZodIssues(parsed.error));
   const config = parsed.data;
 
-  for (const pattern of [...(config.files ?? []), ...(config.ignore ?? [])])
-    validateRelativePattern(pattern);
+  const patterns = [...(config.files ?? []), ...(config.ignore ?? [])];
+  for (const pattern of patterns) validateRelativePattern(pattern);
   if (config.plugins) rejectDuplicates(config.plugins, "plugins");
   for (const [index, preset] of (config.preset ?? []).entries()) {
     if (!isRuleReference(preset)) {
@@ -158,24 +166,24 @@ const rejectDuplicates = (values: string[], name: string): void => {
 };
 
 const validateRelativePattern = (pattern: string): void => {
-  const value = pattern.startsWith("!") ? pattern.slice(1) : pattern;
-  const normalized = value.replaceAll("\\", "/");
+  const unnegatedPattern = pattern.startsWith("!") ? pattern.slice(1) : pattern;
+  const normalized = unnegatedPattern.replaceAll("\\", "/");
   const withoutAnchor = normalized.startsWith("/") ? normalized.slice(1) : normalized;
-  if (
+  const escapesBaseDirectory =
     normalized.startsWith("//") ||
-    /^[A-Za-z]:\//.test(normalized) ||
+    WINDOWS_DRIVE_PREFIX.test(normalized) ||
     parsePath(withoutAnchor).root !== "" ||
-    withoutAnchor.split("/").includes("..")
-  ) {
+    withoutAnchor.split("/").includes("..");
+  if (escapesBaseDirectory) {
     invalid(`patterns must stay within their base directory: ${pattern}`);
   }
 };
 
 const isRuleReference = (value: string): boolean => {
   const slash = value.indexOf("/");
-  return (
-    slash > 0 && slash < value.length - 1 && !value.split("/").some((part) => part.trim() === "")
-  );
+  const hasRulePath =
+    slash > 0 && slash < value.length - 1 && !value.split("/").some((part) => part.trim() === "");
+  return hasRulePath;
 };
 
 const invalid: (message: string) => never = (message) => {
@@ -185,14 +193,16 @@ const invalid: (message: string) => never = (message) => {
 const pathExists = async (path: string): Promise<boolean> => {
   try {
     await lstat(path);
-    return true;
   } catch (error) {
     if (isNodeError(error, "ENOENT")) return false;
     throw error;
   }
+  return true;
 };
 
 const lineAndColumn = (text: string, offset: number): { line: number; column: number } => {
-  const before = text.slice(0, offset).split(/\r\n|\r|\n/);
-  return { line: before.length, column: before.at(-1)!.length + 1 };
+  const textBeforeOffset = text.slice(0, offset);
+  const linesBeforeOffset = textBeforeOffset.split(LINE_BREAK);
+  const lastLine = linesBeforeOffset.at(-1)!;
+  return { line: linesBeforeOffset.length, column: lastLine.length + 1 };
 };

@@ -1,4 +1,5 @@
 import type { LintRule } from "@aquarius/core";
+
 import { ownershipOptionsSchema } from "./ownership-options";
 
 export const releaseOnExit: LintRule = {

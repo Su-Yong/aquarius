@@ -1,10 +1,29 @@
 import { parseArgs, type ParseArgsOptionsConfig } from "node:util";
+
+import { errorMessage } from "../shared/errors";
 import type { AdapterRunInfo } from "../adapter/types";
 import type { AnalysisSnapshot, ToolExecutionOptions } from "../execution/types";
-import { errorMessage } from "../shared/errors";
+
 import { printAnalysisSnapshot } from "./analysis-output";
 import { formatAdapterRunInfo, safeText } from "./output";
 import { startProgress, statusText, type ProgressLine } from "./progress";
+
+type OptionValues = Record<string, string | boolean | string[] | boolean[] | undefined>;
+
+interface CliTool<Details extends object, Execution> {
+  name: string;
+  description: string;
+  help: string;
+  extraOptions?: ParseArgsOptionsConfig;
+  extraHelp?: string;
+  execute: (options: ToolExecutionOptions<Details>, values: OptionValues) => Promise<Execution>;
+  printHuman: (execution: Execution, values: OptionValues) => void;
+  analysisLines: (snapshot: AnalysisSnapshot & Details, ai?: AdapterRunInfo) => ProgressLine[];
+  incompleteAnalysisLines?: (
+    snapshot: AnalysisSnapshot & Details,
+    execution: Execution,
+  ) => ProgressLine[];
+}
 
 const commonOptions = {
   help: { type: "boolean", short: "h" },
@@ -31,37 +50,6 @@ const commonHelp = `Options:
       --with-node-modules            Include node_modules targets
       --no-error-on-unmatched-pattern
                                      Allow an empty target selection`;
-
-type OptionValues = Record<string, string | boolean | string[] | boolean[] | undefined>;
-
-interface CliTool<Details extends object, Execution> {
-  name: string;
-  description: string;
-  help: string;
-  extraOptions?: ParseArgsOptionsConfig;
-  extraHelp?: string;
-  execute: (options: ToolExecutionOptions<Details>, values: OptionValues) => Promise<Execution>;
-  printHuman: (execution: Execution, values: OptionValues) => void;
-  analysisLines: (snapshot: AnalysisSnapshot & Details, ai?: AdapterRunInfo) => ProgressLine[];
-  incompleteAnalysisLines?: (
-    snapshot: AnalysisSnapshot & Details,
-    execution: Execution,
-  ) => ProgressLine[];
-}
-
-const parseCliArgs = (args: string[], extraOptions: ParseArgsOptionsConfig | undefined) => {
-  const parsed = parseArgs({
-    args,
-    options: { ...extraOptions, ...commonOptions },
-    strict: true,
-    allowPositionals: true,
-  });
-  const { format, help, version } = parsed.values;
-  if (!help && !version && format !== "text" && format !== "json") {
-    throw new Error("--format must be text or json.");
-  }
-  return parsed;
-};
 
 export const runToolCli = async <
   Details extends object,
@@ -103,12 +91,39 @@ export const runToolCli = async <
     const progress = startProgress(showProgress);
     const controller = new AbortController();
     const abort = (): void => controller.abort();
+    const warningCounts = new Map<string, number>();
+    const printWarning = (message: string): void => {
+      const warningText = safeText(`${tool.name}: ${message}`).replace(
+        /[\r\n\t\u2028\u2029]/gu,
+        " ",
+      );
+      console.error(statusText(warningText, "warning", process.stderr));
+    };
     process.on("SIGINT", abort);
     process.on("SIGTERM", abort);
     let execution: Execution;
     let ai: AdapterRunInfo | undefined;
     let latestAnalysis: (AnalysisSnapshot & Details) | undefined;
     try {
+      const onAdapterInfo = (info: AdapterRunInfo) => {
+        ai = info;
+        const lines = latestAnalysis
+          ? tool.analysisLines(latestAnalysis, info)
+          : [`AI: ${formatAdapterRunInfo(info)}`];
+        progress.updateDetails(lines);
+      };
+      const onAnalysisUpdate = (snapshot: AnalysisSnapshot & Details) => {
+        latestAnalysis = snapshot;
+        if (snapshot.phase === "incomplete" && tool.incompleteAnalysisLines) return;
+        progress.updateDetails(tool.analysisLines(snapshot, ai));
+      };
+      const onWarning = (message: string) => {
+        const count = (warningCounts.get(message) ?? 0) + 1;
+        warningCounts.set(message, count);
+        if (count > 1) return;
+        progress.clear();
+        printWarning(message);
+      };
       execution = await tool.execute(
         {
           cwd: process.cwd(),
@@ -125,50 +140,51 @@ export const runToolCli = async <
           signal: controller.signal,
           ...(showProgress && {
             onProgress: progress.update,
-            onAdapterInfo: (info: AdapterRunInfo) => {
-              ai = info;
-              progress.updateDetails(
-                latestAnalysis
-                  ? tool.analysisLines(latestAnalysis, info)
-                  : [`AI: ${formatAdapterRunInfo(info)}`],
-              );
-            },
-            onAnalysisUpdate: (snapshot: AnalysisSnapshot & Details) => {
-              latestAnalysis = snapshot;
-              if (snapshot.phase === "incomplete" && tool.incompleteAnalysisLines) return;
-              progress.updateDetails(tool.analysisLines(snapshot, ai));
-            },
-            onWarning: (message: string) => {
-              progress.clear();
-              console.error(
-                statusText(safeText(`${tool.name}: ${message}`), "warning", process.stderr),
-              );
-            },
+            onAdapterInfo,
+            onAnalysisUpdate,
+            onWarning,
           }),
         },
         values,
       );
     } finally {
       progress.stop();
+      for (const [message, count] of warningCounts) {
+        if (count > 1) printWarning(`${message} (+${count - 1} more)`);
+      }
       process.removeListener("SIGINT", abort);
       process.removeListener("SIGTERM", abort);
     }
 
     if (!showProgress) {
       console.log(JSON.stringify(execution.result, null, 2));
-      return execution.exitCode;
-    }
-
-    tool.printHuman(execution, values);
-    if (latestAnalysis?.phase === "incomplete") {
-      printAnalysisSnapshot(
-        tool.incompleteAnalysisLines?.(latestAnalysis, execution) ??
-          tool.analysisLines(latestAnalysis, ai),
-      );
+    } else {
+      tool.printHuman(execution, values);
+      if (latestAnalysis?.phase === "incomplete") {
+        const lines =
+          tool.incompleteAnalysisLines?.(latestAnalysis, execution) ??
+          tool.analysisLines(latestAnalysis, ai);
+        printAnalysisSnapshot(lines);
+      }
     }
     return execution.exitCode;
   } catch (cause) {
     reportError(cause);
     return 2;
   }
+};
+
+const parseCliArgs = (args: string[], extraOptions: ParseArgsOptionsConfig | undefined) => {
+  const parsed = parseArgs({
+    args,
+    options: { ...extraOptions, ...commonOptions },
+    strict: true,
+    allowPositionals: true,
+  });
+  const { format, help, version } = parsed.values;
+  const hasInvalidFormat = !help && !version && format !== "text" && format !== "json";
+  if (hasInvalidFormat) {
+    throw new Error("--format must be text or json.");
+  }
+  return parsed;
 };

@@ -1,11 +1,13 @@
 import { spawn } from "node:child_process";
 import { createInterface } from "node:readline";
+
 import {
   AquariusError,
   attachAbort,
   terminateChild,
   waitForTermination,
 } from "@aquarius/core/adapter";
+
 import { captureStderr, withDiagnostic } from "./diagnostic";
 import {
   DISABLED_FEATURES,
@@ -15,13 +17,13 @@ import {
 } from "./options";
 import { configArguments } from "./toml";
 
-export const PROFILE_NAME = "aquarius-read";
-const CONFIG_PROBE_TIMEOUT_MS = 15_000;
-
 interface EffectiveConfigResponse {
   config?: Record<string, unknown>;
   origins?: Record<string, unknown>;
 }
+
+export const PROFILE_NAME = "aquarius-read";
+const CONFIG_PROBE_TIMEOUT_MS = 15_000;
 
 export const readEffectiveConfig = async (
   executable: string,
@@ -44,15 +46,17 @@ export const readEffectiveConfig = async (
     { cwd, stdio: ["pipe", "pipe", "pipe"], windowsHide: true },
   );
   const detachAbort = attachAbort(child, signal);
-  const stderr = captureStderr(child.stderr);
-  const probeError = (message: string, reason: unknown = stderr()) =>
-    new AquariusError(
-      "CODEX_CONFIG_PROBE_FAILED",
-      withDiagnostic(message, reason, diagnosticPaths),
-    );
+  const readStderr = captureStderr(child.stderr);
+  const probeError = (message: string, reason: unknown = readStderr()) => {
+    const diagnosticMessage = withDiagnostic(message, reason, diagnosticPaths);
+    return new AquariusError("CODEX_CONFIG_PROBE_FAILED", diagnosticMessage);
+  };
 
   try {
-    return await new Promise<EffectiveConfigResponse>((resolvePromise, rejectPromise) => {
+    const runProbe = (
+      resolvePromise: (value: EffectiveConfigResponse | PromiseLike<EffectiveConfigResponse>) => void,
+      rejectPromise: (reason?: unknown) => void,
+    ) => {
       let settled = false;
       const reader = createInterface({ input: child.stdout });
       const timer = setTimeout(() => {
@@ -69,85 +73,74 @@ export const readEffectiveConfig = async (
         else resolvePromise(value ?? {});
       };
 
-      reader.on("line", (line) => {
+      const onResponseLine = (line: string) => {
         if (settled) return;
-        let message: Record<string, unknown> | undefined;
-        try {
-          message = asRecord(JSON.parse(line));
-        } catch {}
+        const message = parseProbeMessage(line);
         if (!message) {
           finish(probeError("Codex config probe returned invalid JSON."));
           return;
         }
         if (message.id === 0) {
           if (message.error) {
-            finish(
-              probeError(
-                "Codex rejected config probe initialization.",
-                asRecord(message.error)?.message,
-              ),
-            );
+            const errorMessage = asRecord(message.error)?.message;
+            finish(probeError("Codex rejected config probe initialization.", errorMessage));
             return;
           }
           child.stdin.write(`${JSON.stringify({ method: "initialized", params: {} })}\n`);
-          child.stdin.write(
-            `${JSON.stringify({ method: "config/read", id: 2, params: { includeLayers: true, cwd } })}\n`,
-          );
+          const configRequest = {
+            method: "config/read",
+            id: 2,
+            params: { includeLayers: true, cwd },
+          };
+          child.stdin.write(`${JSON.stringify(configRequest)}\n`);
           return;
         }
-        if (message.id === 2) {
-          if (message.error)
-            finish(
-              probeError(
-                "Codex rejected the effective configuration probe.",
-                asRecord(message.error)?.message,
-              ),
-            );
-          else finish(undefined, (message.result ?? {}) as EffectiveConfigResponse);
+        if (message.id !== 2) return;
+        if (message.error) {
+          const errorMessage = asRecord(message.error)?.message;
+          finish(probeError("Codex rejected the effective configuration probe.", errorMessage));
+          return;
         }
-      });
-      child.once("error", (error) =>
-        finish(probeError("Codex config probe could not start.", error.message)),
-      );
-      child.stdin.once("error", (error: NodeJS.ErrnoException) => {
+        finish(undefined, (message.result ?? {}) as EffectiveConfigResponse);
+      };
+      reader.on("line", onResponseLine);
+
+      const onSpawnError = (error: Error) =>
+        finish(probeError("Codex config probe could not start.", error.message));
+      child.once("error", onSpawnError);
+
+      const onStdinError = (error: NodeJS.ErrnoException) => {
         if (signal.aborted)
           finish(new AquariusError("CODEX_ABORTED", "Codex execution was aborted."));
         else if (error.code !== "EPIPE")
           finish(probeError("Codex config probe could not send a request."));
-      });
-      child.once("close", (code) => {
+      };
+      child.stdin.once("error", onStdinError);
+
+      const onClose = (code: number | null) => {
         if (settled) return;
-        if (signal.aborted)
+        if (signal.aborted) {
           finish(new AquariusError("CODEX_ABORTED", "Codex execution was aborted."));
-        else
-          finish(probeError(`Codex config probe exited before responding (${code ?? "signal"}).`));
-      });
-      child.stdin.write(
-        `${JSON.stringify({ method: "initialize", id: 0, params: { clientInfo: { name: "aquarius", title: "Aquarius", version: "0.1.0" } } })}\n`,
-      );
-    });
+          return;
+        }
+        const message = `Codex config probe exited before responding (${code ?? "signal"}).`;
+        finish(probeError(message));
+      };
+      child.once("close", onClose);
+      const initializeRequest = {
+        method: "initialize",
+        id: 0,
+        params: { clientInfo: { name: "aquarius", title: "Aquarius", version: "0.1.0" } },
+      };
+      child.stdin.write(`${JSON.stringify(initializeRequest)}\n`);
+    };
+    return await new Promise<EffectiveConfigResponse>(runProbe);
   } finally {
     detachAbort();
     terminateChild(child);
     await waitForTermination(child);
   }
 };
-
-export const asRecord = (value: unknown): Record<string, unknown> | undefined => {
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : undefined;
-};
-
-const originType = (origin: unknown): string | undefined => {
-  return asRecord(asRecord(origin)?.name)?.type as string | undefined;
-};
-
-const configuredText = (value: unknown): string | undefined =>
-  typeof value === "string" ? value.trim() || undefined : undefined;
-
-const configuredCount = (value: unknown): number | undefined =>
-  typeof value === "number" && Number.isSafeInteger(value) && value > 0 ? value : undefined;
 
 export const validateEffectiveConfig = (
   response: EffectiveConfigResponse,
@@ -165,15 +158,19 @@ export const validateEffectiveConfig = (
       "Codex did not select the Aquarius permission profile.",
     );
 
-  const profile = asRecord(asRecord(config.permissions)?.[PROFILE_NAME]);
+  const permissions = asRecord(config.permissions);
+  const profile = asRecord(permissions?.[PROFILE_NAME]);
   const filesystem = asRecord(profile?.filesystem);
-  if (
+  const allowsUnexpectedFilesystemAccess = ([path, access]: [string, unknown]) => {
+    const isUnexpectedAccess =
+      path !== ":root" && path !== "glob_scan_max_depth" && access !== "deny";
+    return isUnexpectedAccess;
+  };
+  const hasUnexpectedFilesystemProfile =
     profile?.extends != null ||
     filesystem?.[":root"] !== "read" ||
-    Object.entries(filesystem).some(
-      ([path, access]) => path !== ":root" && path !== "glob_scan_max_depth" && access !== "deny",
-    )
-  ) {
+    Object.entries(filesystem).some(allowsUnexpectedFilesystemAccess);
+  if (hasUnexpectedFilesystemProfile) {
     throw new AquariusError(
       "CODEX_POLICY_UNVERIFIED",
       "Codex did not retain the Aquarius read-only filesystem profile.",
@@ -267,4 +264,32 @@ export const validateEffectiveConfig = (
     );
   }
   return { ...settings, windowsSandbox };
+};
+
+export const asRecord = (value: unknown): Record<string, unknown> | undefined => {
+  const isRecord = value && typeof value === "object" && !Array.isArray(value);
+  return isRecord ? (value as Record<string, unknown>) : undefined;
+};
+
+const originType = (origin: unknown): string | undefined => {
+  const originRecord = asRecord(origin);
+  const originName = asRecord(originRecord?.name);
+  return originName?.type as string | undefined;
+};
+
+const configuredText = (value: unknown): string | undefined =>
+  typeof value === "string" ? value.trim() || undefined : undefined;
+
+const configuredCount = (value: unknown): number | undefined => {
+  const isPositiveSafeInteger = typeof value === "number" && Number.isSafeInteger(value) && value > 0;
+  return isPositiveSafeInteger ? value : undefined;
+};
+
+const parseProbeMessage = (line: string): Record<string, unknown> | undefined => {
+  try {
+    const parsedMessage: unknown = JSON.parse(line);
+    return asRecord(parsedMessage);
+  } catch {
+    return undefined;
+  }
 };

@@ -1,56 +1,38 @@
-import type { LintRule } from "@aquarius/core";
 import { z } from "zod";
+
+import type { LintInstructions, LintRule } from "@aquarius/core";
+
+type LayerPolicy = z.output<typeof layerPolicyObjectSchema>;
 
 const nameSchema = z.string().refine((value) => value.trim() !== "", {
   message: "must be a non-empty name",
 });
 const pathPatternSchema = nameSchema.refine(
-  (value) =>
-    !value.startsWith("/") &&
-    !value.startsWith("\\") &&
-    !/^[A-Za-z]:/.test(value) &&
-    !value.split(/[\\/]/u).includes(".."),
+  (pattern) => {
+    const isProjectRelativePattern =
+      !pattern.startsWith("/") &&
+      !pattern.startsWith("\\") &&
+      !/^[A-Za-z]:/.test(pattern) &&
+      !pattern.split(/[\\/]/u).includes("..");
+    return isProjectRelativePattern;
+  },
   { message: "must be a project-relative path pattern" },
 );
-const layerPolicySchema = z
+const layerPolicyObjectSchema = z
   .object({
     layers: z
       .record(nameSchema, z.array(pathPatternSchema).min(1))
-      .refine((layers) => Object.keys(layers).length > 0, {
-        message: "must define at least one layer",
-      }),
+      .refine(
+        (layers) => {
+          const layerNames = Object.keys(layers);
+          return layerNames.length > 0;
+        },
+        { message: "must define at least one layer" },
+      ),
     allowedDependencies: z.record(nameSchema, z.array(nameSchema)),
   })
-  .strict()
-  .superRefine(({ layers, allowedDependencies }, context) => {
-    for (const layer of Object.keys(layers)) {
-      if (!Object.hasOwn(allowedDependencies, layer)) {
-        context.addIssue({
-          code: "custom",
-          path: ["allowedDependencies", layer],
-          message: "must list allowed dependencies; use [] when none are allowed",
-        });
-      }
-    }
-    for (const [source, targets] of Object.entries(allowedDependencies)) {
-      if (!Object.hasOwn(layers, source)) {
-        context.addIssue({
-          code: "custom",
-          path: ["allowedDependencies", source],
-          message: "must reference a defined layer",
-        });
-      }
-      for (const [index, target] of targets.entries()) {
-        if (!Object.hasOwn(layers, target)) {
-          context.addIssue({
-            code: "custom",
-            path: ["allowedDependencies", source, index],
-            message: `must reference a defined layer: ${target}`,
-          });
-        }
-      }
-    }
-  });
+  .strict();
+const layerPolicySchema = layerPolicyObjectSchema.superRefine(validateLayerDependencies);
 
 // Source: https://chatgpt.com/space/page_dd6ffadaf0448191aa29ee9e19e7d2ad
 // Source block: d9ff373a-8e0b-4d9d-afea-9f3f94a4a02a
@@ -60,7 +42,48 @@ export const enforceLayerDirection: LintRule = {
     "프로젝트가 정한 계층·허용 예외·참조 종류에 따라 해석된 의존 방향 위반을 검사합니다. 런타임·타입·빌드 의존은 선언된 정책대로 구분합니다.",
   scope: "project",
   optionsSchema: layerPolicySchema,
-  buildPrompt: ({ options }) => ({
+  buildPrompt: (input) => buildLayerDirectionPrompt(input),
+};
+
+function validateLayerDependencies(
+  { layers, allowedDependencies }: LayerPolicy,
+  context: z.core.$RefinementCtx<LayerPolicy>,
+): void {
+  for (const layer of Object.keys(layers)) {
+    if (!Object.hasOwn(allowedDependencies, layer)) {
+      context.addIssue({
+        code: "custom",
+        path: ["allowedDependencies", layer],
+        message: "must list allowed dependencies; use [] when none are allowed",
+      });
+    }
+  }
+  for (const [source, targets] of Object.entries(allowedDependencies)) {
+    if (!Object.hasOwn(layers, source)) {
+      context.addIssue({
+        code: "custom",
+        path: ["allowedDependencies", source],
+        message: "must reference a defined layer",
+      });
+    }
+    for (const [index, target] of targets.entries()) {
+      if (!Object.hasOwn(layers, target)) {
+        context.addIssue({
+          code: "custom",
+          path: ["allowedDependencies", source, index],
+          message: `must reference a defined layer: ${target}`,
+        });
+      }
+    }
+  }
+}
+
+function buildLayerDirectionPrompt(
+  { options }: Parameters<LintRule["buildPrompt"]>[0],
+): LintInstructions {
+  const configuredLayersStep = `Configured layers map names to project-relative glob patterns: ${JSON.stringify(options.layers)}`;
+  const allowedDependenciesStep = `Allowed direct cross-layer dependencies: ${JSON.stringify(options.allowedDependencies)}`;
+  return {
     applicability: "Dependencies between layers governed by a project direction policy.",
     criteria:
       "Report a resolved dependency edge that violates the applicable layer policy. Distinguish runtime, type-only, build-time, re-exported, and dynamically resolved dependencies according to the policy. Do not infer an architectural ordering from directory names. A forbidden direct reference is sufficient when the policy expressly forbids it; otherwise prove the prohibited dependency behavior.",
@@ -75,8 +98,8 @@ export const enforceLayerDirection: LintRule = {
       "An approved, in-scope exception or a reference kind expressly excluded by the policy permits the edge.",
     ],
     procedure: [
-      `Configured layers map names to project-relative glob patterns: ${JSON.stringify(options.layers)}`,
-      `Allowed direct cross-layer dependencies: ${JSON.stringify(options.allowedDependencies)}`,
+      configuredLayersStep,
+      allowedDependenciesStep,
       "Apply the configured directions to runtime, type-only, build-time, and re-export dependencies. References within one layer are allowed. References whose source or resolved target is outside the configured layers are outside this rule's scope. Allowed edges are direct; do not infer transitive permission.",
       "Resolve path aliases and package exports before assigning layers. Ambiguous layer assignments are configuration errors; do not invent a layer or report a code violation for an ambiguous mapping.",
       "A type-only edge is permitted only when the actual policy excludes type dependencies; it is not automatically exempt.",
@@ -108,5 +131,5 @@ export const enforceLayerDirection: LintRule = {
         reason: "There is no cross-layer dependency in the configured scope.",
       },
     ],
-  }),
-};
+  };
+}

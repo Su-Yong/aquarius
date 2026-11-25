@@ -1,7 +1,50 @@
 import type { AdapterRunInfo } from "../adapter/types";
 import type { AnalysisSnapshot, ReviewStatus } from "../execution/types";
+
 import { formatAdapterRunInfo, safeText } from "./output";
 import { progressLineText, type ProgressLine, type ProgressPart } from "./progress";
+
+interface AnalysisLinesOptions {
+  ai?: AdapterRunInfo;
+  heading?: ProgressLine;
+  beforeReviews?: readonly ProgressLine[];
+  afterReviews?: readonly ProgressLine[];
+  showReviews?: boolean;
+}
+
+const reviewStyles = {
+  in_progress: { label: "reviewing", color: "cyan", status: "info" },
+  completed: { label: "reviewed", color: "green", status: "success" },
+  skipped: { label: "skipped", color: "yellow", status: "skipped" },
+  failed: { label: "failed", color: "red", status: "error" },
+} as const;
+
+export const renderAnalysisLines = (
+  snapshot: AnalysisSnapshot,
+  {
+    ai,
+    heading,
+    beforeReviews = [],
+    afterReviews = [],
+    showReviews = true,
+  }: AnalysisLinesOptions = {},
+): ProgressLine[] => {
+  const headings: ProgressLine[] = [];
+  if (ai) headings.push({ text: `AI: ${formatAdapterRunInfo(ai)}` });
+  if (heading) headings.push(heading);
+  const lines = collectAnalysisLines(snapshot, headings, beforeReviews, afterReviews, showReviews);
+  return lines.map(sanitizeProgressLine);
+};
+
+export const printAnalysisSnapshot = (
+  lines: readonly ProgressLine[],
+  stream: NodeJS.WriteStream = process.stderr,
+): void => {
+  if (lines.length === 0) {
+    return;
+  }
+  stream.write(formatSnapshotOutput(lines, stream));
+};
 
 const singleLine = (value: string): string => safeText(value).replace(/[\r\n\t]/gu, " ");
 
@@ -12,13 +55,6 @@ const sanitizeProgressLine = (line: ProgressLine): ProgressLine => ({
       ? singleLine(line.text)
       : line.text.map((part): ProgressPart => ({ ...part, text: singleLine(part.text) })),
 });
-
-const reviewStyles = {
-  in_progress: { label: "reviewing", color: "cyan", status: "info" },
-  completed: { label: "reviewed", color: "green", status: "success" },
-  skipped: { label: "skipped", color: "yellow", status: "skipped" },
-  failed: { label: "failed", color: "red", status: "error" },
-} as const;
 
 const reviewCounts = (
   label: string,
@@ -68,29 +104,15 @@ const reviewLine = (
   };
 };
 
-interface AnalysisLinesOptions {
-  ai?: AdapterRunInfo;
-  heading?: ProgressLine;
-  beforeReviews?: readonly ProgressLine[];
-  afterReviews?: readonly ProgressLine[];
-  showReviews?: boolean;
-}
-
-export const renderAnalysisLines = (
+const collectAnalysisLines = (
   snapshot: AnalysisSnapshot,
-  {
-    ai,
-    heading,
-    beforeReviews = [],
-    afterReviews = [],
-    showReviews = true,
-  }: AnalysisLinesOptions = {},
+  headings: readonly ProgressLine[],
+  beforeReviews: readonly ProgressLine[],
+  afterReviews: readonly ProgressLine[],
+  showReviews: boolean,
 ): ProgressLine[] => {
-  const headings: ProgressLine[] = [];
-  if (ai) headings.push({ text: `AI: ${formatAdapterRunInfo(ai)}` });
-  if (heading) headings.push(heading);
   if (!showReviews) {
-    return [...headings, ...beforeReviews, ...afterReviews].map(sanitizeProgressLine);
+    return [...headings, ...beforeReviews, ...afterReviews];
   }
   const lines = [
     ...headings,
@@ -110,15 +132,13 @@ export const renderAnalysisLines = (
     }
     lines.push(reviewLine("Rule", rule.ruleId, rule.status, rule.reason));
   }
-  return [...lines, ...afterReviews].map(sanitizeProgressLine);
+  return [...lines, ...afterReviews];
 };
 
-export const printAnalysisSnapshot = (
+const formatSnapshotOutput = (
   lines: readonly ProgressLine[],
-  stream: NodeJS.WriteStream = process.stderr,
-): void => {
-  if (lines.length === 0) {
-    return;
-  }
-  stream.write(`${lines.map((line) => progressLineText(line, stream)).join("\n")}\n`);
+  stream: NodeJS.WriteStream,
+): string => {
+  const renderedLines = lines.map((line) => progressLineText(line, stream));
+  return `${renderedLines.join("\n")}\n`;
 };

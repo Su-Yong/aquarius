@@ -1,5 +1,8 @@
-import type { FormatInstructions, FormatRule } from "@aquarius/core";
 import { z } from "zod";
+
+import type { FormatInstructions, FormatRule } from "@aquarius/core";
+
+const MAX_APPLICABILITY_LENGTH = 160;
 
 export const nonEmptyStringSchema = z.string().refine((value) => value.trim() !== "", {
   message: "must be a non-empty string",
@@ -7,46 +10,41 @@ export const nonEmptyStringSchema = z.string().refine((value) => value.trim() !=
 
 export const nonEmptyStringArraySchema = z.array(nonEmptyStringSchema).min(1);
 
-export const pathPatternSchema = nonEmptyStringSchema.refine(
-  (value) =>
-    !value.startsWith("/") &&
-    !value.startsWith("\\") &&
-    !/^[A-Za-z]:/.test(value) &&
-    !value.split(/[\\/]/u).includes(".."),
-  { message: "must be a project-relative path pattern" },
-);
+export const pathPatternSchema = nonEmptyStringSchema.refine(isProjectRelativePathPattern, {
+  message: "must be a project-relative path pattern",
+});
 
 export const pathPatternArraySchema = z.array(pathPatternSchema);
 
 export const intRangeSchema = (min: number, max?: number) => {
-  const schema = z.int().min(min);
-  return max === undefined ? schema : schema.max(max);
+  const minimumSchema = z.int().min(min);
+  return max === undefined ? minimumSchema : minimumSchema.max(max);
 };
 
-export const stringKeyRecordSchema = <Value extends z.ZodType>(value: Value) => {
-  const entrySchema = z.tuple([nonEmptyStringSchema, value]);
+export const stringKeyRecordSchema = <Value extends z.ZodType>(valueSchema: Value) => {
+  const entrySchema = z.tuple([nonEmptyStringSchema, valueSchema]);
 
   // Zod's record parser drops own __proto__ entries when rebuilding an object.
-  return z
-    .custom<Record<string, z.output<Value>>>((input) => {
-      if (typeof input !== "object" || input === null) return false;
-      const prototype: unknown = Object.getPrototypeOf(input);
-      return prototype === Object.prototype || prototype === null;
-    }, "must be a record")
-    .superRefine((record, context) => {
-      for (const entry of Object.entries(record)) {
-        const parsed = entrySchema.safeParse(entry);
-        if (!parsed.success) {
-          for (const issue of parsed.error.issues) {
-            context.addIssue({ ...issue, path: [entry[0], ...issue.path.slice(1)] });
-          }
-        }
+  const recordSchema = z.custom<Record<string, z.output<Value>>>((input) => {
+    if (typeof input !== "object" || input === null) return false;
+    const prototype: unknown = Object.getPrototypeOf(input);
+    return prototype === Object.prototype || prototype === null;
+  }, "must be a record");
+  type RecordRefinement = Parameters<typeof recordSchema.superRefine>[0];
+  const validateRecordEntries: RecordRefinement = (record, context) => {
+    for (const entry of Object.entries(record)) {
+      const parsedEntry = entrySchema.safeParse(entry);
+      if (parsedEntry.success) continue;
+      for (const issue of parsedEntry.error.issues) {
+        context.addIssue({ ...issue, path: [entry[0], ...issue.path.slice(1)] });
       }
-    });
+    }
+  };
+  return recordSchema.superRefine(validateRecordEntries);
 };
 
-export const nonEmptyRecordSchema = <Value extends z.ZodType>(value: Value) =>
-  stringKeyRecordSchema(value).refine((record) => Object.keys(record).length > 0, {
+export const nonEmptyRecordSchema = <Value extends z.ZodType>(valueSchema: Value) =>
+  stringKeyRecordSchema(valueSchema).refine((record) => Object.keys(record).length > 0, {
     message: "must define at least one entry",
   });
 
@@ -60,6 +58,21 @@ export const COMMON_FORMAT_INVARIANTS = [
   "Follow the target language and project conventions. Apply only constructs supported by that language and project.",
 ] as const;
 
+export const createFormatRule = <Schema extends z.ZodType>({
+  buildPrompt,
+  ...definition
+}: Omit<FormatRule, "optionsSchema" | "buildPrompt"> & {
+  optionsSchema: Schema;
+  buildPrompt: (options: z.output<Schema>) => Parameters<typeof buildInstructions>[0];
+}): FormatRule => ({
+  ...definition,
+  // Core validates options against this schema before calling buildPrompt.
+  buildPrompt: ({ options }) => {
+    const prompt = buildPrompt(options as z.output<Schema>);
+    return buildInstructions(prompt);
+  },
+});
+
 export const buildInstructions = ({
   applicability,
   transformation,
@@ -68,9 +81,13 @@ export const buildInstructions = ({
 }: Omit<FormatInstructions, "constraints"> & {
   constraints?: readonly string[];
 }): FormatInstructions => {
-  if (!applicability.trim() || /[\r\n]/u.test(applicability) || applicability.length > 160) {
+  const isInvalidApplicability =
+    !applicability.trim() ||
+    /[\r\n]/u.test(applicability) ||
+    applicability.length > MAX_APPLICABILITY_LENGTH;
+  if (isInvalidApplicability) {
     throw new Error(
-      "Format applicability must be a non-empty single line of at most 160 characters",
+      `Format applicability must be a non-empty single line of at most ${MAX_APPLICABILITY_LENGTH} characters`,
     );
   }
   return {
@@ -81,14 +98,11 @@ export const buildInstructions = ({
   };
 };
 
-export const createFormatRule = <Schema extends z.ZodType>({
-  buildPrompt,
-  ...definition
-}: Omit<FormatRule, "optionsSchema" | "buildPrompt"> & {
-  optionsSchema: Schema;
-  buildPrompt: (options: z.output<Schema>) => Parameters<typeof buildInstructions>[0];
-}): FormatRule => ({
-  ...definition,
-  // Core validates options against this schema before calling buildPrompt.
-  buildPrompt: ({ options }) => buildInstructions(buildPrompt(options as z.output<Schema>)),
-});
+function isProjectRelativePathPattern(value: string): boolean {
+  const isRelativePattern =
+    !value.startsWith("/") &&
+    !value.startsWith("\\") &&
+    !/^[A-Za-z]:/.test(value) &&
+    !value.split(/[\\/]/u).includes("..");
+  return isRelativePattern;
+}

@@ -5,49 +5,52 @@ import {
   safeText,
   statusText,
 } from "@aquarius/core/cli";
+
 import type { FormatExecutionResult } from "../format/types";
+
+interface FormattingHeading {
+  heading: string;
+  status: NonNullable<Parameters<typeof printHeading>[1]>;
+}
 
 export const printHuman = (execution: FormatExecutionResult, check: boolean): void => {
   const result = execution.result;
   const summary = result.summary;
-  const failed = result.errors.length > 0 || summary.failedFiles > 0 || execution.exitCode === 2;
-  const undo = result.restoredFiles !== undefined;
+  const formattingFailed =
+    result.errors.length > 0 || summary.failedFiles > 0 || execution.exitCode === 2;
+  const isUndo = result.restoredFiles !== undefined;
   const displayedChanges = check ? (result.wouldChangeFiles ?? []) : result.changedFiles;
-  let heading = check ? "Formatting check complete" : "Formatting complete";
-  let status: "success" | "warning" | "error" | "info" = "success";
-
-  if (execution.exitCode === 130) {
-    heading = "Formatting cancelled";
-    status = "error";
-  } else if (undo) {
-    heading = failed ? "Undo failed" : "Undo complete";
-    status = failed ? "error" : "success";
-  } else if (summary.totalFiles === null) {
-    heading = "Formatting not started";
-    status = failed ? "error" : "info";
-  } else if (failed) {
-    heading = displayedChanges.length
-      ? `${check ? "Formatting check" : "Formatting"} completed with errors`
-      : "Formatting failed";
-    status = "error";
-  } else if (summary.totalFiles === 0) {
-    heading = "No files selected";
-    status = "info";
-  } else if (summary.skippedFiles === summary.totalFiles) {
-    heading = "Formatting skipped";
-    status = "info";
-  } else if (check && displayedChanges.length) {
-    heading = "Formatting changes needed";
-    status = "warning";
-  } else if (result.warnings.length > 0 || summary.skippedFiles > 0) {
-    heading = check
-      ? "Formatting check complete with warnings"
-      : "Formatting complete with warnings";
-    status = "warning";
-  }
-
+  const selectFormattingHeading = (): FormattingHeading => {
+    if (execution.exitCode === 130) {
+      return { heading: "Formatting cancelled", status: "error" };
+    } else if (isUndo) {
+      return {
+        heading: formattingFailed ? "Undo failed" : "Undo complete",
+        status: formattingFailed ? "error" : "success",
+      };
+    } else if (summary.totalFiles === null) {
+      return { heading: "Formatting not started", status: formattingFailed ? "error" : "info" };
+    } else if (formattingFailed) {
+      return { heading: selectFailureHeading(check, displayedChanges), status: "error" };
+    } else if (summary.totalFiles === 0) {
+      return { heading: "No files selected", status: "info" };
+    } else if (summary.skippedFiles === summary.totalFiles) {
+      return { heading: "Formatting skipped", status: "info" };
+    } else if (check && displayedChanges.length) {
+      return { heading: "Formatting changes needed", status: "warning" };
+    } else if (result.warnings.length > 0 || summary.skippedFiles > 0) {
+      return {
+        heading: check
+          ? "Formatting check complete with warnings"
+          : "Formatting complete with warnings",
+        status: "warning",
+      };
+    }
+    return { heading: check ? "Formatting check complete" : "Formatting complete", status: "success" };
+  };
+  const { heading, status } = selectFormattingHeading();
   printHeading(heading, status);
-  if (undo) {
+  if (isUndo) {
     console.log(`Restored files: ${result.restoredFiles!.length}`);
   } else {
     printSummaryCounts(summary, {
@@ -59,19 +62,20 @@ export const printHuman = (execution: FormatExecutionResult, check: boolean): vo
       ],
     });
   }
+  const changeLabel = check ? "Would format" : "Formatted";
   for (const file of displayedChanges) {
     console.log(
       statusText(
-        safeText(`${check ? "Would format" : "Formatted"} ${file}`),
+        safeText(`${changeLabel} ${file}`),
         check ? "warning" : "success",
         process.stdout,
       ),
     );
   }
-  if (failed || execution.exitCode === 130) {
-    const displayed = new Set(displayedChanges);
+  if (formattingFailed || execution.exitCode === 130) {
+    const displayedPaths = new Set(displayedChanges);
     for (const file of result.proposedFiles) {
-      if (displayed.has(file)) continue;
+      if (displayedPaths.has(file)) continue;
       console.log(
         statusText(safeText(`Proposed (not applied) ${file}`), "warning", process.stdout),
       );
@@ -81,4 +85,10 @@ export const printHuman = (execution: FormatExecutionResult, check: boolean): vo
     console.log(statusText(safeText(`Restored ${file}`), "success", process.stdout));
   }
   printReportDetails(result);
+};
+
+const selectFailureHeading = (check: boolean, displayedChanges: readonly string[]): string => {
+  if (!displayedChanges.length) return "Formatting failed";
+  const operation = check ? "Formatting check" : "Formatting";
+  return `${operation} completed with errors`;
 };

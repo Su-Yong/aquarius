@@ -1,5 +1,6 @@
 import type { AdapterRunInfo } from "../adapter/types";
 import type { RunError, SkippedRule } from "../shared/types";
+
 import { statusText, terminalColors, type ProgressLine } from "./progress";
 
 type OutputStatus = NonNullable<ProgressLine["status"]>;
@@ -26,27 +27,16 @@ interface ReportDetails {
   errors: readonly RunError[];
 }
 
-export const safeText = (value: string): string =>
-  value.replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f]/gu, "");
-
 const adapterDetailLabels = new Map([
   ["reasoning.effort", "effort"],
   ["reasoning.summary", "summary"],
   ["context.window", "context"],
 ]);
 
-export const formatAdapterRunInfo = ({ adapter, model, details }: AdapterRunInfo): string => {
-  const name = model ? `${adapter} · ${model}` : adapter;
-  const settings = Object.entries(details ?? {}).map(([key, value]) =>
-    key === "serviceTier" ? value : `${adapterDetailLabels.get(key) ?? key}=${value}`,
-  );
-  const text = settings.length ? `${name} (${settings.join(", ")})` : name;
-  return safeText(text).replace(/[\r\n\t\u2028\u2029]/gu, " ");
-};
-
 export const printHeading = (heading: string, status: OutputStatus): void => {
   const stream = process.stdout;
-  console.log(statusText(terminalColors(stream).bold(heading), status, stream));
+  const color = terminalColors(stream);
+  console.log(statusText(color.bold(heading), status, stream));
 };
 
 export const printSummaryCounts = (
@@ -76,29 +66,6 @@ export const printSummaryCounts = (
     const text = `${label.padEnd(17)} ${color.bold(String(count))}`;
     const line = statusText(text, status, stream);
     console.log(`  ${count === 0 ? color.dim(line) : line}`);
-  }
-};
-
-const printIssue = (
-  issue: RunError & { paths?: readonly string[] },
-  status: "error" | "warning",
-): void => {
-  const stream = process.stderr;
-  const color = terminalColors(stream);
-  const label = status === "error" ? color.red("error") : color.yellow("warn");
-  const codeColor = status === "error" ? color.red : color.yellow;
-  const rules = issue.ruleIds.length
-    ? ` ${color.magenta(`[${safeText(issue.ruleIds.join(", "))}]`)}`
-    : "";
-  console.error(
-    statusText(
-      `${label} ${codeColor(safeText(issue.code))}${rules}: ${color.bold(safeText(issue.message))}`,
-      status,
-      stream,
-    ),
-  );
-  for (const path of issue.paths ?? []) {
-    console.error(`  ${color.dim("at")} ${color.cyan(safeText(path))}`);
   }
 };
 
@@ -139,5 +106,37 @@ export const printReportDetails = (result: ReportDetails): void => {
     for (const error of result.errors) {
       printIssue(error, "error");
     }
+  }
+};
+
+export const formatAdapterRunInfo = ({ adapter, model, details }: AdapterRunInfo): string => {
+  const adapterName = model ? `${adapter} · ${model}` : adapter;
+  const settings = Object.entries(details ?? {}).map(([key, value]) =>
+    key === "serviceTier" ? value : `${adapterDetailLabels.get(key) ?? key}=${value}`,
+  );
+  const text = settings.length ? `${adapterName} (${settings.join(", ")})` : adapterName;
+  return safeText(text).replace(/[\r\n\t\u2028\u2029]/gu, " ");
+};
+
+export const safeText = (value: string): string =>
+  value.replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f]/gu, "");
+
+const printIssue = (
+  issue: RunError & { paths?: readonly string[] },
+  status: "error" | "warning",
+): void => {
+  const stream = process.stderr;
+  const color = terminalColors(stream);
+  const label = status === "error" ? color.red("error") : color.yellow("warn");
+  const codeColor = status === "error" ? color.red : color.yellow;
+  const rules = issue.ruleIds.length
+    ? ` ${color.magenta(`[${safeText(issue.ruleIds.join(", "))}]`)}`
+    : "";
+  const issueCode = codeColor(safeText(issue.code));
+  const issueMessage = color.bold(safeText(issue.message));
+  const issueText = `${label} ${issueCode}${rules}: ${issueMessage}`;
+  console.error(statusText(issueText, status, stream));
+  for (const path of issue.paths ?? []) {
+    console.error(`  ${color.dim("at")} ${color.cyan(safeText(path))}`);
   }
 };

@@ -1,8 +1,12 @@
 import { isDeepStrictEqual } from "node:util";
+
 import { errorMessage } from "../shared/errors";
 import { isPlainObject } from "../shared/json";
 import { importProjectModule } from "../shared/modules";
 import { formatZodIssues } from "../shared/zod";
+import type { LoadedConfig } from "../config/types";
+import type { JsonObject, RunError } from "../shared/types";
+
 import {
   formatInstructionsSchema,
   formatRuleSchema,
@@ -11,9 +15,14 @@ import {
   rulePluginShapeSchema,
   ruleSettingSchema,
 } from "./schemas";
-import type { LoadedConfig } from "../config/types";
-import type { JsonObject, RunError } from "../shared/types";
-import type { ActiveSeverity, FormatRule, LintRule, PreparedRules, RulePlugin } from "./types";
+import type {
+  ActiveSeverity,
+  FormatRule,
+  LintRule,
+  PreparedRules,
+  RulePlugin,
+  RuleSetting,
+} from "./types";
 
 interface SelectedRule {
   definition: LintRule | FormatRule;
@@ -48,9 +57,9 @@ export const prepareRules = async (
 
   const sources: { name: string; rules: Record<string, unknown> }[] = [];
   for (const reference of config.preset) {
-    const slash = reference.indexOf("/");
-    const namespace = reference.slice(0, slash);
-    const name = reference.slice(slash + 1);
+    const separatorIndex = reference.indexOf("/");
+    const namespace = reference.slice(0, separatorIndex);
+    const name = reference.slice(separatorIndex + 1);
     const presets = plugins.get(namespace)?.presets;
     if (!presets || !Object.hasOwn(presets, name)) {
       errors.push(runError("PRESET_NOT_FOUND", `Preset is not registered: ${reference}`));
@@ -107,22 +116,7 @@ export const prepareRules = async (
         continue;
       }
 
-      let enabled: boolean;
-      let severity: ActiveSeverity | undefined;
-      let options: JsonObject = {};
-      if (typeof setting === "string" || Array.isArray(setting)) {
-        const level = typeof setting === "string" ? setting : setting[0];
-        enabled = level !== "off";
-        severity = level === "off" ? undefined : level;
-        if (Array.isArray(setting)) {
-          options = setting[1];
-        }
-      } else {
-        enabled = setting !== false;
-        if (typeof setting === "object") {
-          options = setting;
-        }
-      }
+      const { enabled, severity, options } = resolveRuleSetting(setting);
 
       selections.set(id, {
         definition,
@@ -160,6 +154,20 @@ export const prepareRules = async (
   }
 
   return { rules: prepared, errors };
+};
+
+const resolveRuleSetting = (setting: RuleSetting): Omit<SelectedRule, "definition"> => {
+  if (typeof setting === "string" || Array.isArray(setting)) {
+    const level = typeof setting === "string" ? setting : setting[0];
+    const enabled = level !== "off";
+    const severity = level === "off" ? undefined : level;
+    const options = Array.isArray(setting) ? setting[1] : {};
+    return { enabled, severity, options };
+  }
+
+  const enabled = setting !== false;
+  const options = typeof setting === "object" ? setting : {};
+  return { enabled, severity: undefined, options };
 };
 
 const registerPlugin = (
@@ -207,10 +215,9 @@ const registerRuleList = <T extends LintRule | FormatRule>(
 
   const schema = kind === "lint" ? lintRuleSchema : formatRuleSchema;
   for (const candidate of input) {
-    const candidateId =
-      typeof candidate === "object" && candidate !== null && "id" in candidate
-        ? candidate.id
-        : undefined;
+    const hasCandidateId =
+      typeof candidate === "object" && candidate !== null && "id" in candidate;
+    const candidateId = hasCandidateId ? candidate.id : undefined;
     const id = typeof candidateId === "string" ? `${namespace}/${candidateId}` : namespace;
     const parsed = schema.safeParse(candidate);
     const problem = parsed.success
@@ -252,19 +259,17 @@ const prepareOptions = (rule: LintRule | FormatRule, selected: JsonObject): Json
 
 const deepMerge = (defaults: JsonObject, selected: JsonObject): JsonObject => {
   const keys = new Set([...Object.keys(defaults), ...Object.keys(selected)]);
-  return Object.fromEntries(
-    [...keys].map((key) => {
-      if (!Object.hasOwn(selected, key)) return [key, cloneJson(defaults[key])];
-      const selectedValue = selected[key];
-      const defaultValue = defaults[key];
-      return [
-        key,
-        isPlainObject(defaultValue) && isPlainObject(selectedValue)
-          ? deepMerge(defaultValue, selectedValue)
-          : cloneJson(selectedValue),
-      ];
-    }),
-  );
+  const mergeEntry = (key: string): [string, unknown] => {
+    if (!Object.hasOwn(selected, key)) return [key, cloneJson(defaults[key])];
+    const selectedValue = selected[key];
+    const defaultValue = defaults[key];
+    const mergedValue =
+      isPlainObject(defaultValue) && isPlainObject(selectedValue)
+        ? deepMerge(defaultValue, selectedValue)
+        : cloneJson(selectedValue);
+    return [key, mergedValue];
+  };
+  return Object.fromEntries([...keys].map(mergeEntry));
 };
 
 const cloneJson = (value: unknown): unknown => {
@@ -284,9 +289,8 @@ const deepFreeze = <T>(value: T): T => {
 };
 
 const validateInstructions = (tool: LoadedConfig["tool"], input: unknown): void => {
-  const parsed = (tool === "lint" ? lintInstructionsSchema : formatInstructionsSchema).safeParse(
-    input,
-  );
+  const schema = tool === "lint" ? lintInstructionsSchema : formatInstructionsSchema;
+  const parsed = schema.safeParse(input);
   if (!parsed.success) {
     throw new RulePreparationError(
       "RULE_INSTRUCTIONS_INVALID",
@@ -301,10 +305,13 @@ const validateRuleId = (value: unknown): string | undefined =>
 const isNamespace = (value: unknown): value is string =>
   typeof value === "string" && /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(value);
 
-const isRuleId = (value: string): boolean =>
-  !value.startsWith("/") &&
-  !value.endsWith("/") &&
-  value.split("/").every((part) => /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(part));
+const isRuleId = (value: string): boolean => {
+  const hasValidSegments =
+    !value.startsWith("/") &&
+    !value.endsWith("/") &&
+    value.split("/").every((part) => /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(part));
+  return hasValidSegments;
+};
 
 const runError = (code: string, message: string, ruleIds: string[] = []): RunError => ({
   code,

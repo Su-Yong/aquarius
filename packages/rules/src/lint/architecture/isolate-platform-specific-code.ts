@@ -1,12 +1,7 @@
 import type { LintRule } from "@aquarius/core";
 
-// Source: https://chatgpt.com/space/page_dd6ffadaf0448191aa29ee9e19e7d2ad
-// Source block: f0bf4510-2fd1-4f3c-a24c-ee3982399d16
-export const isolatePlatformSpecificCode: LintRule = {
-  id: "architecture/isolate-platform-specific-code",
-  description: "공통 실행 대상으로 선언된 코드가 지원 환경에서 사용할 수 없는 플랫폼 API에 도달하거나 구현을 잘못 노출하는지 검사하며, 검증된 조건 분기·어댑터·진입점 분리를 인정합니다.",
-  scope: "project",
-  buildPrompt: () => ({
+const buildPrompt: LintRule["buildPrompt"] = () => {
+  return {
     applicability:
       "Code intended to run across multiple supported platforms or execution environments.",
     criteria: "Report a reachable platform API unavailable in a supported environment, or a wrongly exposed implementation that violates the declared portability contract. Account for module-evaluation effects, conditional exports, build-time selection, dead-code elimination guarantees, and runtime guards. A guard after a failing top-level import does not isolate that import. Do not demand portability beyond the declared support set.",
@@ -47,5 +42,14 @@ export const isolatePlatformSpecificCode: LintRule = {
         reason: "No cross-platform shared-code requirement applies."
       }
     ]
-  }),
+  };
+};
+
+// Source: https://chatgpt.com/space/page_dd6ffadaf0448191aa29ee9e19e7d2ad
+// Source block: f0bf4510-2fd1-4f3c-a24c-ee3982399d16
+export const isolatePlatformSpecificCode: LintRule = {
+  id: "architecture/isolate-platform-specific-code",
+  description: "공통 실행 대상으로 선언된 코드가 지원 환경에서 사용할 수 없는 플랫폼 API에 도달하거나 구현을 잘못 노출하는지 검사하며, 검증된 조건 분기·어댑터·진입점 분리를 인정합니다.",
+  scope: "project",
+  buildPrompt,
 };

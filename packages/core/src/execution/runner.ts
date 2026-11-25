@@ -1,27 +1,23 @@
 import { relative } from "node:path";
+
 import { resolveAdapter } from "../adapter/resolve";
 import { buildRuleResources } from "../adapter/rule-resources";
 import { executeWithTimeout } from "../adapter/run";
-import type { AdapterRunInfo, AdapterSessionContext } from "../adapter/types";
 import { loadConfig } from "../config/load";
 import { selectTargets } from "../files/targets";
 import { prepareRules } from "../rules/prepare";
 import { AquariusError, toRunError } from "../shared/errors";
 import { isInside, toPosix } from "../shared/path";
+import type { AdapterRunInfo, AdapterSessionContext } from "../adapter/types";
+import type { RunError } from "../shared/types";
+
 import { notify } from "./analysis";
 import { reviewBatches } from "./batches";
 import { hasFailedReview } from "./results";
-import type { RunError } from "../shared/types";
 import type { ReviewResponse, ToolExecutionHooks, ToolExecutionOptions } from "./types";
 
 export const DEFAULT_FILE_BATCH_SIZE = 4;
 export const DEFAULT_MAX_CONCURRENCY = 3;
-
-const cancelled = () => new AquariusError("AI_ABORTED", "Execution was cancelled.");
-
-const assertNotCancelled = (signal: AbortSignal): void => {
-  if (signal.aborted) throw cancelled();
-};
 
 export const runToolExecution = async <Details extends object, SnapshotDetails extends object>(
   options: ToolExecutionOptions<SnapshotDetails>,
@@ -51,16 +47,16 @@ export const runToolExecution = async <Details extends object, SnapshotDetails e
   };
   let analysis: ReturnType<typeof hooks.createAnalysis> | undefined;
   let finishBatches: ((result: ReviewResponse & Details) => void) | undefined;
-  const result = () => ({
+  const reviewExitCode = (): 0 | 2 | 130 => {
+    if (signal.aborted) return 130;
+    return hasFailedReview(response) ? 2 : 0;
+  };
+  const buildResult = () => ({
     response,
     activeRules,
     totalFiles,
     ...(ai && { ai }),
-    exitCode: signal.aborted
-      ? (130 as const)
-      : hasFailedReview(response)
-        ? (2 as const)
-        : (0 as const),
+    exitCode: reviewExitCode(),
   });
 
   try {
@@ -83,28 +79,33 @@ export const runToolExecution = async <Details extends object, SnapshotDetails e
     const nextStep = preparationFailed ? hooks.onPreparationError(preparationErrors) : "review";
     if (nextStep === "stop") {
       assertNotCancelled(signal);
-      return result();
+      return buildResult();
     }
 
     progress("Selecting files");
     const policy = await selectTargets(config, options);
     totalFiles = policy.targets.length;
-    const initialOutcome = preparationFailed
-      ? preparationFailedFile
-      : activeRules === 0
+    const selectInitialOutcome = () => {
+      if (preparationFailed) return preparationFailedFile;
+      return activeRules === 0
         ? { status: "skipped" as const, reason: "No active rules." }
         : unreviewedFile;
+    };
+    const initialOutcome = selectInitialOutcome();
     response.fileResults = policy.targets.map((path) => ({ path, ...initialOutcome }));
     assertNotCancelled(signal);
-    if (totalFiles === 0 || activeRules === 0 || nextStep === "select") {
-      return result();
+    const reviewIsUnnecessary = totalFiles === 0 || activeRules === 0 || nextStep === "select";
+    if (reviewIsUnnecessary) {
+      return buildResult();
     }
 
     const resolved = await resolveAdapter(config, options.adapter);
     const ruleResources = buildRuleResources(tool, rules);
     const fileOnly = rules.every(({ scope }) => scope === "file");
     const batched = fileOnly && (totalFiles > fileBatchSize || hooks.retrySingleFileGroup);
-    if (!batched) {
+    const shouldTrackAnalysis =
+      options.onAnalysisUpdate !== undefined || options.onWarning !== undefined;
+    if (!batched && shouldTrackAnalysis) {
       analysis = hooks.createAnalysis(rules, policy, ruleResources, {
         onUpdate: options.onAnalysisUpdate,
         onWarning: options.onWarning,
@@ -167,12 +168,12 @@ export const runToolExecution = async <Details extends object, SnapshotDetails e
           });
         }
       } else {
-        const raw = await executeWithTimeout(
+        const rawResponse = await executeWithTimeout(
           session,
           {
             ...request,
             prompt: hooks.buildPrompt(ruleResources, policy, writeScope),
-            onAnalysisUpdate: analysis?.update,
+            ...(analysis && { onAnalysisUpdate: analysis.update }),
           },
           config.ai.timeoutMs,
           signal,
@@ -180,7 +181,7 @@ export const runToolExecution = async <Details extends object, SnapshotDetails e
         );
         await analysis?.flush();
         assertNotCancelled(signal);
-        response = await hooks.normalize(raw, rules, policy, ruleResources);
+        response = await hooks.normalize(rawResponse, rules, policy, ruleResources);
       }
       reviewed = true;
     } finally {
@@ -207,21 +208,22 @@ export const runToolExecution = async <Details extends object, SnapshotDetails e
       if (unreviewedFile.status === "failed" && !finishBatches) reviewed = false;
       throw cancelled();
     }
-    if (
-      hooks.afterReview &&
-      !signal.aborted &&
-      !hadDisposalError &&
-      !preparationFailed &&
-      (!hasFailedReview(response) || (fileOnly && hooks.afterReviewOnFailure))
-    ) {
-      response = await hooks.afterReview(response, policy, rules);
+    if (hooks.afterReview) {
+      const canRunAfterReview =
+        !signal.aborted &&
+        !hadDisposalError &&
+        !preparationFailed &&
+        (!hasFailedReview(response) || (fileOnly && hooks.afterReviewOnFailure));
+      if (canRunAfterReview) {
+        response = await hooks.afterReview(response, policy, rules);
+      }
     }
     if (finishBatches) finishBatches(response);
     else await analysis?.finish(response);
     if (signal.aborted && !response.errors.some(({ code }) => code === "AI_ABORTED")) {
       throw cancelled();
     }
-    return result();
+    return buildResult();
   } catch (cause) {
     const error = toRunError(cause);
     response.errors = [...response.errors, error, ...(disposalError ? [disposalError] : [])];
@@ -234,6 +236,12 @@ export const runToolExecution = async <Details extends object, SnapshotDetails e
     }
     if (finishBatches) finishBatches(response);
     else await analysis?.interrupt(response.errors);
-    return result();
+    return buildResult();
   }
+};
+
+const cancelled = () => new AquariusError("AI_ABORTED", "Execution was cancelled.");
+
+const assertNotCancelled = (signal: AbortSignal): void => {
+  if (signal.aborted) throw cancelled();
 };

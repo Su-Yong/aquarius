@@ -112,6 +112,52 @@ afterEach(async () => {
 });
 
 describe("incremental lint execution", () => {
+  test.each([
+    { fileCount: 1, requestCount: 1 },
+    { fileCount: 5, requestCount: 2 },
+  ])(
+    "omits the adapter's update callback for $requestCount request(s) without analysis or warning observers",
+    async ({ fileCount, requestCount }) => {
+      const root = await project(5_000, manyFiles(fileCount));
+      const run = vi.fn(async (input: AdapterExecuteRequest) => batchReply(input));
+      const execution = await executeLint({
+        cwd: root,
+        plugins: { fixture: plugin },
+        adapter: { id: "unobserved", run },
+      });
+
+      expect(execution.exitCode).toBe(0);
+      expect(run).toHaveBeenCalledTimes(requestCount);
+      for (const [input] of run.mock.calls) {
+        expect(input.onAnalysisUpdate).toBeUndefined();
+      }
+    },
+  );
+
+  test("forwards every repeated warning to a programmatic observer", async () => {
+    const root = await project();
+    const onWarning = vi.fn();
+    const execution = await executeLint({
+      cwd: root,
+      plugins: { fixture: plugin },
+      onWarning,
+      adapter: {
+        id: "warnings-only",
+        run: async (input) => {
+          const invalid = { ...update(1), revision: "1" };
+          input.onAnalysisUpdate?.(invalid);
+          input.onAnalysisUpdate?.(invalid);
+          return batchReply(input);
+        },
+      },
+    });
+
+    const warning =
+      "Ignored a provisional analysis update (INVALID_ANALYSIS_UPDATE): revision Invalid input: expected number, received string";
+    expect(execution.exitCode).toBe(0);
+    expect(onWarning.mock.calls).toEqual([[warning], [warning]]);
+  });
+
   test.each([false, true])(
     "retries incomplete file groups once without discarding another group's findings: %s",
     async (stillIncomplete) => {

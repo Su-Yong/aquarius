@@ -1,6 +1,6 @@
 import { AquariusError, toRunError, type RunError } from "@aquarius/core/runtime";
+
 import { applyReplacementPatches, ReplacementPatchError } from "./patch";
-import type { FileChange, ReplaceChange } from "./schema";
 import {
   canonicalProjectRoot,
   fileIdentity,
@@ -10,9 +10,8 @@ import {
   readProjectFileState,
   requireSourceState,
 } from "./state";
+import type { FileChange, ReplaceChange } from "./schema";
 import type { FileBaseline, FileChangePlan, FileState, PlannedFile } from "./types";
-
-const textEncoder = new TextEncoder();
 
 interface SourceChanges {
   path: string;
@@ -21,47 +20,13 @@ interface SourceChanges {
   moveTo?: string;
 }
 
-const fail: (code: string, message: string) => never = (code, message) => {
-  throw new AquariusError(code, message);
-};
+export interface ReplacementFailure {
+  path: string;
+  error: RunError;
+  repairable: boolean;
+}
 
-const registerPath = (
-  map: Map<string, string>,
-  relativePath: string,
-  description: string,
-): void => {
-  const key = pathKey(relativePath);
-  const previous = map.get(key);
-  if (previous) fail("PATH_CONFLICT", `${description} conflicts with ${previous}: ${relativePath}`);
-  map.set(key, description);
-};
-
-const assertNoPrefixConflicts = (paths: readonly string[]): void => {
-  const sorted = [...new Set(paths.map(pathKey))].sort();
-  for (let index = 0; index < sorted.length; index += 1) {
-    const parent = sorted[index]!;
-    for (let childIndex = index + 1; childIndex < sorted.length; childIndex += 1) {
-      const child = sorted[childIndex]!;
-      if (child.startsWith(`${parent}/`)) {
-        fail(
-          "PATH_CONFLICT",
-          `A file path cannot also be another changed path's parent: ${parent}, ${child}`,
-        );
-      }
-    }
-  }
-};
-
-const normalizeBaseline = (
-  projectRoot: string,
-  baseline: ReadonlyMap<string, FileBaseline>,
-): Map<string, FileBaseline> => {
-  const normalized = new Map<string, FileBaseline>();
-  for (const [input, value] of baseline) {
-    normalized.set(pathKey(normalizeRelativePath(projectRoot, input)), value);
-  }
-  return normalized;
-};
+const textEncoder = new TextEncoder();
 
 export const planFileChanges = async (
   root: string,
@@ -88,9 +53,9 @@ export const planFileChanges = async (
     const key = pathKey(relativePath);
     const existing = sources.get(key);
     if (existing) return existing;
-    const created = { path: relativePath, replacements: [], delete: false };
-    sources.set(key, created);
-    return created;
+    const sourceChanges: SourceChanges = { path: relativePath, replacements: [], delete: false };
+    sources.set(key, sourceChanges);
+    return sourceChanges;
   };
 
   for (const change of changes) {
@@ -103,7 +68,8 @@ export const planFileChanges = async (
     } else if (change.op === "delete") {
       const relativePath = writablePath(change.path);
       const source = sourceFor(relativePath);
-      if (source.delete || source.moveTo || source.replacements.length > 0) {
+      const conflictsWithDelete = source.delete || source.moveTo || source.replacements.length > 0;
+      if (conflictsWithDelete) {
         fail("CHANGE_CONFLICT", `Delete conflicts with another operation: ${relativePath}`);
       }
       source.delete = true;
@@ -131,7 +97,6 @@ export const planFileChanges = async (
   }
   assertNoPrefixConflicts(allPaths);
   const planned = new Map<string, PlannedFile>();
-  const sourceIdentities = new Map<string, string>();
   const setPlanned = (file: PlannedFile): void => {
     const key = pathKey(file.path);
     if (planned.has(key))
@@ -139,6 +104,7 @@ export const planFileChanges = async (
     planned.set(key, file);
   };
 
+  const sourceIdentities = new Map<string, string>();
   for (const source of sources.values()) {
     const before = await requireSourceState(projectRoot, source.path, normalizedBaseline);
     const identity = fileIdentity(before);
@@ -191,12 +157,6 @@ export const planFileChanges = async (
     files: [...planned.values()].sort((left, right) => left.path.localeCompare(right.path)),
   };
 };
-
-export interface ReplacementFailure {
-  path: string;
-  error: RunError;
-  repairable: boolean;
-}
 
 export const planPartialFileReplacements = async (
   root: string,
@@ -260,4 +220,47 @@ export const planPartialFileReplacements = async (
 
   files.sort((left, right) => left.path.localeCompare(right.path));
   return { plan: { projectRoot, files }, failures };
+};
+
+const fail: (code: string, message: string) => never = (code, message) => {
+  throw new AquariusError(code, message);
+};
+
+const registerPath = (
+  map: Map<string, string>,
+  relativePath: string,
+  description: string,
+): void => {
+  const key = pathKey(relativePath);
+  const previous = map.get(key);
+  if (previous) fail("PATH_CONFLICT", `${description} conflicts with ${previous}: ${relativePath}`);
+  map.set(key, description);
+};
+
+const assertNoPrefixConflicts = (paths: readonly string[]): void => {
+  const sortedPathKeys = [...new Set(paths.map(pathKey))].sort();
+  for (let index = 0; index < sortedPathKeys.length; index += 1) {
+    const parent = sortedPathKeys[index]!;
+    for (let childIndex = index + 1; childIndex < sortedPathKeys.length; childIndex += 1) {
+      const child = sortedPathKeys[childIndex]!;
+      if (child.startsWith(`${parent}/`)) {
+        fail(
+          "PATH_CONFLICT",
+          `A file path cannot also be another changed path's parent: ${parent}, ${child}`,
+        );
+      }
+    }
+  }
+};
+
+const normalizeBaseline = (
+  projectRoot: string,
+  baseline: ReadonlyMap<string, FileBaseline>,
+): Map<string, FileBaseline> => {
+  const normalized = new Map<string, FileBaseline>();
+  for (const [input, value] of baseline) {
+    const relativePath = normalizeRelativePath(projectRoot, input);
+    normalized.set(pathKey(relativePath), value);
+  }
+  return normalized;
 };

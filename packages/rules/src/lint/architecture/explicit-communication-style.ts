@@ -1,4 +1,4 @@
-import type { LintRule } from "@aquarius/core";
+import type { LintInstructions, LintRule } from "@aquarius/core";
 
 // Source: https://chatgpt.com/space/page_dd6ffadaf0448191aa29ee9e19e7d2ad
 // Source block: 29c05019-8f14-4024-b490-780293de36a9
@@ -6,7 +6,11 @@ export const explicitCommunicationStyle: LintRule = {
   id: "architecture/explicit-communication-style",
   description: "모듈 간 통신의 완료·실패·전달·순서·응답 의미를 계약에서 확인하고, 실제 호출이 그 보장과 일치하는지 검사합니다.",
   scope: "project",
-  buildPrompt: () => ({
+  buildPrompt: () => buildCommunicationStylePrompt(),
+};
+
+function buildCommunicationStylePrompt(): LintInstructions {
+  return {
     applicability: "Calls or messages crossing module boundaries.",
     criteria: "Report behavior inconsistent with the established communication contract, including treating enqueue acknowledgement as business completion, losing required failure propagation, or assuming delivery/order guarantees not supplied by the actual transport and configuration. Synchronous and asynchronous communication are both valid. A missing necessary policy is a design decision to clarify, not automatically an implementation violation; language, API, and caller semantics may independently establish an obligation.",
     evidenceRequirements: [
@@ -46,5 +50,5 @@ export const explicitCommunicationStyle: LintRule = {
         reason: "No communication boundary is present."
       }
     ]
-  }),
-};
+  };
+}

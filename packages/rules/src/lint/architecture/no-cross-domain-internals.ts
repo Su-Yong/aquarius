@@ -1,12 +1,7 @@
 import type { LintRule } from "@aquarius/core";
 
-// Source: https://chatgpt.com/space/page_dd6ffadaf0448191aa29ee9e19e7d2ad
-// Source block: d905a0ac-85e2-47d1-ad8e-16e4c4caf915
-export const noCrossDomainInternals: LintRule = {
-  id: "architecture/no-cross-domain-internals",
-  description: "선언된 도메인 간 공개 계약과 승인된 예외를 기준으로 다른 도메인의 내부 구현에 직접 의존하는 경로를 검사합니다.",
-  scope: "project",
-  buildPrompt: () => ({
+const buildPrompt: LintRule["buildPrompt"] = () => {
+  return {
     applicability:
       "Dependencies crossing domain boundaries with defined public contracts and private implementation.",
     criteria: "Report a consumer from another domain that resolves to private implementation rather than an approved public contract. Resolve aliases, re-exports, package exports, and actual module ownership. Internal imports within one domain are permitted. A filename such as internal does not itself establish privacy, and a barrel does not automatically make everything public.",
@@ -47,5 +42,14 @@ export const noCrossDomainInternals: LintRule = {
         reason: "The rule concerns dependencies between domains."
       }
     ]
-  }),
+  };
+};
+
+// Source: https://chatgpt.com/space/page_dd6ffadaf0448191aa29ee9e19e7d2ad
+// Source block: d905a0ac-85e2-47d1-ad8e-16e4c4caf915
+export const noCrossDomainInternals: LintRule = {
+  id: "architecture/no-cross-domain-internals",
+  description: "선언된 도메인 간 공개 계약과 승인된 예외를 기준으로 다른 도메인의 내부 구현에 직접 의존하는 경로를 검사합니다.",
+  scope: "project",
+  buildPrompt,
 };

@@ -1,4 +1,4 @@
-import type { LintRule } from "@aquarius/core";
+import type { LintInstructions, LintRule } from "@aquarius/core";
 
 // Source: https://chatgpt.com/space/page_dd6ffadaf0448191aa29ee9e19e7d2ad
 // Source block: dc5d96bf-c74b-4749-956d-9120d86c2f97
@@ -6,7 +6,11 @@ export const documentBoundaryExceptions: LintRule = {
   id: "architecture/document-boundary-exceptions",
   description: "프로젝트가 허용한 경계 예외의 이유·대상·조건·유효 범위를 확인하고, 만료되거나 승인 범위를 넘은 예외를 구분합니다.",
   scope: "project",
-  buildPrompt: () => ({
+  buildPrompt: buildBoundaryExceptionPrompt,
+};
+
+function buildBoundaryExceptionPrompt(): LintInstructions {
+  return {
     applicability:
       "Architecture boundary exceptions or dependencies governed by an exception policy.",
     criteria: "Check the reason, authorized target, conditions, and valid scope of the exception; report reliance outside the approved scope or after expiry when the applicable policy establishes expiry. Distinguish an unverified or missing authorization record from a proved unauthorized exception. Do not invent an expiration requirement or treat arbitrary source comments as authorized policy. Preserve approved operational and emergency exceptions within their exact scope.",
@@ -47,5 +51,5 @@ export const documentBoundaryExceptions: LintRule = {
         reason: "The exception-governance prerequisite is absent."
       }
     ]
-  }),
-};
+  };
+}

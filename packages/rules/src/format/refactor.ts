@@ -1,4 +1,5 @@
 import { z } from "zod";
+
 import {
   createFormatRule,
   intRangeSchema,
@@ -8,23 +9,32 @@ import {
   pathPatternSchema,
 } from "./shared";
 
-export const refactorRules = [
-  createFormatRule({
-    id: "refactor/parameter-style",
-    description: "Use the configured argument style for internal functions.",
-    scope: "module",
-    optionsSchema: z.strictObject({
+export const refactorRules = createRefactorRules();
+
+function createRefactorRules() {
+  return [
+    createParameterStyleRule(),
+    createSeparateResponsibilitiesRule(),
+    createDispatchArchitectureRule(),
+    createDataRepresentationRule(),
+    createDeduplicateInternalsRule(),
+    createLayerDepthRule(),
+  ];
+
+  function createParameterStyleRule() {
+    const optionsSchema = z.strictObject({
       prefer: z.enum(["options-object", "positional"]).optional(),
       maxPositionalParams: intRangeSchema(2).optional(),
       wrapBooleanFlags: z.boolean().optional(),
       unwrapMaxFields: intRangeSchema(1).optional(),
-    }),
-    buildPrompt: ({
+    });
+
+    const buildParameterStyleInstructions = ({
       prefer = "options-object",
       maxPositionalParams = 3,
       wrapBooleanFlags = true,
       unwrapMaxFields = 2,
-    }) => {
+    }: z.output<typeof optionsSchema>) => {
       const flagPolicy = wrapBooleanFlags
         ? "Wrap positional boolean policy flags in named options regardless of argument count, and keep existing named flags when unwrapping other options."
         : "Treat boolean flags like other parameters when applying the selected style.";
@@ -44,24 +54,31 @@ export const refactorRules = [
           "Preserve the difference between omitted and explicitly supplied values and keep calls unambiguous.",
         ],
       };
-    },
-  }),
-  createFormatRule({
-    id: "refactor/separate-responsibilities",
-    description: "Separate responsibilities while preserving behavior and public contracts.",
-    scope: "module",
-    optionsSchema: z.strictObject({
+    };
+
+    return createFormatRule({
+      id: "refactor/parameter-style",
+      description: "Use the configured argument style for internal functions.",
+      scope: "module",
+      optionsSchema,
+      buildPrompt: buildParameterStyleInstructions,
+    });
+  }
+
+  function createSeparateResponsibilitiesRule() {
+    const optionsSchema = z.strictObject({
       maxFunctionLines: intRangeSchema(20).optional(),
       maxFileLines: intRangeSchema(50).optional(),
       splitBuckets: nonEmptyStringArraySchema.optional(),
       preserveBarrelReExports: z.boolean().optional(),
-    }),
-    buildPrompt: ({
+    });
+
+    const buildSeparateResponsibilitiesInstructions = ({
       maxFunctionLines = 100,
       maxFileLines = 400,
       splitBuckets = ["parse", "domain", "render", "io"],
       preserveBarrelReExports = true,
-    }) => ({
+    }: z.output<typeof optionsSchema>) => ({
       applicability: "Long functions or files with distinct responsibilities.",
       transformation: [
         `Review functions over ${maxFunctionLines} lines and files over ${maxFileLines} lines for distinct responsibilities. Use these responsibility labels to guide cohesive splits: ${JSON.stringify(splitBuckets)}.`,
@@ -76,18 +93,29 @@ export const refactorRules = [
         "Avoid new dependencies, circular references, speculative extension points, and unnecessary files.",
         "If preservation cannot be established, leave the change unapplied and explain the limitation in a warning.",
       ],
-    }),
-  }),
-  createFormatRule({
-    id: "refactor/dispatch-architecture",
-    description: "Use coherent strategies or explicit switches for internal dispatch.",
-    scope: "module",
-    optionsSchema: z.strictObject({
+    });
+
+    return createFormatRule({
+      id: "refactor/separate-responsibilities",
+      description: "Separate responsibilities while preserving behavior and public contracts.",
+      scope: "module",
+      optionsSchema,
+      buildPrompt: buildSeparateResponsibilitiesInstructions,
+    });
+  }
+
+  function createDispatchArchitectureRule() {
+    const optionsSchema = z.strictObject({
       prefer: z.enum(["strategy-map", "cohesive-switches"]).optional(),
       minRepeatedSwitches: intRangeSchema(2).optional(),
       maxCasesForSwitch: intRangeSchema(2).optional(),
-    }),
-    buildPrompt: ({ prefer = "strategy-map", minRepeatedSwitches = 3, maxCasesForSwitch = 5 }) => ({
+    });
+
+    const buildDispatchArchitectureInstructions = ({
+      prefer = "strategy-map",
+      minRepeatedSwitches = 3,
+      maxCasesForSwitch = 5,
+    }: z.output<typeof optionsSchema>) => ({
       applicability:
         prefer === "strategy-map"
           ? "Repeated switches on the same discriminator across a module."
@@ -99,13 +127,19 @@ export const refactorRules = [
       constraints: [
         "Preserve every case's fallback, exceptions, exhaustive type checking, evaluation order, and handler lifetime. Keep genuinely separate dispatch policies separate.",
       ],
-    }),
-  }),
-  createFormatRule({
-    id: "refactor/data-representation",
-    description: "Simplify internal data representations and make pipeline stages explicit.",
-    scope: "module",
-    optionsSchema: z.strictObject({
+    });
+
+    return createFormatRule({
+      id: "refactor/dispatch-architecture",
+      description: "Use coherent strategies or explicit switches for internal dispatch.",
+      scope: "module",
+      optionsSchema,
+      buildPrompt: buildDispatchArchitectureInstructions,
+    });
+  }
+
+  function createDataRepresentationRule() {
+    const optionsSchema = z.strictObject({
       parallelArrays: z.enum(["to-records", "preserve"]).optional(),
       dataClumps: z
         .strictObject({
@@ -116,19 +150,22 @@ export const refactorRules = [
         .optional(),
       pipelineStages: z.enum(["extract", "preserve"]).optional(),
       exclude: pathPatternArraySchema.optional(),
-    }),
-    buildPrompt: ({
+    });
+
+    const buildDataRepresentationInstructions = ({
       parallelArrays = "to-records",
-      dataClumps: { action = "to-value-object", minFields = 2, minOccurrences = 3 } = {},
+      dataClumps: { action: dataClumpAction, minFields = 2, minOccurrences = 3 } = {
+        action: "to-value-object",
+      },
       pipelineStages = "extract",
       exclude = [],
-    }) => ({
+    }: z.output<typeof optionsSchema>) => ({
       applicability: "Internal parallel arrays, repeated field groups, or multi-stage data loops.",
       transformation: [
         parallelArrays === "to-records"
           ? "Replace internal parallel arrays with records when their fields represent the same entity and corresponding indices can be preserved."
           : "Keep the current representation of parallel arrays.",
-        action === "to-value-object"
+        dataClumpAction === "to-value-object"
           ? `Group at least ${minFields} semantically related fields into a value object when they occur together at least ${minOccurrences} times.`
           : "Keep repeated field groups in their current representation.",
         pipelineStages === "extract"
@@ -139,18 +176,29 @@ export const refactorRules = [
         `Leave paths matching these project-relative exclusions unchanged: ${JSON.stringify(exclude)}.`,
         "Preserve serialization and public data shapes, index alignment, aliasing, mutation semantics, and performance-sensitive structure-of-arrays layouts.",
       ],
-    }),
-  }),
-  createFormatRule({
-    id: "refactor/deduplicate-internals",
-    description: "Consolidate equivalent internal utilities within a module.",
-    scope: "module",
-    optionsSchema: z.strictObject({
+    });
+
+    return createFormatRule({
+      id: "refactor/data-representation",
+      description: "Simplify internal data representations and make pipeline stages explicit.",
+      scope: "module",
+      optionsSchema,
+      buildPrompt: buildDataRepresentationInstructions,
+    });
+  }
+
+  function createDeduplicateInternalsRule() {
+    const optionsSchema = z.strictObject({
       minDuplicates: intRangeSchema(2).optional(),
       targetFile: pathPatternSchema.optional(),
       pureUtilitiesOnly: z.boolean().optional(),
-    }),
-    buildPrompt: ({ minDuplicates = 2, targetFile, pureUtilitiesOnly = true }) => ({
+    });
+
+    const buildDeduplicateInternalsInstructions = ({
+      minDuplicates = 2,
+      targetFile,
+      pureUtilitiesOnly = true,
+    }: z.output<typeof optionsSchema>) => ({
       applicability: "Equivalent internal utilities duplicated across files in one module.",
       transformation: [
         `When at least ${minDuplicates} copies of a utility implement the same contract across files in a module, consolidate them into a single internal utility and update every affected import.`,
@@ -164,20 +212,27 @@ export const refactorRules = [
       constraints: [
         "Preserve distinct domain policies whose implementations only happen to look alike. Avoid introducing dependency cycles.",
       ],
-    }),
-  }),
-  createFormatRule({
-    id: "refactor/layer-depth",
-    description: "Remove redundant forwarding layers or organize access through a facade.",
-    scope: "module",
-    optionsSchema: z.strictObject({
+    });
+
+    return createFormatRule({
+      id: "refactor/deduplicate-internals",
+      description: "Consolidate equivalent internal utilities within a module.",
+      scope: "module",
+      optionsSchema,
+      buildPrompt: buildDeduplicateInternalsInstructions,
+    });
+  }
+
+  function createLayerDepthRule() {
+    const optionsSchema = z.strictObject({
       mode: z.enum(["flatten-middle-man", "enforce-facade"]).optional(),
       preserveLayers: z.array(nonEmptyStringSchema).optional(),
-    }),
-    buildPrompt: ({
+    });
+
+    const buildLayerDepthInstructions = ({
       mode = "flatten-middle-man",
       preserveLayers = ["ports", "adapters", "public-facade"],
-    }) => ({
+    }: z.output<typeof optionsSchema>) => ({
       applicability:
         mode === "flatten-middle-man"
           ? "Internal forwarding layers that add no behavior or intentional boundary."
@@ -190,6 +245,14 @@ export const refactorRules = [
         `Preserve layers matching these configured labels: ${JSON.stringify(preserveLayers)}.`,
         "Keep intentional architecture ports, adapters, and public facades. Preserve dependency direction, injection seams, and dispatch and initialization semantics.",
       ],
-    }),
-  }),
-];
+    });
+
+    return createFormatRule({
+      id: "refactor/layer-depth",
+      description: "Remove redundant forwarding layers or organize access through a facade.",
+      scope: "module",
+      optionsSchema,
+      buildPrompt: buildLayerDepthInstructions,
+    });
+  }
+}

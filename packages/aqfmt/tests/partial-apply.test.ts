@@ -145,6 +145,8 @@ test.each([
     const accepted = repaired ? paths : good;
 
     expect(ai.execute).toHaveBeenCalledTimes(2);
+    expect(ai.execute.mock.calls[0]?.[0].onAnalysisUpdate).toEqual(expect.any(Function));
+    expect(ai.execute.mock.calls[1]?.[0]).not.toHaveProperty("onAnalysisUpdate");
     expect(ai.createSession).toHaveBeenCalledTimes(1);
     expect(ai.dispose).toHaveBeenCalledTimes(1);
     expect(exitCode).toBe(repaired ? 0 : 2);
@@ -241,6 +243,9 @@ test("scopes repair resources to the proposed file and reports its progress", as
 
   const { result, exitCode } = await ai.run({ onProgress: progress });
   expect(ai.execute).toHaveBeenCalledTimes(2);
+  for (const [input] of ai.execute.mock.calls) {
+    expect(input).not.toHaveProperty("onAnalysisUpdate");
+  }
   expect(exitCode).toBe(0);
   expect(result.errors).toEqual([]);
   expect(result.changedFiles).toEqual(paths);

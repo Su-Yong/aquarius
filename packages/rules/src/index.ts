@@ -1,13 +1,14 @@
 import type { RulePlugin } from "@aquarius/core";
-import {
-  allRulesPreset,
-  formatRecommendedPreset,
-  formatRefactorPreset,
-  formatSafePreset,
-  formatTestsPreset,
-} from "./presets";
+
 import { formatRules } from "./format";
 import { architectureRules } from "./lint/architecture";
+import { section21Rules } from "./lint/catalog/section-21";
+import { section22Rules } from "./lint/catalog/section-22";
+import { section23Rules } from "./lint/catalog/section-23";
+import { section24Rules } from "./lint/catalog/section-24";
+import { section25Rules } from "./lint/catalog/section-25";
+import { noInputMutation } from "./lint/no-input-mutation";
+import { releaseOnExit } from "./lint/release-on-exit";
 import { section02Rules } from "./lint/section-02";
 import { section03Rules } from "./lint/section-03";
 import { section04Rules } from "./lint/section-04";
@@ -27,14 +28,14 @@ import { securityRules } from "./lint/section-17-security";
 import { privacyRules } from "./lint/section-18-privacy";
 import { httpRules } from "./lint/section-19-http";
 import { eventRules } from "./lint/section-20-event";
-import { section21Rules } from "./lint/catalog/section-21";
-import { section22Rules } from "./lint/catalog/section-22";
-import { section23Rules } from "./lint/catalog/section-23";
-import { section24Rules } from "./lint/catalog/section-24";
-import { section25Rules } from "./lint/catalog/section-25";
-import { noInputMutation } from "./lint/no-input-mutation";
-import { releaseOnExit } from "./lint/release-on-exit";
 import { usePublicEntry } from "./lint/use-public-entry";
+import {
+  allRulesPreset,
+  formatRecommendedPreset,
+  formatRefactorPreset,
+  formatSafePreset,
+  formatTestsPreset,
+} from "./presets";
 
 export const aquariusRules: RulePlugin = {
   namespace: "aquarius",

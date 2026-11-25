@@ -6,7 +6,9 @@ import { z } from "zod";
 import {
   AquariusError,
   createAnalysisState,
+  reviewUpdateFields,
   runToolExecution,
+  type AdapterExecuteRequest,
   type AdapterRunInfo,
   type ProjectConfig,
   type RulePlugin,
@@ -72,7 +74,12 @@ const hooks: ToolExecutionHooks<object, object> = {
     createAnalysisState(
       rules,
       policy,
-      { parse: () => undefined, initial: {}, apply: () => ({}), final: () => ({}) },
+      {
+        schema: z.strictObject(reviewUpdateFields),
+        initial: {},
+        apply: () => ({}),
+        final: () => ({}),
+      },
       options,
     ),
   merge: () => ({}),
@@ -93,9 +100,10 @@ test.each([
   async ({ fileBatchSize, batches }) => {
     const cwd = await project();
     const onAdapterInfo = vi.fn();
-    const execute = vi.fn();
+    const execute = vi.fn<(request: AdapterExecuteRequest) => void>();
     const dispose = vi.fn();
     const createSession = vi.fn(() => ({ info, execute, dispose }));
+    const createAnalysis = vi.fn(hooks.createAnalysis);
 
     const result = await runToolExecution(
       {
@@ -105,15 +113,74 @@ test.each([
         fileBatchSize,
         onAdapterInfo,
       },
-      hooks,
+      { ...hooks, createAnalysis },
     );
 
     expect(result).toMatchObject({ ai: info, exitCode: 0, totalFiles: 2 });
     expect(onAdapterInfo).toHaveBeenCalledExactlyOnceWith(info);
     expect(execute).toHaveBeenCalledTimes(batches);
+    expect(createAnalysis).not.toHaveBeenCalled();
+    for (const [request] of execute.mock.calls) {
+      expect(request).not.toHaveProperty("onAnalysisUpdate");
+    }
     expect(dispose).toHaveBeenCalledOnce();
     expect(onAdapterInfo).toHaveBeenCalledAfter(createSession);
     expect(onAdapterInfo).toHaveBeenCalledBefore(execute);
+  },
+);
+
+test.each([
+  { fileBatchSize: 4, batches: 1, observer: "warning" },
+  { fileBatchSize: 1, batches: 2, observer: "warning" },
+  { fileBatchSize: 4, batches: 1, observer: "snapshot" },
+  { fileBatchSize: 1, batches: 2, observer: "snapshot" },
+])(
+  "tracks analysis for $batches group(s) with only a $observer observer",
+  async ({ fileBatchSize, batches, observer }) => {
+    const cwd = await project();
+    const onWarning = vi.fn();
+    const onAnalysisUpdate = vi.fn();
+    const createAnalysis = vi.fn(hooks.createAnalysis);
+    const execute = vi.fn(({ onAnalysisUpdate }: AdapterExecuteRequest) => {
+      onAnalysisUpdate?.({
+        type: "aquarius.analysis_update",
+        revision: 1,
+        fileResults: [],
+        ruleResults: [{ ruleId: "fixture/check", status: "in_progress", reason: "" }],
+      });
+      onAnalysisUpdate?.({ type: "aquarius.analysis_update", revision: "invalid" });
+    });
+
+    const result = await runToolExecution(
+      {
+        cwd,
+        plugins: { fixture: plugin },
+        adapter: { id: "fixture", createSession: () => ({ execute, dispose() {} }) },
+        fileBatchSize,
+        ...(observer === "warning" ? { onWarning } : { onAnalysisUpdate }),
+      },
+      { ...hooks, createAnalysis },
+    );
+
+    expect(result.exitCode).toBe(0);
+    expect(createAnalysis).toHaveBeenCalledTimes(batches);
+    expect(execute).toHaveBeenCalledTimes(batches);
+    if (observer === "warning") {
+      expect(onWarning).toHaveBeenCalledTimes(batches);
+      expect(onWarning).toHaveBeenCalledWith(expect.stringContaining("INVALID_ANALYSIS_UPDATE"));
+    } else {
+      expect(onAnalysisUpdate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          phase: "provisional",
+          ruleResults: [
+            expect.objectContaining({ ruleId: "fixture/check", status: "in_progress" }),
+          ],
+        }),
+      );
+      expect(onAnalysisUpdate).toHaveBeenLastCalledWith(
+        expect.objectContaining({ phase: "final" }),
+      );
+    }
   },
 );
 

@@ -9,120 +9,98 @@ import {
   toRunError,
 } from "@aquarius/core/runtime";
 import type { ActiveSeverity, PathPolicy, PreparedRule } from "@aquarius/core/runtime";
+
 import { diagnosticSchema } from "./schemas";
 import type { SourceLocation } from "./schemas";
 import type { Diagnostic, LintResponse, LintResult, LintSummary } from "./types";
 
-const sourceReader = (policy: PathPolicy) => {
-  const allowed = new Set(policy.readableFiles);
-  const cache = new Map<string, Promise<string[]>>();
+export const normalizeLintResponse = async (
+  raw: unknown,
+  rules: readonly PreparedRule[],
+  policy: PathPolicy,
+): Promise<LintResponse> => {
+  const normalization = beginResponseNormalization(raw, rules, policy, ["diagnostics"]);
+  const { body, skippedRuleIds, reported, recordItemError, finish } = normalization;
+  if (!body) {
+    return { ...finish(), diagnostics: [] };
+  }
 
-  return async (path: string): Promise<string[]> => {
-    normalizedPath(path);
-    if (!allowed.has(path) || policy.isIgnored(path)) {
-      throw new AquariusError(
-        "INVALID_RESULT_PATH",
-        `Result references a file outside the readable project: ${path}`,
-      );
+  const targets = new Set(policy.targets);
+  const validator = createLintFindingValidator(rules, policy);
+  const findings: Diagnostic[] = [];
+  for (const item of body.diagnostics!) {
+    try {
+      findings.push(await validator.diagnostic(item, skippedRuleIds));
+    } catch (cause) {
+      const error = toRunError(cause, "INVALID_DIAGNOSTIC");
+      const affectedPaths = findingPaths(item, targets);
+      recordItemError(error, affectedPaths);
     }
+  }
 
-    const cached = cache.get(path);
-    if (cached) {
-      return await cached;
+  const diagnostics = groupDiagnostics(findings);
+  const diagnosticPaths = diagnostics.flatMap(({ locations }) => locations.map(({ path }) => path));
+  const uniqueDiagnosticPaths = new Set(diagnosticPaths);
+  for (const path of uniqueDiagnosticPaths) {
+    if (reported.get(path)?.status !== "skipped") {
+      continue;
     }
-
-    const pending = (async () => {
-      let bytes: Buffer;
-      try {
-        ({ content: bytes } = await readStableRegularFile(policy.projectRoot, path));
-      } catch {
-        throw new AquariusError(
-          "INVALID_RESULT_PATH",
-          `Result file is not a stable regular project file: ${path}`,
-        );
-      }
-      const text = bytes.toString("utf8");
-      if (!Buffer.from(text, "utf8").equals(bytes)) {
-        throw new AquariusError("INVALID_RESULT_PATH", `Result file is not UTF-8 text: ${path}`);
-      }
-      return text.split(/\r\n|\n|\r/u);
-    })();
-    cache.set(path, pending);
-    return await pending;
-  };
-};
-
-const validateLocations = async (
-  locations: SourceLocation[],
-  read: ReturnType<typeof sourceReader>,
-  requiredTargets?: Set<string>,
-): Promise<void> => {
-  if (
-    requiredTargets &&
-    (locations.length === 0 || !locations.every(({ path }) => requiredTargets.has(path)))
-  ) {
-    throw new AquariusError(
-      "INVALID_RESULT_LOCATION",
-      "Every primary diagnostic location must be a selected target.",
+    recordItemError(
+      {
+        code: "CONFLICTING_FILE_RESULT",
+        message: `Skipped file ${path} also has a diagnostic.`,
+        ruleIds: [],
+      },
+      [path],
     );
   }
-  for (const location of locations) {
-    const lines = await read(location.path);
-    if (
-      !Number.isInteger(location.line) ||
-      !Number.isInteger(location.column) ||
-      location.line < 1 ||
-      location.line > lines.length ||
-      location.column < 1 ||
-      location.column > lines[location.line - 1]!.length + 1
-    ) {
-      throw new AquariusError(
-        "INVALID_RESULT_LOCATION",
-        `Result position is outside ${location.path}.`,
-      );
-    }
-  }
+
+  return { ...finish(), diagnostics };
 };
 
 export const createLintFindingValidator = (rules: readonly PreparedRule[], policy: PathPolicy) => {
-  const known = new Set(rules.map(({ id }) => id));
-  const levels = new Map(rules.map(({ id, severity }) => [id, severity ?? "warn"] as const));
+  const knownRuleIds = new Set(rules.map(({ id }) => id));
+  const severityByRuleId = new Map(
+    rules.map(({ id, severity }) => [id, severity ?? "warn"] as const),
+  );
   const targets = new Set(policy.targets);
-  const read = sourceReader(policy);
+  const readSourceLines = createSourceReader(policy);
 
-  return {
-    diagnostic: async (item: unknown, skippedRules?: ReadonlySet<string>): Promise<Diagnostic> => {
-      const supplied = parseResultItem(diagnosticSchema, item, "diagnostic");
-      const ruleIds = references(supplied.ruleIds, known, false, skippedRules);
-      nonempty(supplied.message, "Diagnostic message");
-      await validateLocations(supplied.locations, read, targets);
-      if (supplied.evidence.length === 0) {
-        throw new AquariusError("INVALID_EVIDENCE", "A violation requires evidence.");
+  const diagnostic = async (item: unknown, skippedRules?: ReadonlySet<string>): Promise<Diagnostic> => {
+    const suppliedDiagnostic = parseResultItem(diagnosticSchema, item, "diagnostic");
+    const ruleIds = references(suppliedDiagnostic.ruleIds, knownRuleIds, false, skippedRules);
+    nonempty(suppliedDiagnostic.message, "Diagnostic message");
+    await validateLocations(suppliedDiagnostic.locations, readSourceLines, targets);
+    if (suppliedDiagnostic.evidence.length === 0) {
+      throw new AquariusError("INVALID_EVIDENCE", "A violation requires evidence.");
+    }
+    for (const evidence of suppliedDiagnostic.evidence) {
+      nonempty(evidence.message, "Evidence message");
+      const lines = await readSourceLines(evidence.path);
+      const isOutsideSource =
+        !Number.isInteger(evidence.line) || evidence.line < 1 || evidence.line > lines.length;
+      if (isOutsideSource) {
+        throw new AquariusError(
+          "INVALID_EVIDENCE",
+          `Evidence position is outside ${evidence.path}.`,
+        );
       }
-      for (const evidence of supplied.evidence) {
-        nonempty(evidence.message, "Evidence message");
-        const lines = await read(evidence.path);
-        if (!Number.isInteger(evidence.line) || evidence.line < 1 || evidence.line > lines.length) {
-          throw new AquariusError(
-            "INVALID_EVIDENCE",
-            `Evidence position is outside ${evidence.path}.`,
-          );
-        }
-      }
+    }
 
-      const contributors = ruleIds.map((rule) => ({ rule, severity: levels.get(rule)! }));
-      const severity: ActiveSeverity = contributors.some(({ severity }) => severity === "error")
-        ? "error"
-        : "warn";
-      return {
-        rules: contributors,
-        severity,
-        message: supplied.message,
-        locations: supplied.locations.map((location) => ({ ...location })),
-        evidence: supplied.evidence.map((evidence) => ({ ...evidence })),
-      };
-    },
+    const contributors = ruleIds.map((rule) => ({ rule, severity: severityByRuleId.get(rule)! }));
+    const severity: ActiveSeverity = contributors.some(({ severity }) => severity === "error")
+      ? "error"
+      : "warn";
+    return {
+      rules: contributors,
+      severity,
+      message: suppliedDiagnostic.message,
+      locations: suppliedDiagnostic.locations.map((location) => ({ ...location })),
+      evidence: suppliedDiagnostic.evidence.map((evidence) => ({ ...evidence })),
+    };
   };
+
+  return { diagnostic };
 };
 
 export const groupDiagnostics = (diagnostics: readonly Diagnostic[]): Diagnostic[] => {
@@ -146,83 +124,16 @@ export const groupDiagnostics = (diagnostics: readonly Diagnostic[]): Diagnostic
   return [...grouped.values()];
 };
 
-const findingPaths = (item: unknown, targets: ReadonlySet<string>): string[] => {
-  if (
-    typeof item !== "object" ||
-    item === null ||
-    !("locations" in item) ||
-    !Array.isArray(item.locations)
-  ) {
-    return [];
-  }
-
-  const affected = new Set<string>();
-  for (const location of item.locations) {
-    if (
-      typeof location !== "object" ||
-      location === null ||
-      !("path" in location) ||
-      typeof location.path !== "string" ||
-      !targets.has(location.path)
-    ) {
-      continue;
-    }
-    affected.add(location.path);
-  }
-  return [...affected];
-};
-
-export const normalizeLintResponse = async (
-  raw: unknown,
-  rules: readonly PreparedRule[],
-  policy: PathPolicy,
-): Promise<LintResponse> => {
-  const normalization = beginResponseNormalization(raw, rules, policy, ["diagnostics"]);
-  const { body, skippedRuleIds, reported, recordItemError, finish } = normalization;
-  if (!body) {
-    return { ...finish(), diagnostics: [] };
-  }
-
-  const targets = new Set(policy.targets);
-  const validator = createLintFindingValidator(rules, policy);
-  const findings: Diagnostic[] = [];
-  for (const item of body.diagnostics!) {
-    try {
-      findings.push(await validator.diagnostic(item, skippedRuleIds));
-    } catch (cause) {
-      recordItemError(toRunError(cause, "INVALID_DIAGNOSTIC"), findingPaths(item, targets));
-    }
-  }
-
-  const diagnostics = groupDiagnostics(findings);
-  const paths = new Set(diagnostics.flatMap(({ locations }) => locations.map(({ path }) => path)));
-  for (const path of paths) {
-    if (reported.get(path)?.status !== "skipped") {
-      continue;
-    }
-    recordItemError(
-      {
-        code: "CONFLICTING_FILE_RESULT",
-        message: `Skipped file ${path} also has a diagnostic.`,
-        ruleIds: [],
-      },
-      [path],
-    );
-  }
-
-  return { ...finish(), diagnostics };
-};
-
 export const summarizeLintResult = (
   result: Pick<LintResult, "fileResults" | "diagnostics">,
   activeRules: number,
   totalFiles: number | null = result.fileResults.length,
 ): LintSummary => {
-  const levels = new Map<string, ActiveSeverity>();
+  const severityByFilePath = new Map<string, ActiveSeverity>();
   for (const diagnostic of result.diagnostics) {
     for (const { path } of diagnostic.locations) {
-      if (levels.get(path) !== "error") {
-        levels.set(path, diagnostic.severity);
+      if (severityByFilePath.get(path) !== "error") {
+        severityByFilePath.set(path, diagnostic.severity);
       }
     }
   }
@@ -236,19 +147,111 @@ export const summarizeLintResult = (
     activeRules,
   };
   for (const file of result.fileResults) {
-    if (file.status === "failed" || levels.get(file.path) === "error") {
+    if (file.status === "failed" || severityByFilePath.get(file.path) === "error") {
       summary.failedFiles += 1;
-      continue;
-    }
-    if (file.status === "skipped") {
+    } else if (file.status === "skipped") {
       summary.skippedFiles += 1;
-      continue;
-    }
-    if (levels.get(file.path) === "warn") {
+    } else if (severityByFilePath.get(file.path) === "warn") {
       summary.warningFiles += 1;
-      continue;
+    } else {
+      summary.successFiles += 1;
     }
-    summary.successFiles += 1;
   }
   return summary;
+};
+
+const createSourceReader = (policy: PathPolicy) => {
+  const readablePaths = new Set(policy.readableFiles);
+  const sourceLinesByPath = new Map<string, Promise<string[]>>();
+
+  return async (path: string): Promise<string[]> => {
+    normalizedPath(path);
+    if (!readablePaths.has(path) || policy.isIgnored(path)) {
+      throw new AquariusError(
+        "INVALID_RESULT_PATH",
+        `Result references a file outside the readable project: ${path}`,
+      );
+    }
+
+    const cached = sourceLinesByPath.get(path);
+    if (cached) {
+      return await cached;
+    }
+
+    const readUncachedSourceLines = async () => {
+      let bytes: Buffer;
+      try {
+        ({ content: bytes } = await readStableRegularFile(policy.projectRoot, path));
+      } catch {
+        throw new AquariusError(
+          "INVALID_RESULT_PATH",
+          `Result file is not a stable regular project file: ${path}`,
+        );
+      }
+      const text = bytes.toString("utf8");
+      const encodedText = Buffer.from(text, "utf8");
+      if (!encodedText.equals(bytes)) {
+        throw new AquariusError("INVALID_RESULT_PATH", `Result file is not UTF-8 text: ${path}`);
+      }
+      const sourceLineBreak = /\r\n|\n|\r/u;
+      return text.split(sourceLineBreak);
+    };
+    const pending = readUncachedSourceLines();
+    sourceLinesByPath.set(path, pending);
+    return await pending;
+  };
+};
+
+const validateLocations = async (
+  locations: SourceLocation[],
+  readSourceLines: ReturnType<typeof createSourceReader>,
+  requiredTargets?: Set<string>,
+): Promise<void> => {
+  const hasInvalidPrimaryLocations =
+    requiredTargets &&
+    (locations.length === 0 || !locations.every(({ path }) => requiredTargets.has(path)));
+  if (hasInvalidPrimaryLocations) {
+    throw new AquariusError(
+      "INVALID_RESULT_LOCATION",
+      "Every primary diagnostic location must be a selected target.",
+    );
+  }
+  for (const location of locations) {
+    const lines = await readSourceLines(location.path);
+    const isOutsideSource =
+      !Number.isInteger(location.line) ||
+      !Number.isInteger(location.column) ||
+      location.line < 1 ||
+      location.line > lines.length ||
+      location.column < 1 ||
+      location.column > lines[location.line - 1]!.length + 1;
+    if (isOutsideSource) {
+      throw new AquariusError(
+        "INVALID_RESULT_LOCATION",
+        `Result position is outside ${location.path}.`,
+      );
+    }
+  }
+};
+
+const findingPaths = (item: unknown, targets: ReadonlySet<string>): string[] => {
+  const hasLocations = typeof item === "object" && item !== null && "locations" in item;
+  if (!hasLocations || !Array.isArray(item.locations)) {
+    return [];
+  }
+
+  const affectedPaths = new Set<string>();
+  for (const location of item.locations) {
+    const isTargetLocation =
+      typeof location === "object" &&
+      location !== null &&
+      "path" in location &&
+      typeof location.path === "string" &&
+      targets.has(location.path);
+    if (!isTargetLocation) {
+      continue;
+    }
+    affectedPaths.add(location.path);
+  }
+  return [...affectedPaths];
 };

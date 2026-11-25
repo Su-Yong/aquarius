@@ -1,5 +1,6 @@
-import type { LintRule } from "@aquarius/core";
 import { z } from "zod";
+
+import type { LintRule } from "@aquarius/core";
 
 const optionsSchema = z.strictObject({});
 

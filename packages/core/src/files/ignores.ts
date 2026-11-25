@@ -1,12 +1,20 @@
 import { lstat, readFile, realpath } from "node:fs/promises";
 import { dirname, join, relative, resolve, sep } from "node:path";
+
 import { globby } from "globby";
 import createIgnore, { type Ignore } from "ignore";
-import type { LoadedConfig } from "../config/types";
+
 import { AquariusError, errorMessage, isNodeError } from "../shared/errors";
 import { isInside, toPosix } from "../shared/path";
+import type { LoadedConfig } from "../config/types";
+
 import { tryLstat } from "./paths";
 import type { TargetOptions } from "./types";
+
+interface IgnoreMatcher {
+  baseDirectory: string;
+  matcher: Ignore;
+}
 
 const VCS_DIRECTORIES = [".git", ".svn", ".hg", ".jj"];
 const LOCK_FILES = new Set([
@@ -19,43 +27,32 @@ const LOCK_FILES = new Set([
   "yarn.lock",
 ]);
 
+const MINIFIED_FILE_PATTERN = /[._-]min\./u;
+const GIT_DIRECTORY_MARKER_PATTERN = /^gitdir:\s*(.+)\s*$/im;
+const LINE_BREAK_PATTERN = /\r\n|\r|\n/;
+
 export const vcsIgnoreGlobs = VCS_DIRECTORIES.map((name) => `**/${name}/**`).concat("**/.git");
-
-type IgnoreMatcher = { baseDirectory: string; matcher: Ignore };
-
-export const isInternalPath = (path: string): boolean => {
-  const parts = path.toLowerCase().split("/");
-  return (
-    parts.at(-1) === ".git" || parts.slice(0, -1).some((part) => VCS_DIRECTORIES.includes(part))
-  );
-};
 
 export const isDefaultIgnored = (path: string, options: TargetOptions): boolean => {
   if (isInternalPath(path)) return true;
   const parts = path.split("/");
   if (!options.withNodeModules && parts.slice(0, -1).includes("node_modules")) return true;
-  const name = parts.at(-1)!;
-  return LOCK_FILES.has(name) || /[._-]min\./u.test(name);
+  const fileName = parts.at(-1)!;
+  return LOCK_FILES.has(fileName) || MINIFIED_FILE_PATTERN.test(fileName);
 };
-
-export const createMatcher = (
-  baseDirectory: string,
-  patterns: readonly string[],
-): IgnoreMatcher => ({
-  baseDirectory: resolve(baseDirectory),
-  matcher: createIgnore().add([...patterns]),
-});
 
 export const loadManualIgnores = async (
   config: LoadedConfig,
   options: TargetOptions,
 ): Promise<IgnoreMatcher[]> => {
   const matchers: IgnoreMatcher[] = [];
-  for (const name of options.ignorePaths ?? []) {
-    const path = resolve(config.cwd, name);
+  for (const ignorePath of options.ignorePaths ?? []) {
+    const path = resolve(config.cwd, ignorePath);
     const text = await readOptionalFile(path, true);
     if (text !== undefined) {
-      matchers.push(createMatcher(await realpath(dirname(path)), splitPatterns(text)));
+      const baseDirectory = await realpath(dirname(path));
+      const patterns = splitPatterns(text);
+      matchers.push(createMatcher(baseDirectory, patterns));
     }
   }
   if (options.ignorePatterns?.length) {
@@ -68,16 +65,15 @@ export const loadGitInfoExclude = async (
   projectRoot: string,
 ): Promise<IgnoreMatcher | undefined> => {
   const dotGit = join(projectRoot, ".git");
-  const info = await tryLstat(dotGit);
-  if (!info) return undefined;
-  let gitDirectory = dotGit;
-  if (info.isFile()) {
-    const marker = await readFile(dotGit, "utf8");
-    const match = /^gitdir:\s*(.+)\s*$/im.exec(marker);
-    if (!match) return undefined;
-    gitDirectory = resolve(projectRoot, match[1]);
-  }
-  const text = await readOptionalFile(join(gitDirectory, "info", "exclude"), false);
+  const dotGitStats = await tryLstat(dotGit);
+  if (!dotGitStats) return undefined;
+  const gitDirectory = dotGitStats.isFile()
+    ? resolveGitDirectory(projectRoot, await readFile(dotGit, "utf8"))
+    : dotGit;
+  if (gitDirectory === undefined) return undefined;
+
+  const excludePath = join(gitDirectory, "info", "exclude");
+  const text = await readOptionalFile(excludePath, false);
   return text === undefined ? undefined : createMatcher(projectRoot, splitPatterns(text));
 };
 
@@ -93,32 +89,37 @@ export const loadGitignoreMatchers = async (projectRoot: string): Promise<Ignore
   });
   const rootIgnore = join(projectRoot, ".gitignore");
   if (await tryLstat(rootIgnore)) paths.push(rootIgnore);
-  const unique = [...new Set(paths)].sort(
+  const uniqueIgnorePaths = [...new Set(paths)].sort(
     (left, right) => left.split(sep).length - right.split(sep).length,
   );
   const matchers: IgnoreMatcher[] = [];
-  for (const path of unique) {
-    const info = await lstat(path);
+  for (const path of uniqueIgnorePaths) {
+    const ignoreFileStats = await lstat(path);
     const projectPath = toPosix(relative(projectRoot, path));
-    if (!info.isFile() || isInternalPath(projectPath)) continue;
+    if (!ignoreFileStats.isFile() || isInternalPath(projectPath)) continue;
     if (isIgnoredByMatchers(matchers, projectRoot, projectPath)) continue;
-    matchers.push(createMatcher(dirname(path), splitPatterns(await readFile(path, "utf8"))));
+    const baseDirectory = dirname(path);
+    const ignoreText = await readFile(path, "utf8");
+    const patterns = splitPatterns(ignoreText);
+    matchers.push(createMatcher(baseDirectory, patterns));
   }
   return matchers;
 };
 
-const pathFromMatcher = (
-  rule: IgnoreMatcher,
-  projectRoot: string,
-  projectPath: string,
-): string | undefined => {
-  const absolute = resolve(projectRoot, ...projectPath.split("/"));
-  const path = relative(rule.baseDirectory, absolute);
-  if (path === "" || !isInside(rule.baseDirectory, absolute)) {
-    return undefined;
-  }
-  return toPosix(path);
+export const isInternalPath = (path: string): boolean => {
+  const parts = path.toLowerCase().split("/");
+  return (
+    parts.at(-1) === ".git" || parts.slice(0, -1).some((part) => VCS_DIRECTORIES.includes(part))
+  );
 };
+
+export const createMatcher = (
+  baseDirectory: string,
+  patterns: readonly string[],
+): IgnoreMatcher => ({
+  baseDirectory: resolve(baseDirectory),
+  matcher: createIgnore().add([...patterns]),
+});
 
 export const matchesIgnore = (rule: IgnoreMatcher, projectRoot: string, path: string): boolean => {
   const relativePath = pathFromMatcher(rule, projectRoot, path);
@@ -134,11 +135,30 @@ export const isIgnoredByMatchers = (
   for (const matcher of matchers) {
     const relativePath = pathFromMatcher(matcher, projectRoot, path);
     if (relativePath === undefined) continue;
-    const result = matcher.matcher.test(relativePath);
-    if (result.ignored) ignored = true;
-    else if (result.unignored) ignored = false;
+    const ignoreTest = matcher.matcher.test(relativePath);
+    if (ignoreTest.ignored) ignored = true;
+    else if (ignoreTest.unignored) ignored = false;
   }
   return ignored;
+};
+
+const resolveGitDirectory = (projectRoot: string, marker: string): string | undefined => {
+  const match = GIT_DIRECTORY_MARKER_PATTERN.exec(marker);
+  return match ? resolve(projectRoot, match[1]) : undefined;
+};
+
+const pathFromMatcher = (
+  rule: IgnoreMatcher,
+  projectRoot: string,
+  projectPath: string,
+): string | undefined => {
+  const pathSegments = projectPath.split("/");
+  const absolute = resolve(projectRoot, ...pathSegments);
+  const path = relative(rule.baseDirectory, absolute);
+  if (path === "" || !isInside(rule.baseDirectory, absolute)) {
+    return undefined;
+  }
+  return toPosix(path);
 };
 
 const readOptionalFile = async (path: string, required: boolean): Promise<string | undefined> => {
@@ -153,4 +173,4 @@ const readOptionalFile = async (path: string, required: boolean): Promise<string
   }
 };
 
-const splitPatterns = (text: string): string[] => text.split(/\r\n|\r|\n/);
+const splitPatterns = (text: string): string[] => text.split(LINE_BREAK_PATTERN);

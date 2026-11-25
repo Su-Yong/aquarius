@@ -1,5 +1,5 @@
-import type { JsonObject, ToolKind } from "../shared/types";
 import type { RuleSettings } from "../rules/types";
+import type { JsonObject, ToolKind } from "../shared/types";
 
 export interface ProjectConfig {
   files?: string[];

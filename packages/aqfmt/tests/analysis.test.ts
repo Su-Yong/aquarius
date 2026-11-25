@@ -139,6 +139,65 @@ describe("provisional formatting analysis", () => {
     expect(snapshots.every((snapshot) => snapshot.phase === "provisional")).toBe(true);
   });
 
+  test("defaults omitted review arrays and reasons without clearing prior review states", async () => {
+    const { analysis, snapshots, onWarning } = observe();
+    analysis.update({
+      ...update(1),
+      fileResults: [{ path: "a.ts", status: "in_progress" }],
+      ruleResults: [{ ruleId: "fixture/first", status: "in_progress" }],
+    });
+    analysis.update({
+      ...update(2),
+      fileResults: [{ path: "a.ts", status: "completed" }],
+      ruleResults: [{ ruleId: "fixture/first", status: "pending" }],
+    });
+    analysis.update({
+      type: "aquarius.analysis_update",
+      revision: 3,
+      proposedFiles: ["a.ts"],
+      warnings: [warning()],
+    });
+    await analysis.flush();
+
+    expect(onWarning).not.toHaveBeenCalled();
+    expect(snapshots.map(({ revision }) => revision)).toEqual([0, 1, 2, 3]);
+    expect(snapshots[1]!.fileResults[0]).toEqual({
+      path: "a.ts",
+      status: "in_progress",
+      reason: "",
+    });
+    expect(snapshots[1]!.ruleResults[0]).toEqual({
+      ruleId: "fixture/first",
+      status: "in_progress",
+      reason: "",
+    });
+    expect(snapshots[3]).toMatchObject({
+      fileResults: [
+        { path: "a.ts", status: "completed", reason: "" },
+        { path: "b.ts", status: "pending", reason: "" },
+      ],
+      ruleResults: [
+        { ruleId: "fixture/first", status: "pending", reason: "" },
+        { ruleId: "fixture/second", status: "pending", reason: "" },
+      ],
+      proposedFiles: ["a.ts"],
+      warnings: [warning()],
+    });
+  });
+
+  test.each(["skipped", "failed"])("requires reasons on %s provisional reviews", async (status) => {
+    const { analysis, snapshots, onWarning } = observe();
+    analysis.update({ ...update(1), fileResults: [{ path: "a.ts", status }] });
+    analysis.update({ ...update(2), ruleResults: [{ ruleId: "fixture/first", status }] });
+    await analysis.flush();
+
+    expect(snapshots).toHaveLength(1);
+    expect(onWarning.mock.calls).toEqual([
+      ["Ignored a provisional analysis update (INVALID_AI_ITEM): Review reason must not be empty."],
+      ["Ignored a provisional analysis update (INVALID_AI_ITEM): Review reason must not be empty."],
+    ]);
+  });
+
   test("ignores older or repeated revisions without replacing the accepted state", async () => {
     const { analysis, snapshots, onWarning } = observe();
     analysis.update(update(3, { proposedFiles: ["a.ts"] }));
@@ -335,19 +394,41 @@ describe("provisional formatting analysis", () => {
   });
 
   test.each([
-    null,
-    { type: "other", revision: 1 },
-    { ...update(1), changes: [] },
-    { ...update(1), proposedFiles: undefined },
-    update(0),
-    update(1.5),
-  ])("ignores a malformed intermediate payload without failing finalization", async (payload) => {
+    { payload: null, issue: "provisional analysis update Invalid input" },
+    { payload: { ...update(1), type: "other" }, issue: "type Invalid input" },
+    {
+      payload: { ...update(1), changes: [] },
+      issue: "provisional analysis update contains unknown field(s): changes",
+    },
+    {
+      payload: { type: "aquarius.analysis_update", revision: 1, warnings: [] },
+      issue: "proposedFiles Invalid input: expected array",
+    },
+    { payload: { ...update(1), proposedFiles: undefined }, issue: "proposedFiles Invalid input" },
+    {
+      payload: { type: "aquarius.analysis_update", revision: 1, proposedFiles: [] },
+      issue: "warnings Invalid input: expected array",
+    },
+    {
+      payload: {
+        ...update(1),
+        fileResults: [{ path: "a.ts", status: "completed", reason: 7 }],
+      },
+      issue: "fileResults.0.reason Invalid input: expected string",
+    },
+    { payload: update(0), issue: "revision Too small" },
+    { payload: update(1.5), issue: "revision Invalid input" },
+  ])("reports $issue without failing finalization", async ({ payload, issue }) => {
     const { analysis, snapshots, onWarning } = observe();
     analysis.update(payload);
     await analysis.flush();
     const final = await analysis.finish(response());
 
-    expect(onWarning).toHaveBeenCalledWith(expect.stringContaining("INVALID_ANALYSIS_UPDATE"));
+    expect(onWarning).toHaveBeenCalledExactlyOnceWith(
+      expect.stringContaining(
+        `Ignored a provisional analysis update (INVALID_ANALYSIS_UPDATE): ${issue}`,
+      ),
+    );
     expect(snapshots).toHaveLength(2);
     expect(final.phase).toBe("final");
     expect(final.errors).toEqual([]);
@@ -437,13 +518,13 @@ describe("provisional formatting analysis", () => {
 
   test("interrupts after queued reports and preserves the last valid provisional content", async () => {
     const { analysis, snapshots } = observe();
-    analysis.update(
-      update(3, {
-        proposedFiles: ["a.ts"],
-        warnings: [warning()],
-        fileResults: [{ path: "a.ts", status: "in_progress", reason: "" }],
-      }),
-    );
+    analysis.update({
+      type: "aquarius.analysis_update",
+      revision: 3,
+      proposedFiles: ["a.ts"],
+      warnings: [warning()],
+      fileResults: [{ path: "a.ts", status: "in_progress" }],
+    });
     const errors = [{ code: "AI_TIMEOUT", ruleIds: [], message: "Request timed out." }];
     const interrupted = analysis.interrupt(errors);
     analysis.update(update(5, { proposedFiles: ["b.ts"] }));

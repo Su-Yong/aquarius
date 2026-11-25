@@ -1,12 +1,7 @@
 import type { LintRule } from "@aquarius/core";
 
-// Source: https://chatgpt.com/space/page_dd6ffadaf0448191aa29ee9e19e7d2ad
-// Source block: afbc9988-1cc1-4c93-bc9d-a5715637584f
-export const isolateExternalModels: LintRule = {
-  id: "architecture/isolate-external-models",
-  description: "공급자 변경·도메인 독립성이 요구된 경계에서 외부 데이터·행동 계약이 내부 정책을 의도치 않게 지배하는지 검사하며, 의도된 공유 모델은 허용합니다.",
-  scope: "project",
-  buildPrompt: () => ({
+const buildPrompt: LintRule["buildPrompt"] = () => {
+  return {
     applicability:
       "Internal boundaries requiring provider replaceability or independence from external data or behavior.",
     criteria: "Report an external provider's schema, identifier, error, paging, lifecycle, or behavioral semantics that unintentionally govern protected internal policy contrary to the boundary contract. Trace both data and behavior; a renamed DTO is not necessarily isolation. Do not mandate copying or mapping when the project intentionally shares the external model and its contract permits that coupling.",
@@ -47,5 +42,14 @@ export const isolateExternalModels: LintRule = {
         reason: "Provider-specific details belong in this scope."
       }
     ]
-  }),
+  };
+};
+
+// Source: https://chatgpt.com/space/page_dd6ffadaf0448191aa29ee9e19e7d2ad
+// Source block: afbc9988-1cc1-4c93-bc9d-a5715637584f
+export const isolateExternalModels: LintRule = {
+  id: "architecture/isolate-external-models",
+  description: "공급자 변경·도메인 독립성이 요구된 경계에서 외부 데이터·행동 계약이 내부 정책을 의도치 않게 지배하는지 검사하며, 의도된 공유 모델은 허용합니다.",
+  scope: "project",
+  buildPrompt,
 };

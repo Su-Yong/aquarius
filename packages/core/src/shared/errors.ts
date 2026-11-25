@@ -1,10 +1,10 @@
 import type { RunError } from "./types";
 
-export const errorMessage = (error: unknown): string =>
-  error instanceof Error ? error.message : String(error);
-
-export const isNodeError = (error: unknown, code: string): boolean =>
-  error instanceof Error && "code" in error && error.code === code;
+export const isNodeError = (error: unknown, code: string): boolean => {
+  const isMatchingNodeError =
+    error instanceof Error && "code" in error && error.code === code;
+  return isMatchingNodeError;
+};
 
 export class AquariusError extends Error {
   constructor(
@@ -25,3 +25,6 @@ export const toRunError = (
   message: errorMessage(error),
   ruleIds,
 });
+
+export const errorMessage = (error: unknown): string =>
+  error instanceof Error ? error.message : String(error);

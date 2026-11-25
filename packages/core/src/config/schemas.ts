@@ -1,4 +1,5 @@
 import { z } from "zod";
+
 import { formatRuleSettingSchema, lintRuleSettingSchema } from "../rules/schemas";
 import { jsonObjectSchema, nonEmptyStringSchema } from "../shared/zod";
 

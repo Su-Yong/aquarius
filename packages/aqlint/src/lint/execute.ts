@@ -1,5 +1,7 @@
-import { runToolExecution, type ToolExecutionOptions } from "@aquarius/core/runtime";
 import { z } from "zod";
+
+import { runToolExecution, type RunError, type ToolExecutionOptions } from "@aquarius/core/runtime";
+
 import { createLintAnalysis } from "./analysis";
 import { buildLintPrompt } from "./prompt";
 import { groupDiagnostics, normalizeLintResponse, summarizeLintResult } from "./results";
@@ -8,22 +10,13 @@ import type { LintExecutionResult, LintFindings } from "./types";
 
 export type LintExecutionOptions = ToolExecutionOptions<LintFindings>;
 
-const mergeFindings = (findings: readonly LintFindings[]): LintFindings => ({
-  diagnostics: groupDiagnostics(findings.flatMap(({ diagnostics }) => diagnostics)),
-});
-
 export const executeLint = async (options: LintExecutionOptions): Promise<LintExecutionResult> => {
   const { response, ai, activeRules, totalFiles, exitCode } = await runToolExecution(options, {
     tool: "lint",
     reviewProgress: "Analyzing files with AI",
     unreviewedFile: { status: "failed", reason: "Analysis did not complete." },
     preparationFailedFile: { status: "failed", reason: "Rule preparation did not complete." },
-    onPreparationError: (errors) =>
-      errors.some(
-        ({ code }) => code === "RULE_OPTIONS_INVALID" || code === "RULE_SCHEMA_TRANSFORMED_OPTIONS",
-      )
-        ? "stop"
-        : "review",
+    onPreparationError,
     outputSchema: z.toJSONSchema(lintResponseSchema),
     empty: { diagnostics: [] },
     buildPrompt: buildLintPrompt,
@@ -42,8 +35,18 @@ export const executeLint = async (options: LintExecutionOptions): Promise<LintEx
     ...(ai && { ai }),
     summary: summarizeLintResult(response, activeRules, totalFiles),
   };
-  if (exitCode !== 0) {
-    return { result, exitCode };
-  }
-  return { result, exitCode: diagnostics.some(({ severity }) => severity === "error") ? 1 : 0 };
+  const diagnosticExitCode =
+    exitCode === 0 && diagnostics.some(({ severity }) => severity === "error") ? 1 : 0;
+  return { result, exitCode: exitCode === 0 ? diagnosticExitCode : exitCode };
 };
+
+const mergeFindings = (findings: readonly LintFindings[]): LintFindings => ({
+  diagnostics: groupDiagnostics(findings.flatMap(({ diagnostics }) => diagnostics)),
+});
+
+const onPreparationError = (errors: readonly RunError[]): "stop" | "review" =>
+  errors.some(
+    ({ code }) => code === "RULE_OPTIONS_INVALID" || code === "RULE_SCHEMA_TRANSFORMED_OPTIONS",
+  )
+    ? "stop"
+    : "review";

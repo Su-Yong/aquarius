@@ -1,7 +1,7 @@
 import type { LintRule } from "@aquarius/core";
 
 // Section 21: 프런트엔드와 UI 구조.
-// Prompt definitions only. Registration does not enable rules or prove detection quality.
+// Registration does not enable rules or prove detection quality.
 // Canonical source: https://chatgpt.com/space/page_dd6ffadaf0448191aa29ee9e19e7d2ad
 export const section21Rules: LintRule[] = [
   {

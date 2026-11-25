@@ -1,4 +1,5 @@
 import type { z } from "zod";
+
 import type { RuleScope } from "../rules/types";
 import type { JsonObject } from "../shared/types";
 

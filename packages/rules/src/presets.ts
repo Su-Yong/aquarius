@@ -1,5 +1,10 @@
 import type { RuleSettings } from "@aquarius/core";
+
 import { formatRules } from "./format";
+
+const formatRuleSettings = Object.fromEntries(
+  formatRules.map(({ id }) => [`aquarius/${id}`, true]),
+);
 
 export const allRulesPreset: RuleSettings = {
   "aquarius/contracts/no-input-mutation": ["error", { allowOwnershipTransfer: false }],
@@ -379,7 +384,7 @@ export const allRulesPreset: RuleSettings = {
   "aquarius/performance/bounded-recursion": "warn",
   "aquarius/performance/no-busy-waiting": "warn",
   "aquarius/performance/preserve-semantics-under-optimization": "warn",
-  ...Object.fromEntries(formatRules.map(({ id }) => [`aquarius/${id}`, true])),
+  ...formatRuleSettings,
 };
 
 export const formatSafePreset: RuleSettings = {
@@ -417,6 +422,7 @@ export const formatRecommendedPreset: RuleSettings = {
   "aquarius/expressions/object-build-style": true,
   "aquarius/naming/identifier-clarity": true,
   "aquarius/structure/order-sections": true,
+  "aquarius/structure/organize-blocks": true,
   "aquarius/types/enforce-declaration-style": true,
 };
 

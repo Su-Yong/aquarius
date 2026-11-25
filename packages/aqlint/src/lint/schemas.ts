@@ -1,10 +1,17 @@
 import { z } from "zod";
+
 import {
   errorSchema,
   fileResultSchema,
   reviewUpdateFields,
   skippedRuleSchema,
 } from "@aquarius/core/runtime";
+
+export type SourceLocation = z.infer<typeof sourceLocationSchema>;
+export type EvidenceLocation = z.infer<typeof evidenceLocationSchema>;
+export type AiDiagnostic = z.infer<typeof diagnosticSchema>;
+export type FileResult = z.infer<typeof fileResultSchema>;
+export type AnalysisUpdate = z.infer<typeof analysisUpdateSchema>;
 
 export const sourceLocationSchema = z.strictObject({
   path: z.string(),
@@ -31,9 +38,9 @@ const updateIdSchema = z.string().refine((value) => value.trim().length > 0, {
 
 export const analysisUpdateSchema = z.strictObject({
   ...reviewUpdateFields,
-  diagnostics: z.array(
-    z.strictObject({ id: updateIdSchema, diagnostic: diagnosticSchema.nullable() }),
-  ),
+  diagnostics: z
+    .array(z.strictObject({ id: updateIdSchema, diagnostic: diagnosticSchema.nullable() }))
+    .default([]),
 });
 
 export const lintResponseSchema = z.strictObject({
@@ -43,9 +50,3 @@ export const lintResponseSchema = z.strictObject({
   errors: z.array(errorSchema),
   fileResults: z.array(fileResultSchema),
 });
-
-export type SourceLocation = z.infer<typeof sourceLocationSchema>;
-export type EvidenceLocation = z.infer<typeof evidenceLocationSchema>;
-export type AiDiagnostic = z.infer<typeof diagnosticSchema>;
-export type FileResult = z.infer<typeof fileResultSchema>;
-export type AnalysisUpdate = z.infer<typeof analysisUpdateSchema>;

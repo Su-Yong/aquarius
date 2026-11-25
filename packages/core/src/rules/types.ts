@@ -1,4 +1,5 @@
 import type { z } from "zod";
+
 import type { JsonObject, RunError } from "../shared/types";
 
 export type Severity = "off" | "warn" | "error";
@@ -36,16 +37,16 @@ export interface RuleBase {
   optionsSchema?: z.ZodType;
 }
 
+type BuildPromptInput = {
+  options: Readonly<JsonObject>;
+};
+
 export interface LintRule extends RuleBase {
-  buildPrompt: (input: {
-    options: Readonly<JsonObject>;
-  }) => LintInstructions | Promise<LintInstructions>;
+  buildPrompt: (input: BuildPromptInput) => LintInstructions | Promise<LintInstructions>;
 }
 
 export interface FormatRule extends RuleBase {
-  buildPrompt: (input: {
-    options: Readonly<JsonObject>;
-  }) => FormatInstructions | Promise<FormatInstructions>;
+  buildPrompt: (input: BuildPromptInput) => FormatInstructions | Promise<FormatInstructions>;
 }
 
 export interface RulePlugin {

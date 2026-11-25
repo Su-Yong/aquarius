@@ -1,4 +1,5 @@
 import { z } from "zod";
+
 import { createFormatRule, intRangeSchema, nonEmptyStringArraySchema } from "./shared";
 
 const documentationLanguage = {
@@ -35,16 +36,18 @@ const commentPolicy = createFormatRule({
     const language = docs?.language ?? "preserve";
     const maxSummarySentences = docs?.maxSummarySentences ?? 2;
     const tags = docs?.tags;
-    const documentation =
+    const buildDocumentationSyncInstructions = () => {
+      const instructions = [
+        `Synchronize existing documentation with verified code and signatures. Keep summaries to at most ${maxSummarySentences} sentences.`,
+        documentationLanguage[language],
+        tags &&
+          `Apply tag synchronization to these configured tags: ${JSON.stringify(tags)}. Preserve other tags.`,
+      ];
+      return instructions.filter(Boolean).join(" ");
+    };
+    const documentationInstructions =
       mode === "sync-existing"
-        ? [
-            `Synchronize existing documentation with verified code and signatures. Keep summaries to at most ${maxSummarySentences} sentences.`,
-            documentationLanguage[language],
-            tags &&
-              `Apply tag synchronization to these configured tags: ${JSON.stringify(tags)}. Preserve other tags.`,
-          ]
-            .filter(Boolean)
-            .join(" ")
+        ? buildDocumentationSyncInstructions()
         : "Keep existing documentation comments unchanged.";
     return {
       applicability: "Source comments, commented-out code, and existing documentation comments.",
@@ -58,7 +61,7 @@ const commentPolicy = createFormatRule({
         sectionComments === "extract-functions"
           ? "Extract cohesive comment-delimited sections into named functions where safe. Keep any rationale or constraints associated with the extracted code."
           : "Keep section comments and their code grouping.",
-        documentation,
+        documentationInstructions,
       ].join(" "),
       constraints: [
         "Preserve licenses, tool directives, TODO and FIXME notes, rationale, workarounds, and constraint comments.",

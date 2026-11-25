@@ -1,4 +1,4 @@
-import type { LintRule } from "@aquarius/core";
+import type { LintInstructions, LintRule } from "@aquarius/core";
 
 // Source: https://chatgpt.com/space/page_dd6ffadaf0448191aa29ee9e19e7d2ad
 // Source block: 678f447e-36d0-4a00-86f4-613d7a9fd140
@@ -6,7 +6,11 @@ export const explicitPluginExtensionPoints: LintRule = {
   id: "architecture/explicit-plugin-extension-points",
   description: "지원하기로 한 플러그인의 등록·선택·호출·실패·권한·수명 계약을 확인하고, 실제 확장 경로가 이를 지키는지 검사합니다.",
   scope: "project",
-  buildPrompt: () => ({
+  buildPrompt: () => buildPluginExtensionPointsPrompt(),
+};
+
+function buildPluginExtensionPointsPrompt(): LintInstructions {
+  return {
     applicability: "Project-supported plugin or extension mechanisms.",
     criteria: "Report a supported plugin path that violates the applicable registration, selection, invocation, failure, permission, or lifetime contract. Trace the actual plugin registry and dispatch, including replacement and teardown. A callback or dynamic import does not by itself imply a public plugin system, and do not demand every possible extension capability. Policy gaps at a real required boundary are separate design questions; verified contract breaches remain violations.",
     evidenceRequirements: [
@@ -46,5 +50,5 @@ export const explicitPluginExtensionPoints: LintRule = {
         reason: "The public extension-point prerequisite is absent."
       }
     ]
-  }),
-};
+  };
+}

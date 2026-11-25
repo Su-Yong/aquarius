@@ -2,9 +2,11 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, test, vi } from "vitest";
+import { z } from "zod";
 import {
   AquariusError,
   createAnalysisState,
+  reviewUpdateFields,
   runToolExecution,
   type ReviewResponse,
   type RulePlugin,
@@ -70,7 +72,12 @@ const hooks: ToolExecutionHooks<object, object> = {
     createAnalysisState(
       rules,
       policy,
-      { parse: () => undefined, initial: {}, apply: () => ({}), final: () => ({}) },
+      {
+        schema: z.strictObject(reviewUpdateFields),
+        initial: {},
+        apply: () => ({}),
+        final: () => ({}),
+      },
       options,
     ),
   merge: () => ({}),

@@ -1,12 +1,19 @@
-import type { Readable } from "node:stream";
 import { pathToFileURL } from "node:url";
+import type { Readable } from "node:stream";
+
 import { toPosix } from "@aquarius/core/adapter";
+
+const RAW_DIAGNOSTIC_LIMIT = 8_192;
+const DISPLAY_DIAGNOSTIC_LIMIT = 1_200;
 
 export const captureStderr = (stream: Readable): (() => string) => {
   let output = "";
-  stream.setEncoding("utf8").on("data", (chunk: string) => {
-    output += chunk.slice(0, 8_192 - output.length);
-  });
+  const encodedStream = stream.setEncoding("utf8");
+  const collectStderr = (chunk: string) => {
+    const remainingCapacity = RAW_DIAGNOSTIC_LIMIT - output.length;
+    output += chunk.slice(0, remainingCapacity);
+  };
+  encodedStream.on("data", collectStderr);
   return () => output;
 };
 
@@ -16,26 +23,25 @@ export const withDiagnostic = (
   paths: readonly string[],
 ): string => {
   if (typeof detail !== "string") return message;
-  let text = detail.slice(0, 8_192);
-  for (const path of [...paths].sort((left, right) => right.length - left.length)) {
-    const variants = new Set([
+  let redactedDetail = detail.slice(0, RAW_DIAGNOSTIC_LIMIT);
+  const longestPathsFirst = [...paths].sort((left, right) => right.length - left.length);
+  for (const path of longestPathsFirst) {
+    const pathVariants = new Set([
       path,
       toPosix(path),
       JSON.stringify(path).slice(1, -1),
       pathToFileURL(path).href,
     ]);
-    for (const variant of variants) {
+    for (const variant of pathVariants) {
       if (!variant) continue;
       const escaped = variant.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
-      text = text.replace(
-        new RegExp(escaped, process.platform === "win32" ? "giu" : "gu"),
-        "[redacted path]",
-      );
+      const flags = process.platform === "win32" ? "giu" : "gu";
+      redactedDetail = redactedDetail.replace(new RegExp(escaped, flags), "[redacted path]");
     }
   }
-  const diagnostic = text
+  const diagnostic = redactedDetail
     .replace(/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]+/gu, " ")
     .replace(/\s+/gu, " ")
     .trim();
-  return diagnostic ? `${message} ${diagnostic.slice(0, 1_200)}` : message;
+  return diagnostic ? `${message} ${diagnostic.slice(0, DISPLAY_DIAGNOSTIC_LIMIT)}` : message;
 };

@@ -1,4 +1,5 @@
 import { z } from "zod";
+
 import { tomlValueSchema, type TomlValue } from "./toml";
 
 type Hint<Values extends string> = Values | (string & {});
@@ -109,51 +110,22 @@ const firstClassPaths = new Map([
   ["model_auto_compact_token_limit_scope", "context.autoCompactTokenLimitScope"],
 ]);
 
+const CODEX_FEATURE_NAME = /^[A-Za-z_][A-Za-z0-9_-]*$/u;
+const BARE_TOML_DOTTED_KEY = /^[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)*$/u;
+
 const featuresSchema = z
   .record(
-    z.string().regex(/^[A-Za-z_][A-Za-z0-9_-]*$/u, "Expected a Codex feature name."),
+    z.string().regex(CODEX_FEATURE_NAME, "Expected a Codex feature name."),
     z.boolean(),
   )
-  .superRefine((features, context) => {
-    for (const [name, enabled] of Object.entries(features)) {
-      if (enabled && protectedFeatures.has(name)) {
-        context.addIssue({
-          code: "custom",
-          path: [name],
-          message: "This feature must stay disabled.",
-        });
-      }
-    }
-  });
+  .superRefine(validateFeatureOverrides);
 
 const configSchema = z
   .record(
-    z.string().regex(/^[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)*$/u, "Expected a bare TOML dotted key."),
+    z.string().regex(BARE_TOML_DOTTED_KEY, "Expected a bare TOML dotted key."),
     tomlValueSchema,
   )
-  .superRefine((config, context) => {
-    for (const [key, value] of Object.entries(config)) {
-      const root = key.split(".", 1)[0]!;
-      const path = firstClassPaths.get(root);
-      const webSearchOverride =
-        key === "tools.web_search" ||
-        key.startsWith("tools.web_search.") ||
-        (key === "tools" && typeof value === "object" && Object.hasOwn(value, "web_search"));
-      if (path) {
-        context.addIssue({
-          code: "custom",
-          path: [key],
-          message: `Use ai.options.${path} instead of ai.options.config.${key}.`,
-        });
-      } else if (protectedConfig.has(root) || webSearchOverride) {
-        context.addIssue({
-          code: "custom",
-          path: [key],
-          message: "This setting is controlled by Aquarius.",
-        });
-      }
-    }
-  });
+  .superRefine(validateConfigOverrides);
 
 const textOption = z.string().trim().min(1).nullish();
 const tokenCount = z.number().int().positive().nullish();
@@ -178,7 +150,63 @@ export const codexOptionsSchema = z.strictObject({
 
 export const featureArguments = (features?: CodexOptions["features"]): string[] => [
   ...DISABLED_FEATURES.flatMap((name) => ["--disable", name]),
-  ...Object.entries(features ?? {}).flatMap(([name, enabled]) =>
-    protectedFeatures.has(name) ? [] : [enabled ? "--enable" : "--disable", name],
-  ),
+  ...Object.entries(features ?? {}).flatMap(featureOverrideArguments),
 ];
+
+function validateFeatureOverrides(
+  features: Record<string, boolean>,
+  context: z.core.$RefinementCtx<Record<string, boolean>>,
+): void {
+  for (const [name, enabled] of Object.entries(features)) {
+    if (enabled && protectedFeatures.has(name)) {
+      context.addIssue({
+        code: "custom",
+        path: [name],
+        message: "This feature must stay disabled.",
+      });
+    }
+  }
+}
+
+function validateConfigOverrides(
+  config: Record<string, TomlValue>,
+  context: z.core.$RefinementCtx<Record<string, TomlValue>>,
+): void {
+  for (const [key, value] of Object.entries(config)) {
+    const root = key.split(".", 1)[0]!;
+    const optionPath = firstClassPaths.get(root);
+    const webSearchOverride = overridesWebSearch(key, value);
+    const message = configOverrideIssue(key, root, optionPath, webSearchOverride);
+    if (message === undefined) continue;
+    context.addIssue({
+      code: "custom",
+      path: [key],
+      message,
+    });
+  }
+}
+
+function configOverrideIssue(
+  key: string,
+  root: string,
+  optionPath: string | undefined,
+  webSearchOverride: boolean,
+): string | undefined {
+  if (optionPath) return `Use ai.options.${optionPath} instead of ai.options.config.${key}.`;
+  if (protectedConfig.has(root) || webSearchOverride) {
+    return "This setting is controlled by Aquarius.";
+  }
+  return undefined;
+}
+
+function overridesWebSearch(key: string, value: TomlValue): boolean {
+  if (key === "tools.web_search" || key.startsWith("tools.web_search.")) return true;
+  const hasWebSearchInTools =
+    key === "tools" && typeof value === "object" && Object.hasOwn(value, "web_search");
+  return hasWebSearchInTools;
+}
+
+function featureOverrideArguments([name, enabled]: [string, boolean]): string[] {
+  if (protectedFeatures.has(name)) return [];
+  return [enabled ? "--enable" : "--disable", name];
+}

@@ -1,4 +1,4 @@
-import type { LintRule } from "@aquarius/core";
+import type { LintInstructions, LintRule } from "@aquarius/core";
 
 // Source: https://chatgpt.com/space/page_dd6ffadaf0448191aa29ee9e19e7d2ad
 // Source block: 7a71772e-7303-4ff0-813a-a54c52492b3a
@@ -6,7 +6,11 @@ export const explicitTrustBoundaries: LintRule = {
   id: "architecture/explicit-trust-boundaries",
   description: "외부·낮은 신뢰 데이터와 권한이 보호 영역으로 들어오는 경계를 식별하고, 필요한 검증·변환·집행 책임을 실제 경로와 연결합니다.",
   scope: "project",
-  buildPrompt: () => ({
+  buildPrompt: () => buildTrustBoundariesPrompt(),
+};
+
+function buildTrustBoundariesPrompt(): LintInstructions {
+  return {
     applicability:
       "External or lower-trust data, identity, or authority crossing into a protected scope.",
     criteria: "Identify the trust transition and required validation, normalization, authorization, or enforcement responsibility, then report a reachable path that omits or defeats a required control. Establish obligations from explicit policy or applicable API/protocol/security semantics rather than demanding a document for every file. Do not treat TypeScript types, client-side validation, a function named validate, or a comment claiming trust as proof of enforcement. Preserve concrete risks even when a policy detail is missing; separate policy gaps from proven defects.",
@@ -47,5 +51,5 @@ export const explicitTrustBoundaries: LintRule = {
         reason: "The trust-transition prerequisite is absent."
       }
     ]
-  }),
-};
+  };
+}

@@ -1,9 +1,11 @@
 import { z } from "zod";
+
 import { AquariusError, toRunError } from "../shared/errors";
+import { safeRelativePath } from "../shared/path";
 import type { PathPolicy } from "../files/types";
 import type { PreparedRule } from "../rules/types";
-import { safeRelativePath } from "../shared/path";
 import type { RunError, SkippedRule } from "../shared/types";
+
 import { fileResultSchema } from "./schemas";
 import type { FileResult, ReviewResponse } from "./types";
 
@@ -30,8 +32,10 @@ export const parseResultItem = <T>(schema: z.ZodType<T>, value: unknown, name: s
 };
 
 export const resultEnvelope = (value: unknown, arrays: string[]): Record<string, unknown[]> => {
-  const fields = Object.fromEntries(arrays.map((key) => [key, z.array(z.unknown())]));
-  const parsed = z.strictObject(fields).safeParse(value);
+  const fieldEntries = arrays.map((key) => [key, z.array(z.unknown())] as const);
+  const fields = Object.fromEntries(fieldEntries);
+  const envelopeSchema = z.strictObject(fields);
+  const parsed = envelopeSchema.safeParse(value);
   if (!parsed.success) {
     throw new AquariusError(
       "INVALID_AI_RESPONSE",
@@ -47,13 +51,14 @@ export const references = (
   allowEmpty = false,
   skipped?: ReadonlySet<string>,
 ): string[] => {
-  const parsed = z.array(z.string()).safeParse(value);
-  if (
+  const referenceSchema = z.array(z.string());
+  const parsed = referenceSchema.safeParse(value);
+  const invalidReferences =
     !parsed.success ||
     (!allowEmpty && parsed.data.length === 0) ||
     parsed.data.some((id) => !known.has(id)) ||
-    new Set(parsed.data).size !== parsed.data.length
-  ) {
+    new Set(parsed.data).size !== parsed.data.length;
+  if (invalidReferences) {
     throw new AquariusError(
       "INVALID_RULE_REFERENCE",
       "AI result contains an unknown, repeated, or missing rule reference.",
@@ -105,13 +110,15 @@ export const checkCompletion = (
 ): SkippedRule[] => {
   const projectFailed = errors.some(({ ruleIds }) => ruleIds.length === 0);
   const failed = new Set(errors.flatMap((entry) => entry.ruleIds));
-  let completed: string[];
-  try {
-    completed = references(items, known, true);
-  } catch (cause) {
-    errors.push(toRunError(cause, "INVALID_COMPLETION"));
-    completed = [];
-  }
+  const readCompletedRuleIds = (): string[] => {
+    try {
+      return references(items, known, true);
+    } catch (cause) {
+      errors.push(toRunError(cause, "INVALID_COMPLETION"));
+      return [];
+    }
+  };
+  const completed = readCompletedRuleIds();
   const completedSet = new Set(completed);
   const conflicting = completed.filter((id) => failed.has(id));
   if (conflicting.length > 0) {
@@ -199,18 +206,19 @@ export const beginResponseNormalization = (
 
   const finish = (): ReviewResponse => {
     const allSkipped = rules.length > 0 && skippedRules.length === rules.length;
+    const finalizeFileResult = (path: string): FileResult => {
+      const failure = globalFailure ?? failures.get(path);
+      if (failure) return { path, status: "failed", reason: failure };
+      const file = reported.get(path)!;
+      if (allSkipped && file.status === "completed") {
+        return { path, status: "skipped", reason: "No requested rule applies." };
+      }
+      return file;
+    };
     return {
       errors,
       skippedRules,
-      fileResults: policy.targets.map((path): FileResult => {
-        const failure = globalFailure ?? failures.get(path);
-        if (failure) return { path, status: "failed", reason: failure };
-        const file = reported.get(path)!;
-        if (allSkipped && file.status === "completed") {
-          return { path, status: "skipped", reason: "No requested rule applies." };
-        }
-        return file;
-      }),
+      fileResults: policy.targets.map(finalizeFileResult),
       retryable:
         errors.length > 0 &&
         errors.every(({ code }) => RETRYABLE_INCOMPLETE_CODES.has(code)) &&
@@ -257,15 +265,13 @@ export const beginResponseNormalization = (
         ? item.path
         : undefined;
     try {
-      if (path !== undefined) {
-        if (seen.has(path)) {
-          throw new AquariusError(
-            "DUPLICATE_FILE_RESULT",
-            `More than one processing result was returned for ${path}.`,
-          );
-        }
-        seen.add(path);
+      if (path !== undefined && seen.has(path)) {
+        throw new AquariusError(
+          "DUPLICATE_FILE_RESULT",
+          `More than one processing result was returned for ${path}.`,
+        );
       }
+      if (path !== undefined) seen.add(path);
       const file = parseResultItem(fileResultSchema, item, "file processing result");
       normalizedPath(file.path);
       if (!targets.has(file.path)) {

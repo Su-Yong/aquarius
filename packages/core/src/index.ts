@@ -12,4 +12,5 @@ export type {
   RuleSettings,
   Severity,
 } from "./rules/types";
+
 export { lintRuleFromYaml, formatRuleFromYaml } from "./rules/yaml";

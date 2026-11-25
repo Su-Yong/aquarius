@@ -143,6 +143,63 @@ describe("cumulative provisional analysis", () => {
     expect(snapshots[3]!.fileResults[1]!.status).toBe("pending");
   });
 
+  test("applies omitted review fields and diagnostics as empty deltas", async () => {
+    const policy = await createPolicy();
+    const snapshots: LintAnalysisSnapshot[] = [];
+    const onWarning = vi.fn();
+    const analysis = createLintAnalysis(rules, policy, {
+      onUpdate: (snapshot) => snapshots.push(snapshot),
+      onWarning,
+    });
+
+    analysis.update({
+      type: "aquarius.analysis_update",
+      revision: 1,
+      diagnostics: [{ id: "D1", diagnostic: diagnostic() }],
+      fileResults: [{ path: "a.ts", status: "in_progress" }],
+    });
+    analysis.update({
+      type: "aquarius.analysis_update",
+      revision: 2,
+      ruleResults: [{ ruleId: "fixture/first", status: "completed" }],
+    });
+    analysis.update({ type: "aquarius.analysis_update", revision: 3 });
+    await analysis.flush();
+
+    expect(snapshots.map(({ revision }) => revision)).toEqual([0, 1, 2, 3]);
+    expect(snapshots.at(-1)).toMatchObject({
+      diagnostics: [expect.objectContaining({ message: "A supported violation" })],
+      fileResults: [
+        { path: "a.ts", status: "in_progress", reason: "" },
+        { path: "b.ts", status: "pending", reason: "" },
+      ],
+      ruleResults: [
+        { ruleId: "fixture/first", status: "completed", reason: "" },
+        { ruleId: "fixture/second", status: "pending", reason: "" },
+      ],
+    });
+    expect(onWarning).not.toHaveBeenCalled();
+  });
+
+  test.each(["skipped", "failed"])(
+    "rejects an omitted reason for a %s file or rule review",
+    async (status) => {
+      const policy = await createPolicy();
+      const onUpdate = vi.fn();
+      const onWarning = vi.fn();
+      const analysis = createLintAnalysis(rules, policy, { onUpdate, onWarning });
+
+      analysis.update({ ...update(1), fileResults: [{ path: "a.ts", status }] });
+      analysis.update({ ...update(2), ruleResults: [{ ruleId: "fixture/first", status }] });
+      await analysis.flush();
+
+      const warning =
+        "Ignored a provisional analysis update (INVALID_AI_ITEM): Review reason must not be empty.";
+      expect(onUpdate).toHaveBeenCalledTimes(1);
+      expect(onWarning.mock.calls).toEqual([[warning], [warning]]);
+    },
+  );
+
   test("rejects legacy uncertainty updates without changing the current analysis", async () => {
     const policy = await createPolicy();
     const onUpdate = vi.fn();
@@ -154,7 +211,27 @@ describe("cumulative provisional analysis", () => {
 
     expect(onUpdate).toHaveBeenCalledTimes(1);
     expect(onUpdate.mock.lastCall![0]).not.toHaveProperty("unknowns");
-    expect(onWarning).toHaveBeenCalledWith(expect.stringContaining("INVALID_ANALYSIS_UPDATE"));
+    expect(onWarning).toHaveBeenCalledExactlyOnceWith(
+      "Ignored a provisional analysis update (INVALID_ANALYSIS_UPDATE): provisional analysis update contains unknown field(s): unknowns",
+    );
+  });
+
+  test("reports the field path and reason for an invalid nested diagnostic field", async () => {
+    const policy = await createPolicy();
+    const onUpdate = vi.fn();
+    const onWarning = vi.fn();
+    const analysis = createLintAnalysis(rules, policy, { onUpdate, onWarning });
+    const finding = {
+      ...diagnostic(),
+      locations: [{ path: "a.ts", line: "first", column: 1 }],
+    };
+    analysis.update({ ...update(1), diagnostics: [{ id: "D1", diagnostic: finding }] });
+    await analysis.flush();
+
+    expect(onUpdate).toHaveBeenCalledTimes(1);
+    expect(onWarning).toHaveBeenCalledExactlyOnceWith(
+      "Ignored a provisional analysis update (INVALID_ANALYSIS_UPDATE): diagnostics.0.diagnostic.locations.0.line Invalid input: expected number, received string",
+    );
   });
 
   test("groups equivalent findings and recomputes contributors after a withdrawal", async () => {

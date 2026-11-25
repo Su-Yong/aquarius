@@ -23,6 +23,7 @@ export const runCli = (version: string, args = process.argv.slice(2)): Promise<n
   runToolCli<FormatSnapshotDetails, FormatExecutionResult>(
     {
       name: "aqfmt",
+      kind: "format",
       description: "AI rule-based code transformation",
       help,
       extraOptions: { check: { type: "boolean" }, undo: { type: "boolean" } },

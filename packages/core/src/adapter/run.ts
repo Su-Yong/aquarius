@@ -3,6 +3,8 @@ import { formatDuration, progressText } from "../shared/progress-text";
 
 import type { AdapterExecuteRequest, AdapterSession } from "./types";
 
+const MAX_TIMER_DELAY_MS = 2_147_483_647;
+
 export const executeWithTimeout = async (
   session: AdapterSession,
   request: Omit<AdapterExecuteRequest, "signal">,
@@ -34,9 +36,18 @@ export const executeWithTimeout = async (
 
     controller.abort(new AquariusError("AI_TIMEOUT", timeoutMessage));
   };
-  const timer = setTimeout(handleTimeout, timeoutMs);
-  // The runtime keeps the deadline alive so a pending adapter can return a structured timeout.
-  if (!keepAlive) timer.unref();
+  const scheduleTimeout = (remainingMs: number): NodeJS.Timeout => {
+    // Node turns delays above the signed 32-bit limit into a one-millisecond timeout.
+    const timeout =
+      remainingMs > MAX_TIMER_DELAY_MS
+        ? setTimeout(() => {
+            timer = scheduleTimeout(remainingMs - MAX_TIMER_DELAY_MS);
+          }, MAX_TIMER_DELAY_MS)
+        : setTimeout(handleTimeout, remainingMs);
+    if (!keepAlive) timeout.unref();
+    return timeout;
+  };
+  let timer = scheduleTimeout(timeoutMs);
 
   let settled = false;
   const onProgress = (message: string): void => {

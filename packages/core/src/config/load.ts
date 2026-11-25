@@ -11,10 +11,10 @@ import type { ToolKind } from "../shared/types";
 import { formatConfigSchema, lintConfigSchema } from "./schemas";
 import type { LoadedConfig, ProjectConfig } from "./types";
 
-const CONFIG_NAMES: Record<ToolKind, readonly string[]> = {
+export const CONFIG_NAMES = {
   lint: [".aqlintrc.json", ".aqlintrc.jsonc"],
   format: [".aqfmtrc.json", ".aqfmtrc.jsonc"],
-};
+} as const satisfies Record<ToolKind, readonly string[]>;
 
 const DEFAULT_TIMEOUT_MS = 600_000;
 const WINDOWS_DRIVE_PREFIX = /^[A-Za-z]:\//;
@@ -25,9 +25,7 @@ export const loadConfig = async (
   options: { cwd: string; configPath?: string },
 ): Promise<LoadedConfig> => {
   const cwd = await resolveDirectory(options.cwd);
-  const configPath = options.configPath
-    ? await resolveConfigPath(cwd, options.configPath)
-    : await findConfig(cwd, CONFIG_NAMES[tool]);
+  const configPath = await findProjectConfig(tool, cwd, options.configPath || undefined);
 
   if (!configPath) {
     throw new AquariusError(
@@ -36,9 +34,17 @@ export const loadConfig = async (
     );
   }
 
-  const projectRoot = dirname(configPath);
   const rawConfig = await readConfig(configPath);
-  const config = validateConfig(tool, rawConfig);
+  return normalizeConfig(tool, cwd, validateConfig(tool, rawConfig), configPath);
+};
+
+export const normalizeConfig = (
+  tool: ToolKind,
+  cwd: string,
+  config: ProjectConfig,
+  configPath?: string,
+): LoadedConfig => {
+  const projectRoot = configPath === undefined ? cwd : dirname(configPath);
 
   return {
     tool,
@@ -60,7 +66,7 @@ export const loadConfig = async (
   };
 };
 
-const resolveDirectory = async (directory: string): Promise<string> => {
+export const resolveDirectory = async (directory: string): Promise<string> => {
   const absolute = resolve(directory);
 
   try {
@@ -80,13 +86,20 @@ const resolveDirectory = async (directory: string): Promise<string> => {
   }
 };
 
-const findConfig = async (cwd: string, names: readonly string[]): Promise<string | undefined> => {
+export const findProjectConfig = async (
+  tool: ToolKind,
+  cwd: string,
+  configPath?: string,
+  skip?: (path: string) => Promise<boolean>,
+): Promise<string | undefined> => {
+  if (configPath !== undefined) return resolveConfigPath(cwd, configPath);
+
   let directory = cwd;
 
   while (true) {
-    for (const name of names) {
+    for (const name of CONFIG_NAMES[tool]) {
       const candidate = join(directory, name);
-      if (await pathExists(candidate)) return realpath(candidate);
+      if ((await pathExists(candidate)) && !(await skip?.(candidate))) return realpath(candidate);
     }
 
     const parent = dirname(directory);
@@ -115,7 +128,7 @@ const resolveConfigPath = async (cwd: string, configPath: string): Promise<strin
   }
 };
 
-const readConfig = async (configPath: string): Promise<unknown> => {
+export const readConfig = async (configPath: string): Promise<unknown> => {
   let configText: string;
   try {
     configText = await readFile(configPath, "utf8");
@@ -127,7 +140,10 @@ const readConfig = async (configPath: string): Promise<unknown> => {
   }
 
   const errors: ParseError[] = [];
-  const parsedConfig = parse(configText, errors, { allowTrailingComma: true, disallowComments: false });
+  const parsedConfig = parse(configText, errors, {
+    allowTrailingComma: true,
+    disallowComments: false,
+  });
   if (errors.length > 0) {
     const firstError = errors[0];
     const { line, column } = lineAndColumn(configText, firstError.offset);
@@ -140,7 +156,7 @@ const readConfig = async (configPath: string): Promise<unknown> => {
   return parsedConfig;
 };
 
-const validateConfig = (tool: ToolKind, input: unknown): ProjectConfig => {
+export const validateConfig = (tool: ToolKind, input: unknown): ProjectConfig => {
   const schema = tool === "lint" ? lintConfigSchema : formatConfigSchema;
   const parsed = schema.safeParse(input);
   if (!parsed.success) invalid(formatZodIssues(parsed.error));

@@ -6,7 +6,6 @@ import createIgnore, { type Ignore } from "ignore";
 
 import { AquariusError, errorMessage, isNodeError } from "../shared/errors";
 import { isInside, toPosix } from "../shared/path";
-import type { LoadedConfig } from "../config/types";
 
 import { tryLstat } from "./paths";
 import type { TargetOptions } from "./types";
@@ -42,23 +41,24 @@ export const isDefaultIgnored = (path: string, options: TargetOptions): boolean 
 };
 
 export const loadManualIgnores = async (
-  config: LoadedConfig,
+  { cwd }: { cwd: string },
   options: TargetOptions,
+  baseDirectory?: string,
 ): Promise<IgnoreMatcher[]> => {
   const matchers: IgnoreMatcher[] = [];
 
   for (const ignorePath of options.ignorePaths ?? []) {
-    const path = resolve(config.cwd, ignorePath);
+    const path = resolve(cwd, ignorePath);
     const text = await readOptionalFile(path, true);
     if (text !== undefined) {
-      const baseDirectory = await realpath(dirname(path));
+      const ignoreDirectory = baseDirectory ?? (await realpath(dirname(path)));
       const patterns = splitPatterns(text);
-      matchers.push(createMatcher(baseDirectory, patterns));
+      matchers.push(createMatcher(ignoreDirectory, patterns));
     }
   }
 
   if (options.ignorePatterns?.length) {
-    matchers.push(createMatcher(config.cwd, options.ignorePatterns));
+    matchers.push(createMatcher(baseDirectory ?? cwd, options.ignorePatterns));
   }
 
   return matchers;
@@ -76,25 +76,100 @@ export const loadGitInfoExclude = async (
     : dotGit;
   if (gitDirectory === undefined) return undefined;
 
-  const excludePath = join(gitDirectory, "info", "exclude");
-  const text = await readOptionalFile(excludePath, false);
-  return text === undefined ? undefined : createMatcher(projectRoot, splitPatterns(text));
+  return readGitInfoExclude(projectRoot, gitDirectory);
 };
 
-export const loadGitignoreMatchers = async (projectRoot: string): Promise<IgnoreMatcher[]> => {
+export const loadGitignoreMatchers = async (
+  projectRoot: string,
+  ignore = vcsIgnoreGlobs,
+): Promise<IgnoreMatcher[]> =>
+  readGitignoreMatchers(projectRoot, await discoverGitignorePaths(projectRoot, ignore));
+
+export const loadExtractionGitignoreMatchers = async (
+  sourceRoot: string,
+  home: string,
+  ignore: string[],
+): Promise<IgnoreMatcher[]> => {
+  const repository = await findEnclosingGitRepository(sourceRoot, home);
+  if (!repository) return loadGitignoreMatchers(sourceRoot, ignore);
+
+  const { root, gitDirectory, ancestorDirectories } = repository;
+  const [excludes, localPaths, ancestorPaths] = await Promise.all([
+    readGitInfoExclude(root, gitDirectory),
+    discoverGitignorePaths(sourceRoot, ignore),
+    existingGitignorePaths(ancestorDirectories),
+  ]);
+  const gitignores = await readGitignoreMatchers(root, [...ancestorPaths, ...localPaths]);
+
+  return excludes ? [excludes, ...gitignores] : gitignores;
+};
+
+const findEnclosingGitRepository = async (sourceRoot: string, home: string) => {
+  const ancestorDirectories: string[] = [];
+  let root = sourceRoot;
+  while (dirname(root) !== root && (root === home || !isInside(root, home))) {
+    const dotGit = join(root, ".git");
+    const marker = await tryLstat(dotGit);
+    if (marker?.isDirectory()) return { root, gitDirectory: dotGit, ancestorDirectories };
+    if (marker?.isFile()) {
+      const gitDirectory = resolveGitDirectory(root, await readFile(dotGit, "utf8"));
+      if (gitDirectory !== undefined) {
+        const commonDirectory = (
+          await readOptionalFile(join(gitDirectory, "commondir"), false)
+        )?.trim();
+        return {
+          root,
+          gitDirectory: commonDirectory ? resolve(gitDirectory, commonDirectory) : gitDirectory,
+          ancestorDirectories,
+        };
+      }
+    }
+
+    if (root === home) break;
+    root = dirname(root);
+    ancestorDirectories.push(root);
+  }
+  return undefined;
+};
+
+const readGitInfoExclude = async (
+  root: string,
+  gitDirectory: string,
+): Promise<IgnoreMatcher | undefined> => {
+  const text = await readOptionalFile(join(gitDirectory, "info", "exclude"), false);
+  return text === undefined ? undefined : createMatcher(root, splitPatterns(text));
+};
+
+const discoverGitignorePaths = async (projectRoot: string, ignore: string[]): Promise<string[]> => {
   const paths = await globby("**/.gitignore", {
     cwd: projectRoot,
     absolute: true,
     dot: true,
     followSymbolicLinks: false,
     gitignore: false,
-    ignore: vcsIgnoreGlobs,
+    ignore,
     onlyFiles: true,
   });
   const rootIgnore = join(projectRoot, ".gitignore");
   if (await tryLstat(rootIgnore)) paths.push(rootIgnore);
+  return paths;
+};
 
-  const uniqueIgnorePaths = [...new Set(paths)].sort(
+const existingGitignorePaths = async (directories: readonly string[]): Promise<string[]> => {
+  const paths = await Promise.all(
+    directories.map(async (directory) => {
+      const path = join(directory, ".gitignore");
+      return (await tryLstat(path)) ? path : undefined;
+    }),
+  );
+  return paths.filter((path) => path !== undefined);
+};
+
+const readGitignoreMatchers = async (
+  projectRoot: string,
+  paths: readonly string[],
+): Promise<IgnoreMatcher[]> => {
+  const uniqueIgnorePaths = [...new Set(paths.map((path) => resolve(path)))].sort(
     (left, right) => left.split(sep).length - right.split(sep).length,
   );
 

@@ -19,6 +19,7 @@ export const runCli = (version: string, args = process.argv.slice(2)): Promise<n
   runToolCli<LintFindings, LintExecutionResult>(
     {
       name: "aqlint",
+      kind: "lint",
       description: "AI rule-based diagnostics",
       help,
       execute: (options) => executeLint(options),

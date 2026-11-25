@@ -1,0 +1,47 @@
+{
+  "files": ["packages/aqlint/src/**/*.ts"],
+  "ai": {
+    "adapter": "@aquarius/codex",
+    "timeoutMs": 1800000,
+    "options": {
+      "ephemeral": false,
+      "model": "gpt-6.1-sol",
+      "reasoning": { "effort": "medium" }
+    }
+  },
+  "plugins": ["@aquarius/rules"],
+  "preset": [],
+  "rules": {
+    "aquarius/contracts/no-input-mutation": [
+      "error",
+      { "allowOwnershipTransfer": false }
+    ],
+    "aquarius/architecture/use-public-entry": [
+      "warn",
+      { "allowDocumentedException": false }
+    ],
+    "aquarius/resource/release-on-exit": [
+      "error",
+      { "allowOwnershipTransfer": false }
+    ],
+    "aquarius/architecture/enforce-layer-direction": [
+      "warn",
+      {
+        "layers": {
+          "cli": ["packages/aqlint/src/cli.ts", "packages/aqlint/src/cli/**"],
+          "lint": ["packages/aqlint/src/lint/**"],
+          "core": ["packages/core/src/**"]
+        },
+        "allowedDependencies": {
+          "cli": ["lint", "core"],
+          "lint": ["core"],
+          "core": []
+        }
+      }
+    ],
+    "aquarius/architecture/no-dependency-cycles": "warn",
+    "aquarius/module/explicit-public-api": "warn",
+    "aquarius/error/no-failure-as-success": "error",
+    "function/explicit-input-output": "error"
+  }
+}

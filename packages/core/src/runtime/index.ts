@@ -19,6 +19,11 @@ export { importProjectModule } from "../shared/modules";
 export { selectTargets } from "../files/targets";
 export { resolveAdapter } from "../adapter/resolve";
 export { executeWithTimeout } from "../adapter/run";
+export {
+  extractConfig,
+  type ExtractConfigOptions,
+  type ExtractConfigResult,
+} from "../extract/index";
 export { buildRuleResources } from "../adapter/rule-resources";
 export { buildTaskPrompt } from "../execution/prompt";
 export { createAnalysisState } from "../execution/analysis";

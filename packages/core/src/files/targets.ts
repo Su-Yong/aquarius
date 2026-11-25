@@ -99,13 +99,16 @@ export const selectTargets = async (
   };
 };
 
-const discoverFiles = async (projectRoot: string): Promise<string[]> => {
+export const discoverFiles = async (
+  projectRoot: string,
+  ignore = vcsIgnoreGlobs,
+): Promise<string[]> => {
   const discoveryOptions = {
     cwd: projectRoot,
     dot: true,
     followSymbolicLinks: false,
     gitignore: false,
-    ignore: vcsIgnoreGlobs,
+    ignore,
     onlyFiles: true,
   };
 

@@ -17,7 +17,9 @@ import {
 } from "./schemas";
 import type {
   ActiveSeverity,
+  FormatInstructions,
   FormatRule,
+  LintInstructions,
   LintRule,
   PreparedRules,
   RulePlugin,
@@ -35,26 +37,10 @@ export const prepareRules = async (
   config: LoadedConfig,
   suppliedPlugins: Record<string, RulePlugin> = {},
 ): Promise<PreparedRules> => {
-  const errors: RunError[] = [];
-  const lintRules = new Map<string, LintRule>();
-  const formatRules = new Map<string, FormatRule>();
-  const plugins = new Map<string, RulePlugin>();
-
-  for (const specifier of config.plugins) {
-    let plugin: RulePlugin;
-    try {
-      plugin = Object.hasOwn(suppliedPlugins, specifier)
-        ? suppliedPlugins[specifier]!
-        : ((await importProjectModule(specifier, config.configDirectory)) as RulePlugin);
-    } catch (error) {
-      errors.push(
-        runError("PLUGIN_LOAD_FAILED", `Cannot load plugin ${specifier}: ${errorMessage(error)}`),
-      );
-      continue;
-    }
-
-    registerPlugin(specifier, plugin, plugins, lintRules, formatRules, errors);
-  }
+  const { errors, lintRules, formatRules, plugins } = await loadRulePlugins(
+    config,
+    suppliedPlugins,
+  );
 
   const sources: { name: string; rules: Record<string, unknown> }[] = [];
   for (const reference of config.preset) {
@@ -137,10 +123,11 @@ export const prepareRules = async (
     }
 
     try {
-      const options = prepareOptions(selection.definition, selection.options);
-      const instructions = await selection.definition.buildPrompt({ options: deepFreeze(options) });
-
-      validateInstructions(config.tool, instructions);
+      const instructions = await prepareRuleInstructions(
+        config.tool,
+        selection.definition,
+        selection.options,
+      );
       prepared.push({
         id,
         scope: selection.definition.scope,
@@ -161,7 +148,37 @@ export const prepareRules = async (
   return { rules: prepared, errors };
 };
 
-const resolveRuleSetting = (setting: RuleSetting): Omit<SelectedRule, "definition"> => {
+export const loadRulePlugins = async (
+  config: LoadedConfig,
+  suppliedPlugins: Record<string, RulePlugin> = {},
+) => {
+  const errors: RunError[] = [];
+  const lintRules = new Map<string, LintRule>();
+  const formatRules = new Map<string, FormatRule>();
+  const plugins = new Map<string, RulePlugin>();
+  const modules = new Map<string, RulePlugin>();
+
+  for (const specifier of config.plugins) {
+    let plugin: RulePlugin;
+    try {
+      plugin = Object.hasOwn(suppliedPlugins, specifier)
+        ? suppliedPlugins[specifier]!
+        : ((await importProjectModule(specifier, config.configDirectory)) as RulePlugin);
+    } catch (error) {
+      errors.push(
+        runError("PLUGIN_LOAD_FAILED", `Cannot load plugin ${specifier}: ${errorMessage(error)}`),
+      );
+      continue;
+    }
+
+    modules.set(specifier, plugin);
+    registerPlugin(specifier, plugin, plugins, lintRules, formatRules, errors);
+  }
+
+  return { errors, lintRules, formatRules, plugins, modules };
+};
+
+export const resolveRuleSetting = (setting: RuleSetting): Omit<SelectedRule, "definition"> => {
   if (typeof setting === "string" || Array.isArray(setting)) {
     const level = typeof setting === "string" ? setting : setting[0];
     const enabled = level !== "off";
@@ -220,8 +237,7 @@ const registerRuleList = <T extends LintRule | FormatRule>(
 
   const schema = kind === "lint" ? lintRuleSchema : formatRuleSchema;
   for (const candidate of input) {
-    const hasCandidateId =
-      typeof candidate === "object" && candidate !== null && "id" in candidate;
+    const hasCandidateId = typeof candidate === "object" && candidate !== null && "id" in candidate;
     const candidateId = hasCandidateId ? candidate.id : undefined;
     const id = typeof candidateId === "string" ? `${namespace}/${candidateId}` : namespace;
 
@@ -244,7 +260,18 @@ const registerRuleList = <T extends LintRule | FormatRule>(
   }
 };
 
-const prepareOptions = (rule: LintRule | FormatRule, selected: JsonObject): JsonObject => {
+export const prepareRuleInstructions = async (
+  tool: LoadedConfig["tool"],
+  rule: LintRule | FormatRule,
+  selectedOptions: JsonObject,
+): Promise<LintInstructions | FormatInstructions> => {
+  const options = prepareOptions(rule, selectedOptions);
+  const instructions = await rule.buildPrompt({ options: deepFreeze(options) });
+  validateInstructions(tool, instructions);
+  return instructions;
+};
+
+export const prepareOptions = (rule: LintRule | FormatRule, selected: JsonObject): JsonObject => {
   if (!rule.optionsSchema) {
     if (Object.keys(selected).length > 0) {
       throw new RulePreparationError("RULE_OPTIONS_INVALID", "rule does not declare options");
@@ -266,7 +293,7 @@ const prepareOptions = (rule: LintRule | FormatRule, selected: JsonObject): Json
   return selected;
 };
 
-const deepMerge = (defaults: JsonObject, selected: JsonObject): JsonObject => {
+export const deepMerge = (defaults: JsonObject, selected: JsonObject): JsonObject => {
   const keys = new Set([...Object.keys(defaults), ...Object.keys(selected)]);
 
   const mergeEntry = (key: string): [string, unknown] => {

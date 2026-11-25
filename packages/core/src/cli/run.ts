@@ -3,8 +3,10 @@ import { parseArgs, type ParseArgsOptionsConfig } from "node:util";
 import { errorMessage } from "../shared/errors";
 import type { AdapterRunInfo } from "../adapter/types";
 import type { AnalysisSnapshot, ToolExecutionOptions } from "../execution/types";
+import type { ToolKind } from "../shared/types";
 
 import { printAnalysisSnapshot } from "./analysis-output";
+import { findExtractConfigCommand, runExtractConfigCli } from "./extract-config";
 import { formatAdapterRunInfo, safeText } from "./output";
 import { startProgress, statusText, type ProgressLine } from "./progress";
 
@@ -12,6 +14,7 @@ type OptionValues = Record<string, string | boolean | string[] | boolean[] | und
 
 interface CliTool<Details extends object, Execution> {
   name: string;
+  kind?: ToolKind;
   description: string;
   help: string;
   extraOptions?: ParseArgsOptionsConfig;
@@ -66,6 +69,13 @@ export const runToolCli = async <
 
   let parsed: ReturnType<typeof parseCliArgs>;
   try {
+    if (tool.kind) {
+      const command = findExtractConfigCommand(args, { ...tool.extraOptions, ...commonOptions });
+      if (command !== undefined) {
+        const extractArgs = [...args.slice(0, command), ...args.slice(command + 1)];
+        return await runExtractConfigCli(tool.name, tool.kind, extractArgs);
+      }
+    }
     parsed = parseCliArgs(args, tool.extraOptions);
   } catch (cause) {
     reportError(cause);
@@ -76,8 +86,11 @@ export const runToolCli = async <
   const { values, positionals } = parsed;
   if (values.help) {
     const options = tool.extraHelp ? `${commonHelp}\n${tool.extraHelp}` : commonHelp;
+    const extractHelp = tool.kind
+      ? `\n       ${tool.name} extract-config [options] [PATH...]\n\nRun ${tool.name} extract-config --help to see the configuration extraction options.`
+      : "";
     console.log(
-      `${tool.name} — ${tool.description}\n\nUsage: ${tool.name} [options] [PATH...]\n\n${options}\n\n${tool.help}`,
+      `${tool.name} — ${tool.description}\n\nUsage: ${tool.name} [options] [PATH...]${extractHelp}\n\n${options}\n\n${tool.help}`,
     );
     return 0;
   }

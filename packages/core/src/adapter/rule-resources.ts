@@ -106,7 +106,7 @@ export const writeRuleResources = async (
   return files.map(({ detailsPath }) => detailsPath);
 };
 
-const hashContent = (content: string): string => {
+export const hashContent = (content: string): string => {
   const hash = createHash("sha256");
   return hash.update(content).digest("hex");
 };

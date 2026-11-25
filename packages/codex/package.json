@@ -1,0 +1,35 @@
+{
+  "name": "@aquarius/codex",
+  "version": "0.1.0",
+  "description": "Read-only Codex CLI adapter for Aquarius",
+  "type": "module",
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "node": ">=24.11.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Su-Yong/aquarius.git",
+    "directory": "packages/codex"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.mjs"
+    }
+  },
+  "scripts": {
+    "build": "tsdown",
+    "typecheck": "tsc --project tsconfig.json --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@aquarius/core": "workspace:*",
+    "zod": "4.6.7"
+  }
+}

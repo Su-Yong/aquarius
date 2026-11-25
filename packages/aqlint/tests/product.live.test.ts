@@ -26,7 +26,7 @@ liveTest(
           files: ["lint/**"],
           ignore: ["ignored/**"],
           plugins: ["@aquarius/rules"],
-          ai: { adapter: "codex" },
+          ai: { adapter: "@aquarius/codex" },
           rules: {
             "aquarius/contracts/no-input-mutation": ["error", { allowOwnershipTransfer: false }],
           },

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { checkCompletion, references } from "../src/ai/results";
+import { checkCompletion, references } from "../src/execution/results";
 import type { RunError } from "../src/shared/types";
 
 const known = new Set(["fixture/checked", "fixture/skipped", "fixture/failed"]);

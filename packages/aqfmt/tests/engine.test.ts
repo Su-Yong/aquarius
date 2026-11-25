@@ -8,7 +8,9 @@ import { executeFormat } from "../src/format/execute";
 import { runCli } from "../src/cli/run";
 import { printHuman } from "../src/cli/output";
 
-import type { AiBridge, BridgeInput, RulePlugin, RuleReference } from "@aquarius/core/internal";
+import type { AiAdapter, AdapterExecuteRequest } from "@aquarius/core/runtime";
+import type { RulePlugin } from "@aquarius/core";
+import type { RuleReference } from "@aquarius/core/runtime";
 import type { FileChange, FormatResult, FormatWarning } from "../src/format/types";
 
 const roots: string[] = [];
@@ -70,8 +72,23 @@ const formatReply = () => {
   };
 };
 
-const bridge = (result: unknown): AiBridge => {
-  return { id: "fixture", run: vi.fn(async () => result) };
+const adapter = (result: unknown) => ({
+  id: "fixture",
+  run: vi.fn(async (_input: AdapterExecuteRequest) => result),
+});
+
+const fixtureModule = "./fixture.mjs";
+const cliProject = async (extra: Record<string, unknown> = {}): Promise<string> => {
+  const root = await project("format", { plugins: [fixtureModule], ...extra });
+  const rule = plugin.formatRules![0]!;
+  await writeFile(
+    join(root, fixtureModule),
+    `export default { namespace: "fixture", formatRules: [{
+      ...${JSON.stringify(rule)},
+      buildPrompt: ${rule.buildPrompt.toString()},
+    }] };`,
+  );
+  return root;
 };
 
 afterEach(async () => {
@@ -88,7 +105,10 @@ afterEach(async () => {
 
 test("requires an explicit AI adapter before transforming files", async () => {
   const root = await project("format");
-  const run = await executeFormat({ cwd: root }, { fixture: plugin });
+  const run = await executeFormat({
+    cwd: root,
+    plugins: { fixture: plugin },
+  });
   expect(run.exitCode).toBe(2);
   expect(run.result.errors).toEqual([
     expect.objectContaining({
@@ -102,7 +122,7 @@ test("requires an explicit AI adapter before transforming files", async () => {
 test("accepts reference warnings outside target patterns and keeps writes in scope", async () => {
   const root = await project("format", { ignore: ["README.md"] });
   await writeFile(join(root, "README.md"), "Project contract\n");
-  const ai = bridge({
+  const ai = adapter({
     ...formatReply(),
     warnings: [
       {
@@ -113,11 +133,14 @@ test("accepts reference warnings outside target patterns and keeps writes in sco
       },
     ],
   });
-  const execution = await executeFormat({ cwd: root }, { fixture: plugin }, ai);
+  const execution = await executeFormat({
+    cwd: root,
+    plugins: { fixture: plugin },
+    adapter: ai,
+  });
 
   const input = vi.mocked(ai.run).mock.calls[0]![0];
   expect(input.readableFiles).toEqual([".aqfmtrc.jsonc", "README.md", "src/sample.any"]);
-  expect(input.ignore).toEqual([]);
   expect(execution.exitCode).toBe(0);
   expect(execution.result.errors).toEqual([]);
   expect(execution.result.warnings).toContainEqual(
@@ -161,7 +184,7 @@ test("human CLI preserves execution error rule IDs", () => {
 });
 
 test("human CLI preserves warning rules and paths", async () => {
-  const root = await project("format", { ai: { adapter: "./bridge.mjs" } });
+  const root = await cliProject({ ai: { adapter: "./adapter.mjs" } });
   const reply = {
     ...formatReply(),
     changes: [],
@@ -175,14 +198,14 @@ test("human CLI preserves warning rules and paths", async () => {
     ],
   };
   await writeFile(
-    join(root, "bridge.mjs"),
+    join(root, "adapter.mjs"),
     `export default { id: "fixture", run: async () => (${JSON.stringify(reply)}) };`,
   );
   const cwd = vi.spyOn(process, "cwd").mockReturnValue(root);
   const logs = vi.spyOn(console, "log").mockImplementation(() => {});
   const errors = vi.spyOn(console, "error").mockImplementation(() => {});
   try {
-    expect(await runCli("0.1.0", { fixture: plugin }, [])).toBe(0);
+    expect(await runCli("0.1.0", [])).toBe(0);
     const output = errors.mock.calls.flat().join("\n");
     expect(output).toContain("fixture/format");
     expect(output).toContain("src/sample.any");
@@ -193,15 +216,15 @@ test("human CLI preserves warning rules and paths", async () => {
   }
 });
 
-test("JSON output stays machine-readable while progress is written to stderr", async () => {
-  const root = await project("format", { rules: {} });
+test("JSON output contains the result and suppresses terminal progress", async () => {
+  const root = await project("format", { plugins: [], rules: {} });
   const cwd = vi.spyOn(process, "cwd").mockReturnValue(root);
   const logs = vi.spyOn(console, "log").mockImplementation(() => {});
   const writes = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
   const tty = Object.getOwnPropertyDescriptor(process.stderr, "isTTY");
   Object.defineProperty(process.stderr, "isTTY", { configurable: true, value: true });
   try {
-    expect(await runCli("0.1.0", { fixture: plugin }, ["--format", "json"])).toBe(0);
+    expect(await runCli("0.1.0", ["--format", "json"])).toBe(0);
     expect(JSON.parse(String(logs.mock.calls[0]?.[0]))).toEqual({
       changedFiles: [],
       proposedFiles: [],
@@ -217,9 +240,7 @@ test("JSON output stays machine-readable while progress is written to stderr", a
         activeRules: 0,
       },
     });
-    expect(writes.mock.calls.some(([text]) => String(text).includes("[00:00] Preparing"))).toBe(
-      true,
-    );
+    expect(writes).not.toHaveBeenCalled();
   } finally {
     if (tty) Object.defineProperty(process.stderr, "isTTY", tty);
     else Reflect.deleteProperty(process.stderr, "isTTY");
@@ -229,21 +250,19 @@ test("JSON output stays machine-readable while progress is written to stderr", a
   }
 });
 
-test("cache warnings use stderr while JSON formatting remains successful", async () => {
-  const root = await project("format", { ai: { adapter: "./bridge.mjs" } });
+test("loads memory rule resources with a project adapter and leaves a blocked cache untouched", async () => {
+  const root = await cliProject({ ai: { adapter: "./adapter.mjs" } });
   await mkdir(join(root, "node_modules"));
   await writeFile(join(root, "node_modules", ".cache"), "This is not a cache directory.");
   const reply = { ...formatReply(), changes: [] };
   await writeFile(
-    join(root, "bridge.mjs"),
+    join(root, "adapter.mjs"),
     [
-      'import { readFile } from "node:fs/promises";',
-      'import { join } from "node:path";',
       "export default {",
       '  id: "fixture",',
       "  async run(input) {",
-      "    for (const file of input.ruleResources.files) {",
-      '      await readFile(join(input.ruleResources.directory, file.detailsPath), "utf8");',
+      "    for (const file of input.ruleResources) {",
+      '      if (JSON.parse(file.content).ruleId !== file.ruleId) throw new Error("Invalid details.");',
       "    }",
       `    return ${JSON.stringify(reply)};`,
       "  },",
@@ -254,9 +273,10 @@ test("cache warnings use stderr while JSON formatting remains successful", async
   const logs = vi.spyOn(console, "log").mockImplementation(() => {});
   const errors = vi.spyOn(console, "error").mockImplementation(() => {});
   try {
-    expect(await runCli("0.1.0", { fixture: plugin }, ["--format", "json"])).toBe(0);
+    expect(await runCli("0.1.0", ["--format", "json"])).toBe(0);
     expect(logs).toHaveBeenCalledTimes(1);
     expect(JSON.parse(String(logs.mock.calls[0]?.[0]))).toEqual({
+      ai: { adapter: "fixture" },
       changedFiles: [],
       proposedFiles: [],
       skippedRules: [],
@@ -271,7 +291,10 @@ test("cache warnings use stderr while JSON formatting remains successful", async
         activeRules: 1,
       },
     });
-    expect(errors.mock.calls.flat().join("\n")).toContain("aqfmt:");
+    expect(errors).not.toHaveBeenCalled();
+    expect(await readFile(join(root, "node_modules", ".cache"), "utf8")).toBe(
+      "This is not a cache directory.",
+    );
     expect(await readFile(join(root, "src/sample.any"), "utf8")).toBe(original);
   } finally {
     cwd.mockRestore();
@@ -296,9 +319,13 @@ describe("format execution", () => {
         },
       ],
     };
-    const ai = bridge(formatReply());
+    const ai = adapter(formatReply());
 
-    const execution = await executeFormat({ cwd: root }, { fixture: configuredPlugin }, ai);
+    const execution = await executeFormat({
+      cwd: root,
+      plugins: { fixture: configuredPlugin },
+      adapter: ai,
+    });
 
     expect(execution.exitCode).toBe(2);
     expect(execution.result.errors).toContainEqual(
@@ -333,9 +360,13 @@ describe("format execution", () => {
         all: { "fixture/lint": "warn", "fixture/format": true },
       },
     };
-    const ai = bridge(formatReply());
+    const ai = adapter(formatReply());
 
-    const execution = await executeFormat({ cwd: root }, { fixture: mixedPlugin }, ai);
+    const execution = await executeFormat({
+      cwd: root,
+      plugins: { fixture: mixedPlugin },
+      adapter: ai,
+    });
 
     expect(execution.exitCode).toBe(0);
     expect(execution.result.errors).toEqual([]);
@@ -343,15 +374,19 @@ describe("format execution", () => {
     expect(lintPrompt).not.toHaveBeenCalled();
     expect(ai.run).toHaveBeenCalledTimes(1);
     const input = vi.mocked(ai.run).mock.calls[0]![0];
-    expect(input.ruleResources.files.map(({ ruleId }) => ruleId)).toEqual(["fixture/format"]);
+    expect(input.ruleResources.map(({ ruleId }) => ruleId)).toEqual(["fixture/format"]);
     expect(await readFile(join(root, "src/sample.any"), "utf8")).toBe(replacement);
   });
 
   test("reports an unknown preset without invoking AI", async () => {
     const root = await project("format", { preset: ["fixture/missing"], rules: {} });
-    const ai = bridge(formatReply());
+    const ai = adapter(formatReply());
 
-    const execution = await executeFormat({ cwd: root }, { fixture: plugin }, ai);
+    const execution = await executeFormat({
+      cwd: root,
+      plugins: { fixture: plugin },
+      adapter: ai,
+    });
 
     expect(execution.exitCode).toBe(2);
     expect(execution.result.errors).toContainEqual(
@@ -383,13 +418,14 @@ describe("format execution", () => {
           },
         ],
       };
-      const ai = bridge(formatReply());
+      const ai = adapter(formatReply());
 
-      const execution = await executeFormat(
-        { cwd: root, check },
-        { fixture: partiallyValidPlugin },
-        ai,
-      );
+      const execution = await executeFormat({
+        cwd: root,
+        check,
+        plugins: { fixture: partiallyValidPlugin },
+        adapter: ai,
+      });
 
       expect(execution.exitCode).toBe(2);
       expect(execution.result.errors).toEqual([
@@ -413,7 +449,7 @@ describe("format execution", () => {
     },
   );
 
-  test("passes ordered rule references with complete readable details and disposes them", async () => {
+  test("passes ordered rule references with complete in-memory details", async () => {
     const root = await project("format", {
       rules: { "fixture/second": true, "fixture/first": true },
     });
@@ -430,11 +466,9 @@ describe("format execution", () => {
         }),
       })),
     };
-    let resourcesDirectory: string | undefined;
-    const ai: AiBridge = {
+    const ai: AiAdapter = {
       id: "read-details",
       async run(input) {
-        resourcesDirectory = input.ruleResources.directory;
         const metadata = JSON.parse(input.prompt.split("\n\n").at(-1)!) as {
           rules: RuleReference[];
         };
@@ -444,10 +478,8 @@ describe("format execution", () => {
         ]);
         expect(input.prompt).toContain("Later rules take precedence");
         expect(input.prompt).not.toContain("Detailed transformation");
-        for (const [index, file] of input.ruleResources.files.entries()) {
-          const detail = JSON.parse(
-            await readFile(join(input.ruleResources.directory, file.detailsPath), "utf8"),
-          );
+        for (const [index, file] of input.ruleResources.entries()) {
+          const detail = JSON.parse(file.content);
           expect(metadata.rules[index]).toEqual({
             ruleId: file.ruleId,
             scope: file.scope,
@@ -469,52 +501,55 @@ describe("format execution", () => {
       },
     };
 
-    const execution = await executeFormat({ cwd: root }, { fixture: orderedPlugin }, ai);
+    const execution = await executeFormat({
+      cwd: root,
+      plugins: { fixture: orderedPlugin },
+      adapter: ai,
+    });
     expect(execution.exitCode).toBe(0);
-    expect(resourcesDirectory).toBeDefined();
-    await expect(access(resourcesDirectory!)).rejects.toMatchObject({ code: "ENOENT" });
     await expect(access(join(root, "node_modules"))).rejects.toMatchObject({ code: "ENOENT" });
   });
 
   test.each(["rejection", "timeout", "abort", "invalid-response"] as const)(
-    "disposes rule resources after an adapter %s without writing files",
+    "disposes the session after an adapter %s without writing files",
     async (failure) => {
-      const root = await project("format", { ai: { adapter: "codex", timeoutMs: 25 } });
+      const root = await project("format", { ai: { adapter: "@aquarius/codex", timeoutMs: 25 } });
       const controller = new AbortController();
-      let resourcesDirectory: string | undefined;
-      const ai: AiBridge = {
-        id: "failing",
-        async run(input: BridgeInput) {
-          resourcesDirectory = input.ruleResources.directory;
-          await access(resourcesDirectory);
-          if (failure === "rejection") {
-            throw new Error("Adapter failed while reading rule details.");
-          }
-          if (failure === "invalid-response") {
-            return { changes: [] };
-          }
-          if (failure === "abort") {
-            controller.abort();
-            return formatReply();
-          }
-          return new Promise<never>((_resolve, reject) => {
-            input.signal.addEventListener("abort", () => reject(new Error("Request stopped.")), {
-              once: true,
-            });
+      const dispose = vi.fn();
+      const execute = vi.fn(async (input: AdapterExecuteRequest) => {
+        expect(input.ruleResources).toHaveLength(1);
+        if (failure === "rejection") {
+          throw new Error("Adapter failed while reading rule details.");
+        }
+        if (failure === "invalid-response") {
+          return { changes: [] };
+        }
+        if (failure === "abort") {
+          controller.abort();
+          return formatReply();
+        }
+        return new Promise<never>((_resolve, reject) => {
+          input.signal.addEventListener("abort", () => reject(new Error("Request stopped.")), {
+            once: true,
           });
-        },
+        });
+      });
+      const ai: AiAdapter = {
+        id: "failing",
+        createSession: () => ({ execute, dispose }),
       };
 
-      const execution = await executeFormat(
-        { cwd: root, signal: controller.signal },
-        { fixture: plugin },
-        ai,
-      );
+      const execution = await executeFormat({
+        cwd: root,
+        signal: controller.signal,
+        plugins: { fixture: plugin },
+        adapter: ai,
+      });
       expect(execution.exitCode).toBe(failure === "abort" ? 130 : 2);
       expect(execution.result.errors.length).toBeGreaterThan(0);
       expect(execution.result.changedFiles).toEqual([]);
-      expect(resourcesDirectory).toBeDefined();
-      await expect(access(resourcesDirectory!)).rejects.toMatchObject({ code: "ENOENT" });
+      expect(execute).toHaveBeenCalledTimes(1);
+      expect(dispose).toHaveBeenCalledTimes(1);
       expect(await readFile(join(root, "src/sample.any"), "utf8")).toBe(original);
     },
   );
@@ -522,11 +557,11 @@ describe("format execution", () => {
   test("returns confirmed inapplicable rules without treating them as errors", async () => {
     const root = await project("format");
     const skippedRules = [{ ruleId: "fixture/format", reason: "No applicable branch exists." }];
-    const execution = await executeFormat(
-      { cwd: root },
-      { fixture: plugin },
-      bridge({ ...formatReply(), completedRuleIds: [], skippedRules, changes: [] }),
-    );
+    const execution = await executeFormat({
+      cwd: root,
+      plugins: { fixture: plugin },
+      adapter: adapter({ ...formatReply(), completedRuleIds: [], skippedRules, changes: [] }),
+    });
     expect(execution.exitCode).toBe(0);
     expect(execution.result.skippedRules).toEqual(skippedRules);
     expect(execution.result.errors).toEqual([]);
@@ -535,10 +570,10 @@ describe("format execution", () => {
 
   test("does not apply changes when reading rule details failed", async () => {
     const root = await project("format");
-    const execution = await executeFormat(
-      { cwd: root },
-      { fixture: plugin },
-      bridge({
+    const execution = await executeFormat({
+      cwd: root,
+      plugins: { fixture: plugin },
+      adapter: adapter({
         ...formatReply(),
         completedRuleIds: [],
         errors: [
@@ -549,7 +584,7 @@ describe("format execution", () => {
           },
         ],
       }),
-    );
+    });
     expect(execution.exitCode).toBe(2);
     expect(execution.result.errors).toContainEqual(
       expect.objectContaining({ code: "RULE_RESOURCE_READ_FAILED" }),
@@ -567,10 +602,10 @@ describe("format execution", () => {
         formatRules: [{ ...plugin.formatRules![0]!, scope: "module" }],
       };
       let internalPath: string | undefined;
-      const ai: AiBridge = {
+      const ai: AiAdapter = {
         id: "internal-path",
         async run(input) {
-          const resourceDirectory = input.ruleResources.files[0]!.detailsPath.split("/")[0]!;
+          const resourceDirectory = input.ruleResources[0]!.detailsPath.split("/")[0]!;
           internalPath = `${resourceDirectory}/unexpected.any`;
           const changes: FileChange[] = [];
           const warnings: FormatWarning[] = [];
@@ -613,7 +648,11 @@ describe("format execution", () => {
         },
       };
 
-      const execution = await executeFormat({ cwd: root }, { fixture: modulePlugin }, ai);
+      const execution = await executeFormat({
+        cwd: root,
+        plugins: { fixture: modulePlugin },
+        adapter: ai,
+      });
       expect(execution.exitCode).toBe(2);
       expect(execution.result.errors.length).toBeGreaterThan(0);
       expect(execution.result.errors).toContainEqual(
@@ -642,9 +681,13 @@ describe("format execution", () => {
       ...plugin,
       formatRules: [{ ...plugin.formatRules![0]!, buildPrompt }],
     };
-    const ai = bridge(formatReply());
+    const ai = adapter(formatReply());
 
-    const execution = await executeFormat({ cwd: root }, { fixture: observedPlugin }, ai);
+    const execution = await executeFormat({
+      cwd: root,
+      plugins: { fixture: observedPlugin },
+      adapter: ai,
+    });
 
     expect(execution.exitCode).toBe(0);
     expect(execution.result.errors).toEqual([]);
@@ -668,18 +711,21 @@ describe("format execution", () => {
 
   test("validates explicit target paths even when no rules are active", async () => {
     const root = await project("format", { rules: {} });
-    const ai = bridge(formatReply());
+    const ai = adapter(formatReply());
 
-    const rejected = await executeFormat(
-      { cwd: root, paths: ["missing.any"] },
-      { fixture: plugin },
-      ai,
-    );
-    const allowed = await executeFormat(
-      { cwd: root, paths: ["missing.any"], noErrorOnUnmatchedPattern: true },
-      { fixture: plugin },
-      ai,
-    );
+    const rejected = await executeFormat({
+      cwd: root,
+      paths: ["missing.any"],
+      plugins: { fixture: plugin },
+      adapter: ai,
+    });
+    const allowed = await executeFormat({
+      cwd: root,
+      paths: ["missing.any"],
+      noErrorOnUnmatchedPattern: true,
+      plugins: { fixture: plugin },
+      adapter: ai,
+    });
 
     expect(rejected.exitCode).toBe(2);
     expect(rejected.result.errors).toContainEqual(
@@ -696,35 +742,37 @@ describe("format execution", () => {
   test("reports actual formatting stages in check mode", async () => {
     const root = await project("format");
     const onProgress = vi.fn();
-    const run = await executeFormat(
-      { cwd: root, check: true, onProgress },
-      { fixture: plugin },
-      {
+    const run = await executeFormat({
+      cwd: root,
+      check: true,
+      onProgress,
+      plugins: { fixture: plugin },
+      adapter: {
         id: "progress",
         run: async (input) => {
           input.onProgress?.("Inspecting src/sample.any");
           return formatReply();
         },
       },
-    );
+    });
     expect(run.exitCode).toBe(1);
     expect(onProgress.mock.calls.map(([stage]) => stage)).toEqual([
       "Preparing rules",
       "Selecting files",
-      "Formatting files with AI",
+      "Planning changes with AI",
       expect.stringContaining("Inspecting src/sample.any"),
-      "Checking changes",
+      "Checking results",
     ]);
   });
 
   test("timeout stops a request without retry or source writes", async () => {
-    const root = await project("format", { ai: { adapter: "codex", timeoutMs: 25 } });
+    const root = await project("format", { ai: { adapter: "@aquarius/codex", timeoutMs: 25 } });
     const runSpy = vi.fn(() => new Promise<unknown>(() => {}));
-    const result = await executeFormat(
-      { cwd: root },
-      { fixture: plugin },
-      { id: "slow", run: runSpy },
-    );
+    const result = await executeFormat({
+      cwd: root,
+      plugins: { fixture: plugin },
+      adapter: { id: "slow", run: runSpy },
+    });
     expect(result.exitCode).toBe(2);
     expect(result.result.errors[0]!.code).toBe("AI_TIMEOUT");
     expect(runSpy).toHaveBeenCalledTimes(1);
@@ -735,8 +783,13 @@ describe("format execution", () => {
 describe("format/check/undo through real core components", () => {
   test("check does not write, normal format writes, no-op retains undo, and undo restores", async () => {
     const root = await project("format", {}, true);
-    const ai = bridge(formatReply());
-    const checked = await executeFormat({ cwd: root, check: true }, { fixture: plugin }, ai);
+    const ai = adapter(formatReply());
+    const checked = await executeFormat({
+      cwd: root,
+      check: true,
+      plugins: { fixture: plugin },
+      adapter: ai,
+    });
     expect(checked.exitCode).toBe(1);
     expect((checked.result as FormatResult).wouldChangeFiles).toEqual(["src/sample.any"]);
     expect(checked.result.summary).toMatchObject({ totalFiles: 1, completedFiles: 1 });
@@ -744,15 +797,19 @@ describe("format/check/undo through real core components", () => {
     expect(checked.result.proposedFiles).toEqual(["src/sample.any"]);
     expect(await readFile(join(root, "src", "sample.any"), "utf8")).toBe(original);
 
-    const formatted = await executeFormat({ cwd: root }, { fixture: plugin }, ai);
+    const formatted = await executeFormat({
+      cwd: root,
+      plugins: { fixture: plugin },
+      adapter: ai,
+    });
     expect(formatted.exitCode).toBe(0);
     expect((formatted.result as FormatResult).changedFiles).toEqual(["src/sample.any"]);
     expect(await readFile(join(root, "src", "sample.any"), "utf8")).toBe(replacement);
-    const noOp = await executeFormat(
-      { cwd: root },
-      { fixture: plugin },
-      bridge({ ...formatReply(), changes: [] }),
-    );
+    const noOp = await executeFormat({
+      cwd: root,
+      plugins: { fixture: plugin },
+      adapter: adapter({ ...formatReply(), changes: [] }),
+    });
     expect(noOp.exitCode).toBe(0);
     expect((noOp.result as FormatResult).changedFiles).toEqual([]);
 
@@ -761,11 +818,28 @@ describe("format/check/undo through real core components", () => {
       join(root, ".aqfmtrc.jsonc"),
       JSON.stringify({ plugins: ["unavailable-plugin"], preset: ["unavailable/all"] }),
     );
-    const undone = await executeFormat({ cwd: root, undo: true }, { fixture: plugin });
-    expect(undone.exitCode).toBe(0);
-    expect((undone.result as FormatResult).restoredFiles).toEqual(["src/sample.any"]);
-    expect(undone.result.fileResults).toEqual([]);
-    expect(undone.result.summary.completedFiles).toBe(0);
+    const cwd = vi.spyOn(process, "cwd").mockReturnValue(root);
+    const logs = vi.spyOn(console, "log").mockImplementation(() => {});
+    const writes = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    try {
+      expect(await runCli("0.1.0", ["--undo", "--format", "json"])).toBe(0);
+      const undone: FormatResult = JSON.parse(String(logs.mock.calls[0]?.[0]));
+      expect(undone.restoredFiles).toEqual(["src/sample.any"]);
+      expect(undone).not.toHaveProperty("ai");
+      expect(undone.fileResults).toEqual([]);
+      expect(undone.summary.completedFiles).toBe(0);
+      expect(writes).not.toHaveBeenCalled();
+
+      logs.mockClear();
+      printHuman({ result: undone, exitCode: 0 }, false);
+      const text = logs.mock.calls.flat().join("\n");
+      expect(text).toContain("Undo complete");
+      expect(text).not.toContain("AI:");
+    } finally {
+      cwd.mockRestore();
+      logs.mockRestore();
+      writes.mockRestore();
+    }
     expect(await readFile(join(root, "src", "sample.any"), "utf8")).toBe(original);
     await expect(access(join(root, "node_modules/.cache"))).rejects.toMatchObject({
       code: "ENOENT",
@@ -775,14 +849,18 @@ describe("format/check/undo through real core components", () => {
   test("rejects stale AI changes and keeps the user's concurrent edit", async () => {
     const root = await project("format");
     const userContent = original + "// User edit while AI was running\n";
-    const ai: AiBridge = {
+    const ai: AiAdapter = {
       id: "concurrent",
       async run() {
         await writeFile(join(root, "src", "sample.any"), userContent);
         return formatReply();
       },
     };
-    const run = await executeFormat({ cwd: root }, { fixture: plugin }, ai);
+    const run = await executeFormat({
+      cwd: root,
+      plugins: { fixture: plugin },
+      adapter: ai,
+    });
     expect(run.exitCode).toBe(2);
     expect(await readFile(join(root, "src", "sample.any"), "utf8")).toBe(userContent);
   });
@@ -791,7 +869,11 @@ describe("format/check/undo through real core components", () => {
     const root = await project("format");
     const response = formatReply();
     response.changes.push({ ...response.changes[0]!, path: "../outside.any" });
-    const run = await executeFormat({ cwd: root }, { fixture: plugin }, bridge(response));
+    const run = await executeFormat({
+      cwd: root,
+      plugins: { fixture: plugin },
+      adapter: adapter(response),
+    });
     expect(run.exitCode).toBe(2);
     expect((run.result as FormatResult).changedFiles).toEqual([]);
     expect(await readFile(join(root, "src", "sample.any"), "utf8")).toBe(original);

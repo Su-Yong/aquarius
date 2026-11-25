@@ -1,11 +1,3 @@
-export type {
-  AiBridge,
-  BridgeInput,
-  RuleReference,
-  RuleResourceFile,
-  RuleResources,
-} from "./ai/types";
-export type { IgnoreRule } from "./files/types";
 export type { JsonObject, SkippedRule } from "./shared/types";
 export type {
   FormatInstructions,

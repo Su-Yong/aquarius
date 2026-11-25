@@ -1,6 +1,7 @@
 import { expect, test, vi } from "vitest";
 import { stripVTControlCharacters } from "node:util";
-import { formatDuration, startProgress, statusText } from "../src/shared/progress";
+import { startProgress, statusText } from "../src/cli/progress";
+import { formatDuration } from "../src/shared/progress-text";
 
 test("renders and clears interactive progress, then stops its timer", () => {
   vi.useFakeTimers();

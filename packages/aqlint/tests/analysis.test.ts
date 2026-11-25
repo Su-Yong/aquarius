@@ -2,11 +2,11 @@ import { mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, test, vi } from "vitest";
-import type { PathPolicy, PreparedRule } from "@aquarius/core/internal";
+import type { PathPolicy, PreparedRule } from "@aquarius/core/runtime";
 import { createLintAnalysis } from "../src/lint/analysis";
 import { normalizeLintResponse } from "../src/lint/results";
 import type { AnalysisUpdate } from "../src/lint/schemas";
-import type { LintAnalysisSnapshot, LintResult } from "../src/lint/types";
+import type { LintAnalysisSnapshot, LintResponse } from "../src/lint/types";
 
 const roots: string[] = [];
 const rules: PreparedRule[] = [
@@ -42,7 +42,6 @@ const createPolicy = async (): Promise<PathPolicy> => {
     projectRoot: root,
     targets: ["a.ts", "b.ts"],
     readableFiles: ["a.ts", "b.ts", "contract.md"],
-    ignoreRules: [],
     isIgnored: (path) => path === "outside.txt",
     canWrite: (path) => path === "a.ts" || path === "b.ts",
   };
@@ -67,7 +66,7 @@ const update = (revision: number, changes: Partial<AnalysisUpdate> = {}): Analys
 const finalResult = async (
   policy: PathPolicy,
   findings = [diagnostic("Final conclusion")],
-): Promise<LintResult> => {
+): Promise<LintResponse> => {
   return normalizeLintResponse(
     {
       completedRuleIds: ["fixture/first"],
@@ -427,31 +426,6 @@ describe("cumulative provisional analysis", () => {
       expect(onUpdate).toHaveBeenCalledTimes(3);
     },
   );
-
-  test("allows canonical provisional results before fixing and later finalization", async () => {
-    const policy = await createPolicy();
-    const analysis = createLintAnalysis(rules, policy);
-    const canonical = await finalResult(policy);
-    const provisional = await analysis.finish(canonical, "provisional");
-    expect(provisional.phase).toBe("provisional");
-    analysis.update(update(99));
-    const final = await analysis.finish(canonical);
-    expect(final.phase).toBe("final");
-    expect(final.revision).toBe(provisional.revision + 1);
-    expect(final.diagnostics).toEqual(canonical.diagnostics);
-  });
-
-  test("keeps canonical initial results provisional when fixing fails", async () => {
-    const policy = await createPolicy();
-    const analysis = createLintAnalysis(rules, policy);
-    const canonical = await finalResult(policy);
-    await analysis.finish(canonical, "provisional");
-    const interrupted = await analysis.interrupt([
-      { code: "FIX_FAILED", message: "No correction result", ruleIds: [] },
-    ]);
-    expect(interrupted.phase).toBe("incomplete");
-    expect(interrupted.diagnostics).toEqual(canonical.diagnostics);
-  });
 
   test("does not label a failed final response as final", async () => {
     const policy = await createPolicy();

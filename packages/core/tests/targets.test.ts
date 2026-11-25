@@ -1,20 +1,11 @@
 import { afterEach, describe, expect, test } from "vitest";
-import {
-  access,
-  mkdtemp,
-  mkdir,
-  readFile,
-  realpath,
-  rm,
-  symlink,
-  writeFile,
-} from "node:fs/promises";
+import { mkdtemp, mkdir, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 import { loadConfig } from "../src/config/load";
 import { selectTargets } from "../src/files/targets";
-import { createCodexSnapshot } from "../src/ai/codex";
-import type { LoadedConfig } from "../src/internal";
+import { readStableRegularFile } from "../src/shared/safe-fs";
+import type { LoadedConfig } from "../src/config/types";
 
 const directories: string[] = [];
 
@@ -69,23 +60,18 @@ describe("selectTargets lint policy", () => {
     const policy = await selectTargets(config, { paths: ["."] });
 
     expect(policy.targets).toEqual(
-      expect.arrayContaining([
-        "src/good.any",
-        "nested/keep.tmp",
-        "node_modules/dependency.any",
-        ".svn/source.any",
-        ".hidden.any",
-      ]),
+      expect.arrayContaining(["src/good.any", "nested/keep.tmp", "eslint.any", ".hidden.any"]),
     );
-    expect(policy.targets).not.toEqual(
-      expect.arrayContaining([
-        "ignored.any",
-        "nested/drop.tmp",
-        "generated/hidden.any",
-        "eslint.any",
-        "bundle.min.js",
-      ]),
-    );
+    for (const path of [
+      "ignored.any",
+      "nested/drop.tmp",
+      "generated/hidden.any",
+      "bundle.min.js",
+      "node_modules/dependency.any",
+      ".svn/source.any",
+    ]) {
+      expect(policy.targets).not.toContain(path);
+    }
     expect(policy.readableFiles).toEqual(
       expect.arrayContaining([
         "ignored.any",
@@ -108,23 +94,17 @@ describe("selectTargets lint policy", () => {
     expect(explicit.canWrite("other.any")).toBe(false);
   });
 
-  test("supports eslint ignore controls without disabling config or git ignores", async () => {
+  test("loads explicit ignores without auto-discovering ESLint ignores", async () => {
     const root = await lintProject();
     const config = loaded(root, "lint", { ignore: ["generated/**"] });
     await writeFile(join(root, "custom.ignore"), "custom.any\n");
     await file(root, "custom.any");
 
-    await expect(selectTargets(config, { paths: ["eslint.any"] })).rejects.toMatchObject({
-      code: "TARGET_UNMATCHED",
-    });
+    const eslintFile = await selectTargets(config, { paths: ["eslint.any"] });
+    expect(eslintFile.targets).toEqual(["eslint.any"]);
     await expect(
       selectTargets(config, { paths: ["custom.any"], ignorePaths: ["custom.ignore"] }),
     ).rejects.toMatchObject({ code: "TARGET_UNMATCHED" });
-    const noIgnore = await selectTargets(config, { paths: ["."], noIgnore: true });
-    expect(noIgnore.targets).toContain("eslint.any");
-    expect(noIgnore.targets).not.toContain("ignored.any");
-    expect(noIgnore.targets).not.toContain("generated/hidden.any");
-
     const pattern = await selectTargets(config, { paths: ["."], ignorePatterns: ["src/**"] });
     expect(pattern.targets).not.toContain("src/good.any");
   });
@@ -145,7 +125,6 @@ describe("selectTargets lint policy", () => {
     expect(policy.isIgnored("config/ignored/config.any")).toBe(false);
     expect(policy.readableFiles).toContain("config/ignored/config.any");
     expect(policy.canWrite("config/ignored/config.any")).toBe(false);
-    expect(policy.ignoreRules).toEqual([]);
   });
 
   test("rejects paths outside the root and symbolic links", async () => {
@@ -190,120 +169,15 @@ describe("selectTargets format policy", () => {
     }
   });
 
-  test("disables formatter manual ignores while preserving config, Git, and default exclusions", async () => {
-    const root = await realpath(await formatProject());
-    await writeFile(join(root, "custom.ignore"), "custom.txt\n");
-    await file(root, "custom.txt");
-    await file(root, "cli.txt");
-    await file(root, "generated/hidden.txt");
-    const config = loaded(root, "format", { ignore: ["generated/**"] });
-    const options = {
-      paths: ["."],
-      ignorePaths: ["custom.ignore"],
-      ignorePatterns: ["cli.txt"],
-    };
-
-    const enabled = await selectTargets(config, options);
-    expect(enabled.targets).not.toContain("custom.txt");
-    expect(enabled.targets).not.toContain("cli.txt");
-    expect(enabled.canWrite("custom.txt")).toBe(false);
-    expect(enabled.canWrite("cli.txt")).toBe(false);
-
-    const noIgnore = await selectTargets(config, { ...options, noIgnore: true });
-    const noCompatibilityIgnore = await selectTargets(config, { paths: ["."], noIgnore: true });
-    for (const policy of [noIgnore, noCompatibilityIgnore]) {
-      for (const path of ["prettier.txt", "custom.txt", "cli.txt"]) {
-        expect(policy.targets).toContain(path);
-        expect(policy.canWrite(path)).toBe(true);
-      }
-      for (const path of [
-        "ignored.txt",
-        "info.txt",
-        "generated/hidden.txt",
-        "node_modules/package/file.txt",
-        "package-lock.json",
-        ".svn/internal.txt",
-      ]) {
-        expect(policy.targets).not.toContain(path);
-        expect(policy.canWrite(path)).toBe(false);
-      }
-    }
-
-    const withModules = await selectTargets(config, {
-      ...options,
-      noIgnore: true,
-      withNodeModules: true,
-    });
-    expect(withModules.targets).toContain("node_modules/package/file.txt");
-    expect(withModules.canWrite("node_modules/package/file.txt")).toBe(true);
-    expect(withModules.targets).not.toContain("package-lock.json");
-  });
-
-  test("does not read an explicit formatter ignore file when noIgnore is enabled", async () => {
-    const root = await realpath(await formatProject());
+  test("reports a missing explicit ignore file", async () => {
+    const root = await formatProject();
     const config = loaded(root, "format");
-    const options = { paths: ["src/good.txt"], ignorePaths: ["missing.ignore"] };
 
-    await expect(selectTargets(config, options)).rejects.toMatchObject({
+    await expect(
+      selectTargets(config, { paths: ["src/good.txt"], ignorePaths: ["missing.ignore"] }),
+    ).rejects.toMatchObject({
       code: "IGNORE_FILE_FAILED",
     });
-    const policy = await selectTargets(config, { ...options, noIgnore: true });
-    expect(policy.targets).toEqual(["src/good.txt"]);
-  });
-
-  test("applies formatter ignores and defaults, including to explicit files", async () => {
-    const root = await formatProject();
-    const config = loaded(root, "format");
-    const policy = await selectTargets(config, { paths: ["."] });
-
-    expect(policy.targets).toContain("src/good.txt");
-    expect(policy.targets).not.toEqual(
-      expect.arrayContaining([
-        "ignored.txt",
-        "prettier.txt",
-        "info.txt",
-        "node_modules/package/file.txt",
-        "package-lock.json",
-        ".svn/internal.txt",
-      ]),
-    );
-    expect(policy.readableFiles).toEqual(
-      expect.arrayContaining([
-        "ignored.txt",
-        "prettier.txt",
-        "info.txt",
-        "node_modules/package/file.txt",
-        "package-lock.json",
-      ]),
-    );
-    expect(policy.readableFiles).not.toContain(".svn/internal.txt");
-    await expect(selectTargets(config, { paths: ["prettier.txt"] })).rejects.toMatchObject({
-      code: "TARGET_UNMATCHED",
-    });
-    await expect(selectTargets(config, { paths: ["package-lock.json"] })).rejects.toMatchObject({
-      code: "TARGET_UNMATCHED",
-    });
-
-    const explicitGitignored = await selectTargets(config, { paths: ["ignored.txt"] });
-    expect(explicitGitignored.targets).toEqual(["ignored.txt"]);
-  });
-
-  test("supports node_modules, globs, exclusions, and unmatched policy", async () => {
-    const root = await formatProject();
-    const config = loaded(root, "format");
-
-    const withModules = await selectTargets(config, { paths: ["."], withNodeModules: true });
-    expect(withModules.targets).toContain("node_modules/package/file.txt");
-
-    const globbed = await selectTargets(config, { paths: ["**/*.txt", "!src/excluded.txt"] });
-    expect(globbed.targets).toContain("src/good.txt");
-    expect(globbed.targets).not.toContain("src/excluded.txt");
-
-    const empty = await selectTargets(config, {
-      paths: ["missing/**/*.txt"],
-      noErrorOnUnmatchedPattern: true,
-    });
-    expect(empty.targets).toEqual([]);
   });
 
   test("evaluates future write paths against the complete selected scope", async () => {
@@ -324,7 +198,60 @@ describe("selectTargets format policy", () => {
 });
 
 test.each(["lint", "format"] as const)(
-  "keeps targets narrow while copying project context outside file and ignore patterns for %s",
+  "applies common globs, exclusions, Git excludes and defaults for %s",
+  async (tool) => {
+    const root = await formatProject();
+    const config = loaded(root, tool);
+    const policy = await selectTargets(config, { paths: ["**/*.txt", "!src/excluded.txt"] });
+
+    expect(policy.targets).toEqual(["prettier.txt", "src/good.txt"]);
+    expect(policy.canWrite("src/excluded.txt")).toBe(false);
+
+    const full = await selectTargets(config);
+    for (const path of [
+      "ignored.txt",
+      "info.txt",
+      "node_modules/package/file.txt",
+      "package-lock.json",
+      "bundle.min.js",
+      "bundle-min.js",
+      "bundle_min.js",
+      ".svn/internal.txt",
+      ".hg/internal.txt",
+      ".jj/internal.txt",
+      ".git/config",
+    ]) {
+      expect(full.targets).not.toContain(path);
+      expect(full.canWrite(path)).toBe(false);
+    }
+    expect(full.readableFiles).toContain("info.txt");
+    expect(full.readableFiles).not.toContain(".hg/internal.txt");
+
+    const explicitGitignored = await selectTargets(config, { paths: ["ignored.txt"] });
+    expect(explicitGitignored.targets).toEqual(["ignored.txt"]);
+
+    const withModules = await selectTargets(config, { withNodeModules: true });
+    expect(withModules.targets).toContain("node_modules/package/file.txt");
+    expect(withModules.canWrite("node_modules/package/file.txt")).toBe(true);
+
+    const unmatchedPaths = { paths: ["missing/**/*.txt"] };
+    await expect(selectTargets(config, unmatchedPaths)).rejects.toMatchObject({
+      code: "TARGET_UNMATCHED",
+    });
+    const empty = await selectTargets(config, {
+      ...unmatchedPaths,
+      noErrorOnUnmatchedPattern: true,
+    });
+    expect(empty.targets).toEqual([]);
+    const noMatches = { ...config, files: ["missing/**"] };
+    await expect(selectTargets(noMatches)).rejects.toMatchObject({ code: "TARGET_UNMATCHED" });
+    const allowedEmpty = await selectTargets(noMatches, { noErrorOnUnmatchedPattern: true });
+    expect(allowedEmpty.targets).toEqual([]);
+  },
+);
+
+test.each(["lint", "format"] as const)(
+  "keeps targets narrow while exposing project context outside file and ignore patterns for %s",
   async (tool) => {
     const root = await realpath(await baseProject("aquarius-read-scope-"));
     const matchingFiles = [
@@ -341,11 +268,7 @@ test.each(["lint", "format"] as const)(
       "node_modules/dependency/index.d.ts",
       "package.json",
     ];
-    const internalFiles = [
-      ".git/config",
-      ".svn/internal.txt",
-      "node_modules/.cache/aquarius/lint-rule.json",
-    ];
+    const internalFiles = [".git/config", ".svn/internal.txt"];
     const readableFiles = [...matchingFiles, ...contextFiles].sort();
     for (const path of [...readableFiles, ...internalFiles]) {
       await file(root, path);
@@ -356,13 +279,11 @@ test.each(["lint", "format"] as const)(
     });
     const policy = await selectTargets(config, {
       paths: ["packages/a"],
-      noIgnore: true,
       withNodeModules: true,
     });
 
     expect(policy.targets).toEqual(["packages/a/main.ts"]);
     expect(policy.readableFiles).toEqual(readableFiles);
-    expect(policy.ignoreRules).toEqual([]);
     expect(policy.canWrite("packages/a/main.ts")).toBe(true);
     for (const path of contextFiles) {
       expect(policy.isIgnored(path)).toBe(false);
@@ -377,90 +298,24 @@ test.each(["lint", "format"] as const)(
       expect(policy.isIgnored(path)).toBe(true);
       expect(policy.canWrite(path)).toBe(false);
     }
-
-    const view = await baseProject("aquarius-read-scope-view-");
-    await createCodexSnapshot(
-      root,
-      policy.readableFiles,
-      policy.ignoreRules,
-      view,
-      new AbortController().signal,
-    );
-    for (const path of readableFiles) {
-      expect(await readFile(join(view, path), "utf8")).toBe(path);
-    }
-    for (const path of internalFiles) {
-      await expect(access(join(view, path))).rejects.toMatchObject({ code: "ENOENT" });
-    }
   },
 );
 
-test.each(["lint", "format"] as const)(
-  "always excludes Aquarius caches while preserving dependency context for %s",
-  async (tool) => {
-    const root = await baseProject("aquarius-cache-targets-");
-    const cache = "node_modules/.cache/aquarius/lint-rule.json";
-    const nestedCache = "packages/child/node_modules/.cache/aquarius/format-rule.json";
-    const dependency = "node_modules/example/index.js";
-    const otherCache = "node_modules/.cache/another-tool/data.json";
-    await file(root, cache);
-    await file(root, nestedCache);
-    await file(root, dependency);
-    await file(root, otherCache);
-    const config = loaded(root, tool);
-    const options = { paths: ["."], noIgnore: true, withNodeModules: true };
+test("rejects symlink components and reads stable regular project files", async () => {
+  const root = await baseProject("aquarius-safe-file-");
+  await file(root, "src/main.ts");
+  await symlink(join(root, "src"), join(root, "linked"), "dir");
 
-    const policy = await selectTargets(config, options);
-
-    for (const path of [cache, nestedCache]) {
-      expect(policy.targets).not.toContain(path);
-      expect(policy.readableFiles).not.toContain(path);
-      expect(policy.canWrite(path)).toBe(false);
-      expect(policy.isIgnored(path)).toBe(true);
-      await expect(selectTargets(config, { ...options, paths: [path] })).rejects.toMatchObject({
-        code: "TARGET_UNMATCHED",
-      });
-    }
-    expect(policy.targets).toEqual(expect.arrayContaining([dependency, otherCache]));
-    expect(policy.readableFiles).toEqual(expect.arrayContaining([dependency, otherCache]));
-    expect(policy.canWrite("node_modules/.cache/aquarius/future.json")).toBe(false);
-    expect(policy.canWrite(dependency)).toBe(true);
-    expect(policy.isIgnored(dependency)).toBe(false);
-  },
-);
-
-test.each(["lint", "format"] as const)(
-  "excludes case aliases of Aquarius caches from every file policy for %s",
-  async (tool) => {
-    const root = await baseProject("aquarius-cache-alias-targets-");
-    const caches = [
-      "node_modules/.cache/AQUARIUS/upper-rule.json",
-      "packages/child/NODE_MODULES/.CACHE/Aquarius/nested-rule.json",
-    ];
-    const dependency = "node_modules/example/index.js";
-    for (const path of [...caches, dependency]) {
-      await file(root, path);
-    }
-    const config = loaded(root, tool);
-    const options = { paths: ["."], noIgnore: true, withNodeModules: true };
-
-    const policy = await selectTargets(config, options);
-
-    expect(policy.targets).toEqual([dependency]);
-    expect(policy.readableFiles).toEqual([dependency]);
-    for (const path of caches) {
-      for (const alias of [path, path.toLowerCase(), path.toUpperCase()]) {
-        expect(policy.canWrite(alias)).toBe(false);
-        expect(policy.isIgnored(alias)).toBe(true);
-      }
-      await expect(selectTargets(config, { ...options, paths: [path] })).rejects.toMatchObject({
-        code: "TARGET_UNMATCHED",
-      });
-    }
-    expect(policy.canWrite(dependency)).toBe(true);
-    expect(policy.isIgnored(dependency)).toBe(false);
-  },
-);
+  await expect(readStableRegularFile(root, "src/main.ts")).resolves.toMatchObject({
+    content: Buffer.from("src/main.ts"),
+  });
+  await expect(readStableRegularFile(root, "linked/main.ts")).rejects.toMatchObject({
+    code: "FILE_PATH_UNSUPPORTED",
+  });
+  await expect(readStableRegularFile(root, "../escape.ts")).rejects.toMatchObject({
+    code: "FILE_PATH_INVALID",
+  });
+});
 
 const lintProject = async (): Promise<string> => {
   const root = await baseProject("aquarius-lint-targets-");
@@ -498,14 +353,20 @@ const formatProject = async (): Promise<string> => {
     "info.txt",
     "node_modules/package/file.txt",
     "package-lock.json",
+    "bundle.min.js",
+    "bundle-min.js",
+    "bundle_min.js",
     ".svn/internal.txt",
+    ".hg/internal.txt",
+    ".jj/internal.txt",
+    ".git/config",
   ])
     await file(root, path);
   return root;
 };
 
 const baseProject = async (prefix: string): Promise<string> => {
-  const root = await mkdtemp(join(tmpdir(), prefix));
+  const root = await realpath(await mkdtemp(join(tmpdir(), prefix)));
   directories.push(root);
   await mkdir(join(root, ".git"));
   return root;
@@ -531,7 +392,7 @@ const loaded = (
     ignore: [],
     plugins: [],
     preset: [],
-    ai: { adapter: "codex", options: {}, timeoutMs: 600_000 },
+    ai: { adapter: "@aquarius/codex", options: {}, timeoutMs: 600_000 },
     rules: {},
     ...overrides,
   };

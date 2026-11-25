@@ -34,8 +34,8 @@ liveTest(
           files: ["format/**"],
           ignore: ["ignored/**"],
           plugins: ["@aquarius/rules"],
-          ai: { adapter: "codex" },
-          rules: { "aquarius/style/prefer-early-return": true },
+          ai: { adapter: "@aquarius/codex" },
+          rules: { "aquarius/control-flow/exit-style": { minNestingDepth: 1 } },
         }),
       );
       const expectedReturns = await labelResults(source);

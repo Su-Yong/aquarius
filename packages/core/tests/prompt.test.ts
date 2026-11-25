@@ -1,22 +1,22 @@
 import { describe, expect, test } from "vitest";
-import { buildTaskPrompt } from "../src/ai/prompt";
-import type { RuleResourceFile } from "../src/ai/types";
+import { buildTaskPrompt } from "../src/execution/prompt";
+import type { RuleResource } from "../src/adapter/types";
 import type { PathPolicy } from "../src/files/types";
 
 const policy: PathPolicy = {
   projectRoot: "/project",
   targets: ["src/example.ts"],
   readableFiles: ["src/example.ts", "src/context.ts"],
-  ignoreRules: [],
   isIgnored: () => false,
   canWrite: (path) => path === "src/example.ts",
 };
 
-const ruleFile = (ruleId: string): RuleResourceFile => ({
+const ruleFile = (ruleId: string): RuleResource => ({
   ruleId,
   scope: "module",
   applicability: "Modules that publish an API.",
   detailsPath: `.aquarius-rules-fixture/${ruleId.replaceAll("/", "-")}.json`,
+  content: "private-resource-content",
   contentHash: "private-resource-integrity-metadata",
 });
 
@@ -33,7 +33,9 @@ describe("rule reference prompts", () => {
       task: "format",
       writeScope: { files: ["src/**"] },
       targets: ["src/example.ts"],
-      rules: files.map(({ contentHash: _contentHash, ...reference }) => reference),
+      rules: files.map(
+        ({ content: _content, contentHash: _contentHash, ...reference }) => reference,
+      ),
     });
     expect(prompt).not.toContain("private-resource-integrity-metadata");
     expect(prompt).not.toContain("/project");
@@ -54,7 +56,7 @@ describe("rule reference prompts", () => {
     expect(prompt).toContain("Number source lines separately for each file");
   });
 
-  test.each(["lint", "format", "lint-fix"])(
+  test.each(["lint", "format"])(
     "%s permits project reference reading without expanding selected targets",
     (task) => {
       const prompt = buildTaskPrompt([], [ruleFile("demo/check")], policy, {
@@ -74,12 +76,12 @@ describe("rule reference prompts", () => {
     },
   );
 
-  test("gives correction tasks their changes and errors contract", () => {
-    const prompt = buildTaskPrompt([], [ruleFile("demo/check")], policy, { task: "lint-fix" });
-
-    expect(prompt).toContain("Every supplied rule is linked to an existing diagnostic");
-    expect(prompt).toContain("return empty changes and errors arrays");
-    expect(prompt).toContain("Do not return completedRuleIds or skippedRules");
-    expect(prompt).not.toContain("Account for every requested rule using completedRuleIds");
+  test("describes the shared update frame and leaves snapshot details to adapters", () => {
+    const prompt = buildTaskPrompt([], [ruleFile("demo/check")], policy, { task: "lint" });
+    expect(prompt).toContain("aquarius.analysis_update");
+    expect(prompt).toContain("strictly increasing positive revision numbers");
+    expect(prompt).toContain("All intermediate findings and statuses remain provisional");
+    expect(prompt).not.toContain("nl -ba");
+    expect(prompt).not.toContain("readable snapshot");
   });
 });

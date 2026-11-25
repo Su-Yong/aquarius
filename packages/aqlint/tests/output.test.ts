@@ -1,3 +1,4 @@
+import { formatAdapterRunInfo } from "@aquarius/core/cli";
 import { expect, test, vi } from "vitest";
 import { printHuman } from "../src/cli/output";
 import type { LintExecutionResult } from "../src/lint/types";
@@ -5,7 +6,6 @@ import type { LintExecutionResult } from "../src/lint/types";
 const execution: LintExecutionResult = {
   exitCode: 1,
   result: {
-    changedFiles: [],
     errors: [],
     skippedRules: [],
     summary: {
@@ -113,6 +113,26 @@ const captureHuman = (value: LintExecutionResult) => {
     error.mockRestore();
   }
 };
+
+test("formats adapter settings as a safe single line", () => {
+  expect(formatAdapterRunInfo({ adapter: "fixture" })).toBe("fixture");
+  expect(
+    formatAdapterRunInfo({
+      adapter: "codex\x07",
+      model: "fixture\nmodel",
+      details: {
+        serviceTier: "fast",
+        "reasoning.effort": "medium",
+        "reasoning.summary": "auto",
+        verbosity: "high",
+        "context.window": "90000",
+        "custom\tsetting": "value\x1b",
+      },
+    }),
+  ).toBe(
+    "codex · fixture model (fast, effort=medium, summary=auto, verbosity=high, context=90000, custom setting=value)",
+  );
+});
 
 test("prints aligned summary rows with blank lines and no ANSI or terminal markers to a pipe", () => {
   const value = structuredClone(execution);

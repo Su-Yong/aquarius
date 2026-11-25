@@ -1,38 +1,30 @@
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, describe, expect, test, vi } from "vitest";
-import type {
-  AiBridge,
-  BridgeInput,
-  PathPolicy,
-  PreparedRule,
-  RuleResources,
-} from "@aquarius/core/internal";
-import { createFormatAnalysis } from "../src/format/analysis";
-import { reviewFormatBatches } from "../src/format/batches";
-import { formatResponseJsonSchema } from "../src/format/schemas";
+import type { RulePlugin } from "@aquarius/core";
+import type { AdapterExecuteRequest, AdapterSession } from "@aquarius/core/runtime";
+import { executeFormat } from "../src/format/execute";
 import type {
   FileChange,
   FormatAnalysisSnapshot,
+  FormatExecutionOptions,
   FormatResponse,
   FormatWarning,
 } from "../src/format/types";
 
-const rules: PreparedRule[] = [
-  {
-    id: "fixture/style",
-    scope: "file",
-    instructions: { applicability: "Fixture", transformation: "Fixture", constraints: [] },
-  },
-];
-
-const resources: RuleResources = {
-  directory: "/unused-resources",
-  files: [
+const plugin: RulePlugin = {
+  namespace: "fixture",
+  formatRules: [
     {
-      ruleId: "fixture/style",
+      id: "style",
+      description: "Fixture",
       scope: "file",
-      applicability: "Fixture",
-      detailsPath: ".aquarius-rules-test/style.json",
-      contentHash: "unused",
+      buildPrompt: () => ({
+        applicability: "Fixture",
+        transformation: "Fixture",
+        constraints: [],
+      }),
     },
   ],
 };
@@ -64,63 +56,73 @@ const warning = (path: string): FormatWarning => ({
   paths: [path],
 });
 
-const selected = (input: BridgeInput): string[] => {
+const selected = (input: AdapterExecuteRequest): string[] => {
   const metadata = JSON.parse(input.prompt.slice(input.prompt.lastIndexOf("\n\n") + 2));
   return metadata.targets;
 };
 
-const fixture = (targets: string[], run: AiBridge["run"]) => {
-  const selectedFiles = new Set(targets);
-  const policy: PathPolicy = {
-    projectRoot: "/project",
-    targets,
-    readableFiles: [...targets, "context.md"],
-    ignoreRules: [],
-    isIgnored: () => false,
-    canWrite: (path) => selectedFiles.has(path),
-  };
+const roots: string[] = [];
+
+const fixture = (targets: string[], execute: AdapterSession["execute"]) => {
   const snapshots: FormatAnalysisSnapshot[] = [];
   const onWarning = vi.fn();
-  const analysis = createFormatAnalysis(rules, policy, resources, {
-    onUpdate: (snapshot) => snapshots.push(snapshot),
-    onWarning,
-  });
-  const input: Omit<BridgeInput, "signal"> = {
-    projectRoot: policy.projectRoot,
-    readableFiles: policy.readableFiles,
-    ignore: [],
-    prompt: "",
-    ruleResources: resources,
-    outputSchema: formatResponseJsonSchema,
-    options: {},
-  };
-  return {
-    snapshots,
-    onWarning,
-    options: {
-      bridge: { id: "fixture", run },
-      input,
-      rules,
-      policy,
-      writeScope: { files: ["**/*"] },
+  const dispose = vi.fn();
+  const createSession = vi.fn(() => ({ execute, dispose }));
+
+  const run = async ({
+    timeoutMs,
+    ...options
+  }: Pick<
+    FormatExecutionOptions,
+    "fileBatchSize" | "maxConcurrency" | "signal" | "onAnalysisUpdate"
+  > & {
+    timeoutMs?: number;
+  } = {}) => {
+    const root = await mkdtemp(join(tmpdir(), "aquarius-format-batches-"));
+    roots.push(root);
+    await Promise.all([
+      ...targets.map((path) => writeFile(join(root, path), "before")),
+      writeFile(join(root, "context.md"), "Reference"),
+      writeFile(
+        join(root, ".aqfmtrc.json"),
+        JSON.stringify({
+          files: ["*.ts"],
+          plugins: ["fixture"],
+          rules: { "fixture/style": true },
+          ai: { adapter: "./fixture-adapter.mjs", timeoutMs: timeoutMs ?? 1_000 },
+        }),
+      ),
+    ]);
+    const execution = await executeFormat({
+      cwd: root,
+      paths: targets,
+      check: true,
       fileBatchSize: 1,
       maxConcurrency: 1,
-      timeoutMs: 1_000,
-      analysis,
+      plugins: { fixture: plugin },
+      adapter: { id: "fixture", createSession },
       onWarning,
-    },
+      ...options,
+      onAnalysisUpdate: (snapshot) => {
+        snapshots.push(snapshot);
+        options.onAnalysisUpdate?.(snapshot);
+      },
+    });
+    return execution.result;
   };
+
+  return { run, snapshots, onWarning, createSession, dispose };
 };
 
-afterEach(() => {
-  vi.useRealTimers();
+afterEach(async () => {
+  await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
 });
 
 describe("format file groups", () => {
   test("limits concurrency, retains reference files, and orders results by target group", async () => {
     const gates = Array.from({ length: 3 }, () => Promise.withResolvers<RawResponse>());
     const targets = ["a.ts", "b.ts", "c.ts", "d.ts", "e.ts"];
-    const calls: BridgeInput[] = [];
+    const calls: AdapterExecuteRequest[] = [];
     let active = 0;
     let maximumActive = 0;
     const current = fixture(targets, async (input) => {
@@ -132,8 +134,7 @@ describe("format file groups", () => {
       active -= 1;
       return response;
     });
-    const running = reviewFormatBatches({
-      ...current.options,
+    const running = current.run({
       fileBatchSize: 2,
       maxConcurrency: 2,
     });
@@ -153,7 +154,12 @@ describe("format file groups", () => {
     expect(maximumActive).toBe(2);
     expect(result.errors).toEqual([]);
     expect(result.fileResults.map(({ path }) => path)).toEqual(targets);
-    expect(result.changes).toEqual([replacement("a.ts"), replacement("c.ts"), replacement("e.ts")]);
+    expect(result.proposedFiles).toEqual(["a.ts", "c.ts", "e.ts"]);
+    expect(current.createSession).toHaveBeenCalledTimes(1);
+    expect(current.dispose).toHaveBeenCalledTimes(1);
+    expect(calls.every(({ ruleResources }) => ruleResources === calls[0]?.ruleResources)).toBe(
+      true,
+    );
     expect(current.onWarning).not.toHaveBeenCalled();
   });
 
@@ -164,26 +170,25 @@ describe("format file groups", () => {
   ] as FileChange[])("rejects $op in a single file group without retry", async (change) => {
     const run = vi.fn(async () => reply(["a.ts"], { changes: [change] }));
     const current = fixture(["a.ts"], run);
-    const result = await reviewFormatBatches(current.options);
+    const result = await current.run();
 
     expect(run).toHaveBeenCalledTimes(1);
-    expect(result.changes).toEqual([]);
+    expect(result.proposedFiles).toEqual([]);
     expect(result.errors.length).toBeGreaterThan(0);
-    expect(result.retryable).toBe(false);
   });
 
   test("rejects changes to another group and skips groups that never started", async () => {
-    const run = vi.fn(async (input: BridgeInput) =>
+    const run = vi.fn(async (input: AdapterExecuteRequest) =>
       reply(selected(input), {
         changes: [replacement("b.ts")],
       }),
     );
     const current = fixture(["a.ts", "b.ts", "c.ts"], run);
-    const result = await reviewFormatBatches(current.options);
+    const result = await current.run();
 
     expect(run).toHaveBeenCalledTimes(1);
     expect(result.errors.length).toBeGreaterThan(0);
-    expect(result.changes).toEqual([]);
+    expect(result.proposedFiles).toEqual([]);
     expect(result.fileResults.slice(1)).toEqual([
       {
         path: "b.ts",
@@ -201,9 +206,18 @@ describe("format file groups", () => {
 
   test("retries one incomplete response and replaces its proposals and warnings", async () => {
     const prompts: string[] = [];
-    const run = vi.fn(async (input: BridgeInput) => {
+    const run = vi.fn(async (input: AdapterExecuteRequest) => {
       prompts.push(input.prompt);
+      if (selected(input).includes("c.ts")) return reply(["c.ts"]);
       if (prompts.length === 1) {
+        input.onAnalysisUpdate?.({
+          type: "aquarius.analysis_update",
+          revision: 1,
+          fileResults: [],
+          ruleResults: [],
+          proposedFiles: ["a.ts"],
+          warnings: [warning("a.ts")],
+        });
         return reply(["a.ts"], {
           changes: [replacement("a.ts")],
           warnings: [warning("a.ts")],
@@ -211,13 +225,13 @@ describe("format file groups", () => {
       }
       return reply(["a.ts", "b.ts"], { changes: [replacement("b.ts")] });
     });
-    const current = fixture(["a.ts", "b.ts"], run);
-    const result = await reviewFormatBatches({ ...current.options, fileBatchSize: 2 });
+    const current = fixture(["a.ts", "b.ts", "c.ts"], run);
+    const result = await current.run({ fileBatchSize: 2 });
 
-    expect(run).toHaveBeenCalledTimes(2);
+    expect(run).toHaveBeenCalledTimes(3);
     expect(prompts[1]).toContain("previous attempt");
     expect(result.errors).toEqual([]);
-    expect(result.changes).toEqual([replacement("b.ts")]);
+    expect(result.proposedFiles).toEqual(["b.ts"]);
     expect(result.warnings).toEqual([]);
     const firstProposal = current.snapshots.findIndex(({ proposedFiles }) =>
       proposedFiles.includes("a.ts"),
@@ -234,7 +248,8 @@ describe("format file groups", () => {
 
   test("retries explicitly unfinished rule review when file reviews also failed", async () => {
     let attempts = 0;
-    const run = vi.fn(async () => {
+    const run = vi.fn(async (input: AdapterExecuteRequest) => {
+      if (selected(input)[0] === "b.ts") return reply(["b.ts"]);
       attempts += 1;
       if (attempts === 1) {
         return reply(["a.ts"], {
@@ -251,45 +266,44 @@ describe("format file groups", () => {
       }
       return reply(["a.ts"], { changes: [replacement("a.ts")] });
     });
-    const current = fixture(["a.ts"], run);
+    const current = fixture(["a.ts", "b.ts"], run);
 
-    const result = await reviewFormatBatches(current.options);
+    const result = await current.run();
 
-    expect(run).toHaveBeenCalledTimes(2);
+    expect(run).toHaveBeenCalledTimes(3);
     expect(result.errors).toEqual([]);
-    expect(result.fileResults).toEqual([{ path: "a.ts", status: "completed", reason: "" }]);
-    expect(result.changes).toEqual([replacement("a.ts")]);
+    expect(result.fileResults.map(({ status }) => status)).toEqual(["completed", "completed"]);
+    expect(result.proposedFiles).toEqual(["a.ts"]);
   });
 
   test("stops after the second incomplete response", async () => {
     const run = vi.fn(async () => reply([]));
     const current = fixture(["a.ts", "b.ts"], run);
-    const result = await reviewFormatBatches(current.options);
+    const result = await current.run();
 
     expect(run).toHaveBeenCalledTimes(2);
     expect(result.fileResults[0]?.status).toBe("failed");
     expect(result.fileResults[1]?.status).toBe("skipped");
-    expect(result.retryable).toBe(false);
   });
 
   test("does not retry a malformed response", async () => {
     const run = vi.fn(async () => ({ changes: [] }));
     const current = fixture(["a.ts", "b.ts"], run);
-    const result = await reviewFormatBatches(current.options);
+    const result = await current.run();
 
     expect(run).toHaveBeenCalledTimes(1);
     expect(result.errors[0]?.code).toBe("INVALID_AI_RESPONSE");
     expect(result.fileResults.map(({ status }) => status)).toEqual(["failed", "skipped"]);
   });
 
-  test("finishes in-flight groups after another group fails without starting more", async () => {
+  test("cancels an in-flight group immediately after another group fails", async () => {
     const first = Promise.withResolvers<RawResponse>();
     const second = Promise.withResolvers<RawResponse>();
-    const run = vi.fn(async (input: BridgeInput) =>
+    const run = vi.fn(async (input: AdapterExecuteRequest) =>
       selected(input)[0] === "a.ts" ? first.promise : second.promise,
     );
     const current = fixture(["a.ts", "b.ts", "c.ts", "d.ts"], run);
-    const running = reviewFormatBatches({ ...current.options, maxConcurrency: 2 });
+    const running = current.run({ maxConcurrency: 2 });
     await vi.waitFor(() => expect(run).toHaveBeenCalledTimes(2));
     first.resolve(
       reply(["a.ts"], {
@@ -300,30 +314,48 @@ describe("format file groups", () => {
       }),
     );
     await vi.waitFor(() => expect(current.snapshots.at(-1)?.ruleResults[0]?.status).toBe("failed"));
-    expect(run.mock.calls[1]?.[0].signal.aborted).toBe(false);
-    second.resolve(reply(["b.ts"], { changes: [replacement("b.ts")] }));
+    expect(run.mock.calls[1]?.[0].signal.aborted).toBe(true);
     const result = await running;
 
     expect(run).toHaveBeenCalledTimes(2);
-    expect(result.changes).toEqual([replacement("b.ts")]);
-    expect(result.fileResults.map(({ status }) => status)).toEqual([
-      "failed",
-      "completed",
-      "skipped",
-      "skipped",
+    expect(result.proposedFiles).toEqual([]);
+    expect(result.fileResults.slice(1)).toEqual([
+      { path: "b.ts", status: "skipped", reason: "Cancelled because another file group failed." },
+      { path: "c.ts", status: "skipped", reason: "Not started because another file group failed." },
+      { path: "d.ts", status: "skipped", reason: "Not started because another file group failed." },
     ]);
     expect(current.snapshots.at(-1)?.fileResults).toEqual(result.fileResults);
     expect(current.snapshots.at(-1)?.ruleResults[0]?.status).toBe("failed");
   });
 
+  test("fails the final rule review when planning fails after every group completes", async () => {
+    const current = fixture(["a.ts", "b.ts"], async (input: AdapterExecuteRequest) => {
+      const [path] = selected(input);
+      if (path === "b.ts") {
+        await writeFile(join(input.projectRoot, "a.ts"), "user edit");
+      }
+      return reply([path!], { changes: [replacement(path!)] });
+    });
+
+    const result = await current.run();
+    expect(result.changedFiles).toEqual([]);
+    expect(result.errors[0]?.code).toBe("SOURCE_CHANGED");
+    expect(current.snapshots.at(-1)).toMatchObject({
+      phase: "incomplete",
+      ruleResults: [
+        { ruleId: "fixture/style", status: "failed", reason: result.errors[0]?.message },
+      ],
+    });
+  });
+
   test("does not begin a retry after a different group has failed", async () => {
     const first = Promise.withResolvers<RawResponse>();
     const second = Promise.withResolvers<RawResponse>();
-    const run = vi.fn(async (input: BridgeInput) =>
+    const run = vi.fn(async (input: AdapterExecuteRequest) =>
       selected(input)[0] === "a.ts" ? first.promise : second.promise,
     );
     const current = fixture(["a.ts", "b.ts", "c.ts"], run);
-    const running = reviewFormatBatches({ ...current.options, maxConcurrency: 2 });
+    const running = current.run({ maxConcurrency: 2 });
     await vi.waitFor(() => expect(run).toHaveBeenCalledTimes(2));
     second.resolve(reply(["b.ts"], { changes: [replacement("c.ts")] }));
     await vi.waitFor(() => expect(current.snapshots.at(-1)?.ruleResults[0]?.status).toBe("failed"));
@@ -335,21 +367,18 @@ describe("format file groups", () => {
   });
 
   test("times out a group without retrying or discarding earlier results", async () => {
-    vi.useFakeTimers();
-    const run = vi.fn(async (input: BridgeInput) => {
+    const run = vi.fn(async (input: AdapterExecuteRequest) => {
       if (selected(input)[0] === "a.ts") {
         return reply(["a.ts"], { changes: [replacement("a.ts")] });
       }
       return new Promise(() => {});
     });
     const current = fixture(["a.ts", "b.ts", "c.ts"], run);
-    const running = reviewFormatBatches({ ...current.options, timeoutMs: 25 });
-    await vi.advanceTimersByTimeAsync(30);
-    const result = await running;
+    const result = await current.run({ timeoutMs: 25 });
 
     expect(run).toHaveBeenCalledTimes(2);
     expect(result.errors[0]?.code).toBe("AI_TIMEOUT");
-    expect(result.changes).toEqual([replacement("a.ts")]);
+    expect(result.proposedFiles).toEqual(["a.ts"]);
     expect(result.fileResults.map(({ status }) => status)).toEqual([
       "completed",
       "failed",
@@ -359,7 +388,7 @@ describe("format file groups", () => {
 
   test("cancels in-flight requests, preserves known results, and leaves unstarted groups skipped", async () => {
     const controller = new AbortController();
-    const run = vi.fn(async (input: BridgeInput) => {
+    const run = vi.fn(async (input: AdapterExecuteRequest) => {
       const targets = selected(input);
       if (targets[0] === "a.ts") {
         return reply(targets, { changes: [replacement("a.ts")] });
@@ -375,7 +404,7 @@ describe("format file groups", () => {
       return new Promise(() => {});
     });
     const current = fixture(["a.ts", "b.ts", "c.ts"], run);
-    const running = reviewFormatBatches({ ...current.options, signal: controller.signal });
+    const running = current.run({ signal: controller.signal });
     await vi.waitFor(() => expect(current.snapshots.at(-1)?.proposedFiles).toContain("b.ts"));
     controller.abort();
     const result = await running;
@@ -383,7 +412,7 @@ describe("format file groups", () => {
     expect(run).toHaveBeenCalledTimes(2);
     expect(run.mock.calls[1]?.[0].signal.aborted).toBe(true);
     expect(result.errors.some(({ code }) => code === "AI_ABORTED")).toBe(true);
-    expect(result.changes).toEqual([replacement("a.ts")]);
+    expect(result.proposedFiles).toEqual(["a.ts"]);
     expect(result.fileResults.map(({ status }) => status)).toEqual([
       "completed",
       "failed",
@@ -393,12 +422,12 @@ describe("format file groups", () => {
     expect(current.snapshots.at(-1)?.warnings).toEqual([warning("b.ts")]);
   });
 
-  test("does not call the bridge when already cancelled", async () => {
+  test("does not invoke the adapter when already cancelled", async () => {
     const controller = new AbortController();
     controller.abort();
-    const run = vi.fn(async (input: BridgeInput) => reply(selected(input)));
+    const run = vi.fn(async (input: AdapterExecuteRequest) => reply(selected(input)));
     const current = fixture(["a.ts", "b.ts"], run);
-    const result = await reviewFormatBatches({ ...current.options, signal: controller.signal });
+    const result = await current.run({ signal: controller.signal });
 
     expect(run).not.toHaveBeenCalled();
     expect(result.fileResults.every(({ status }) => status === "skipped")).toBe(true);
@@ -408,19 +437,11 @@ describe("format file groups", () => {
 
   test("keeps a group unstarted when its initial report cancels execution", async () => {
     const controller = new AbortController();
-    const run = vi.fn(async (input: BridgeInput) => reply(selected(input)));
+    const run = vi.fn(async (input: AdapterExecuteRequest) => reply(selected(input)));
     const current = fixture(["a.ts", "b.ts"], run);
-    const analysis = {
-      ...current.options.analysis,
-      update: (update: unknown) => {
-        current.options.analysis.update(update);
-        controller.abort();
-      },
-    };
-    const result = await reviewFormatBatches({
-      ...current.options,
-      analysis,
+    const result = await current.run({
       signal: controller.signal,
+      onAnalysisUpdate: () => controller.abort(),
     });
 
     expect(run).not.toHaveBeenCalled();
@@ -429,7 +450,7 @@ describe("format file groups", () => {
   });
 
   test("retains a context warning when its referenced file group never starts", async () => {
-    const run = vi.fn(async (input: BridgeInput) => {
+    const run = vi.fn(async (input: AdapterExecuteRequest) => {
       const targets = selected(input);
       if (targets[0] === "a.ts") {
         return reply(targets, { warnings: [warning("c.ts")] });
@@ -442,7 +463,7 @@ describe("format file groups", () => {
       });
     });
     const current = fixture(["a.ts", "b.ts", "c.ts"], run);
-    const result = await reviewFormatBatches(current.options);
+    const result = await current.run();
 
     expect(run).toHaveBeenCalledTimes(2);
     expect(result.fileResults.at(-1)?.status).toBe("skipped");
@@ -453,7 +474,7 @@ describe("format file groups", () => {
   });
 
   test("only globally skips a rule after every group confirms it is inapplicable", async () => {
-    const run = vi.fn(async (input: BridgeInput) =>
+    const run = vi.fn(async (input: AdapterExecuteRequest) =>
       reply(selected(input), {
         completedRuleIds: [],
         skippedRules: [
@@ -467,7 +488,7 @@ describe("format file groups", () => {
       }),
     );
     const current = fixture(["a.ts", "b.ts"], run);
-    const result = await reviewFormatBatches(current.options);
+    const result = await current.run();
 
     expect(result.errors).toEqual([]);
     expect(result.skippedRules).toEqual([

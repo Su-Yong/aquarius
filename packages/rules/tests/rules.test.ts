@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import type { JsonObject, LintRuleSetting } from "@aquarius/core";
+import type { JsonObject, LintRuleSetting, RuleSettings } from "@aquarius/core";
 import type { LoadedConfig } from "../../core/src/config/types";
 import { prepareRules } from "../../core/src/rules/prepare";
 import plugin from "../src/index";
@@ -10,11 +10,23 @@ const layerPolicy = {
   allowedDependencies: { application: ["domain"], domain: [] },
 };
 
+const requiredFormatOptions: Record<string, JsonObject> = {
+  "aquarius/structure/order-properties": { profiles: { config: ["id", "name"] } },
+  "aquarius/architecture/shared-utilities-policy": { sharedDir: "src/shared" },
+  "aquarius/custom/semantic-policy": {
+    policies: [{ name: "duration-units", rule: "Use the same unit notation as nearby constants." }],
+  },
+};
+
 const presetOptions = (id: string): JsonObject => {
   if (id === "architecture/enforce-layer-direction") {
     return layerPolicy;
   }
-  const setting = allRulesPreset[`aquarius/${id}`];
+  const fullId = `aquarius/${id}`;
+  if (Object.hasOwn(requiredFormatOptions, fullId)) {
+    return requiredFormatOptions[fullId]!;
+  }
+  const setting = allRulesPreset[fullId];
   if (Array.isArray(setting)) {
     return setting[1];
   }
@@ -25,12 +37,12 @@ const presetOptions = (id: string): JsonObject => {
 };
 
 describe("provided rules", () => {
-  test("preserves existing rules and publishes the architecture catalog", async () => {
+  test("registers the lint and format catalogs without duplicate IDs", async () => {
     expect(plugin.namespace).toBe("aquarius");
     expect(plugin.lintRules).toHaveLength(377);
-    expect(plugin.formatRules).toHaveLength(3);
+    expect(plugin.formatRules).toHaveLength(47);
     const all = [...plugin.lintRules!, ...plugin.formatRules!];
-    expect(new Set(all.map((rule) => rule.id)).size).toBe(380);
+    expect(new Set(all.map((rule) => rule.id)).size).toBe(424);
     for (const rule of plugin.lintRules!) {
       const instructions = await rule.buildPrompt({ options: presetOptions(rule.id) });
       expect(instructions.applicability).not.toBe("");
@@ -38,7 +50,7 @@ describe("provided rules", () => {
       expect(instructions.evidenceRequirements.length).toBeGreaterThan(0);
     }
     for (const rule of plugin.formatRules!) {
-      const instructions = await rule.buildPrompt({ options: {} });
+      const instructions = await rule.buildPrompt({ options: presetOptions(rule.id) });
       expect(instructions.transformation).not.toBe("");
       expect(instructions.constraints.join(" ")).toMatch(/preserve/i);
     }
@@ -70,7 +82,13 @@ describe("provided rules", () => {
 
   test("the all preset covers every definition with the previous levels and options", () => {
     const rules = [...plugin.lintRules!, ...plugin.formatRules!];
-    expect(Object.keys(plugin.presets!)).toEqual(["all"]);
+    expect(Object.keys(plugin.presets!)).toEqual([
+      "all",
+      "format-safe",
+      "format-recommended",
+      "format-tests",
+      "format-refactor",
+    ]);
     expect(plugin.presets!.all).toBe(allRulesPreset);
     expect(Object.keys(allRulesPreset).sort()).toEqual(
       rules.map(({ id }) => `aquarius/${id}`).sort(),
@@ -101,6 +119,10 @@ describe("provided rules", () => {
   test.each(["lint", "format"] as const)(
     "applies the all preset through the real %s preparation path",
     async (tool) => {
+      const rules: RuleSettings = {
+        "aquarius/architecture/enforce-layer-direction": ["warn", layerPolicy],
+        ...requiredFormatOptions,
+      };
       const config: LoadedConfig = {
         tool,
         cwd: process.cwd(),
@@ -110,7 +132,7 @@ describe("provided rules", () => {
         ignore: [],
         plugins: ["provided-rules-test"],
         preset: ["aquarius/all"],
-        rules: { "aquarius/architecture/enforce-layer-direction": ["warn", layerPolicy] },
+        rules,
         ai: { options: {}, timeoutMs: 1_000 },
       };
       const result = await prepareRules(config, { "provided-rules-test": plugin });

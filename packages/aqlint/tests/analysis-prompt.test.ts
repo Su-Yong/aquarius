@@ -1,6 +1,6 @@
 import { expect, test } from "vitest";
 import { z } from "zod";
-import type { PathPolicy, RuleReference } from "@aquarius/core/internal";
+import type { PathPolicy, RuleReference } from "@aquarius/core/runtime";
 import { buildLintPrompt } from "../src/lint/prompt";
 import { analysisUpdateSchema, lintResponseSchema } from "../src/lint/schemas";
 
@@ -15,7 +15,6 @@ const policy: PathPolicy = {
   projectRoot: "/project",
   targets: ["src/example.ts"],
   readableFiles: ["src/example.ts"],
-  ignoreRules: [],
   isIgnored: () => false,
   canWrite: (path) => path === "src/example.ts",
 };
@@ -31,11 +30,8 @@ test("embeds the same delta schema consumed by the analysis receiver", () => {
   expect(prompt).toContain("Before the first inspection");
   expect(prompt).toContain("no more than a few read/search commands between updates");
   expect(prompt).toContain("Keep the same id when revising a finding");
-  expect(prompt).toContain("A read/search command ending does not mean");
-  expect(prompt).toContain("All intermediate findings and statuses remain provisional");
-  expect(prompt).toContain(
-    "without Markdown fences, surrounding prose, command output, or private reasoning",
-  );
+  expect(prompt).toContain("fileResults and ruleResults patch the review states");
+  expect(prompt).toContain("The final response is authoritative");
 });
 
 test("keeps provisional updates separate from the final lint response contract", () => {
@@ -91,5 +87,7 @@ test("requires ongoing rule review after source checkpoints and requires a suppo
   expect(prompt).toContain("continue the review");
   expect(prompt).toContain("include the affected ruleIds");
   expect(prompt).toContain("Never invent findings or completion to fill an update");
-  expect(prompt).toContain("Use completed only after its full required scope has been checked");
+  expect(prompt).toContain(
+    "Use completed when all requested rule reviews for a file have finished",
+  );
 });

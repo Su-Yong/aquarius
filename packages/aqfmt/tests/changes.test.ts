@@ -12,8 +12,10 @@ import {
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { expect, test } from "vitest";
-import { applyFileChanges, captureBaseline, planFileChanges } from "../src/changes/apply";
-import type { GitUndoStore } from "../src/undo/store";
+import { applyFileChanges } from "../src/changes/apply";
+import { planFileChanges } from "../src/changes/plan";
+import { captureBaseline } from "../src/changes/state";
+import type { UndoStore } from "../src/changes/types";
 
 const temporaryProject = async (): Promise<string> => {
   return await mkdtemp(path.join(tmpdir(), "aquarius-changes-"));
@@ -295,9 +297,10 @@ test("restores all files when recording the successful write fails", async () =>
       baseline,
     );
     let aborted = false;
-    const failingStore = {
+    const failingStore: UndoStore = {
       async begin() {
         return {
+          committed: false,
           async commit() {
             throw new Error("manifest write failed");
           },
@@ -307,7 +310,7 @@ test("restores all files when recording the successful write fails", async () =>
           async preserve() {},
         };
       },
-    } as unknown as GitUndoStore;
+    };
 
     await expect(applyFileChanges(plan, failingStore)).rejects.toThrow("manifest write failed");
     expect(aborted).toBe(true);

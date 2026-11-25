@@ -1,6 +1,6 @@
 import { afterEach, expect, test, vi } from "vitest";
-import { progressLineText } from "@aquarius/core/internal";
-import { analysisLines, printAnalysisSnapshot } from "../src/cli/analysis-output";
+import { printAnalysisSnapshot, progressLineText, runToolCli } from "@aquarius/core/cli";
+import { analysisLines } from "../src/cli/analysis-output";
 import { runCli } from "../src/cli/run";
 import { executeLint } from "../src/lint/execute";
 import type { LintExecutionOptions } from "../src/lint/execute";
@@ -146,8 +146,16 @@ test("styles review states and findings while keeping untrusted controls out of 
     ],
   });
 
-  printAnalysisSnapshot(current, stream);
+  printAnalysisSnapshot(
+    analysisLines(current, {
+      adapter: "fixture",
+      model: "model",
+      details: { serviceTier: "fast", "reasoning.effort": "low" },
+    }),
+    stream,
+  );
   const output = String(write.mock.calls.at(-1)![0]);
+  expect(output).toMatch(/^AI: fixture · model \(fast, effort=low\)\n/u);
   expect(output).not.toContain("PROVISIONAL");
   expect(output).toContain("\x1b[36mreviewing.ts\x1b[39m: \x1b[36mreviewing\x1b[39m");
   expect(output).toContain("\x1b[32m✓ ");
@@ -162,26 +170,26 @@ test("styles review states and findings while keeping untrusted controls out of 
   expect(output).not.toContain("unknown conclusions");
   expect(output).not.toContain("\x1b[2J");
 
-  printAnalysisSnapshot({ ...current, phase: "final" }, stream);
+  printAnalysisSnapshot(analysisLines({ ...current, phase: "final" }), stream);
   expect(write).toHaveBeenLastCalledWith(expect.not.stringContaining("update #"));
-  printAnalysisSnapshot({ ...current, phase: "incomplete" }, stream);
+  printAnalysisSnapshot(analysisLines({ ...current, phase: "incomplete" }), stream);
   expect(write).toHaveBeenLastCalledWith(expect.stringContaining("error (unconfirmed)"));
 
   vi.stubEnv("NO_COLOR", "1");
-  printAnalysisSnapshot(current, stream);
+  printAnalysisSnapshot(analysisLines(current), stream);
   const noColor = String(write.mock.calls.at(-1)![0]);
   expect(noColor).not.toContain("\x1b");
   expect(noColor).toContain("✓ File reviewed.ts");
 
   vi.stubEnv("TERM", "dumb");
-  printAnalysisSnapshot(current, stream);
+  printAnalysisSnapshot(analysisLines(current), stream);
   const plain = String(write.mock.calls.at(-1)![0]);
   expect(plain).not.toContain("\x1b");
   expect(plain).not.toMatch(/[✓↷✖⚠•]/u);
   expect(plain).toContain("File reviewed.ts: reviewed");
 });
 
-test("CLI shows multiple cumulative updates before producing its single final JSON", async () => {
+test("CLI shows current progress before producing final text output", async () => {
   vi.stubEnv("TERM", "dumb");
   const log = vi.spyOn(console, "log").mockImplementation(() => {});
   const write = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
@@ -208,7 +216,7 @@ test("CLI shows multiple cumulative updates before producing its single final JS
     return execution;
   });
 
-  const running = runCli("0.1.0", {}, ["--format", "json"]);
+  const running = runCli("0.1.0", ["--format", "text"]);
   expect(log).not.toHaveBeenCalled();
   expect(String(write.mock.calls.at(-1)![0])).toContain("First provisional finding");
   options!.onAnalysisUpdate?.(
@@ -225,15 +233,14 @@ test("CLI shows multiple cumulative updates before producing its single final JS
 
   release!();
   expect(await running).toBe(1);
-  expect(log).toHaveBeenCalledTimes(1);
-  expect(JSON.parse(String(log.mock.calls[0]![0]))).toEqual(execution.result);
+  expect(log.mock.calls.flat().join("\n")).toContain("Canonical final finding");
   const lastSnapshot = String(write.mock.calls.at(-1)![0]);
   expect(lastSnapshot).not.toContain("update #");
   expect(lastSnapshot).toContain("Canonical final finding");
   expect(lastSnapshot).not.toContain("provisional finding");
 });
 
-test("CLI preserves an incomplete snapshot after the final timeout JSON", async () => {
+test.each(["text", "json"])("CLI timeout separates %s output from progress", async (format) => {
   vi.stubEnv("TERM", "dumb");
   const log = vi.spyOn(console, "log").mockImplementation(() => {});
   const write = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
@@ -244,6 +251,8 @@ test("CLI preserves an incomplete snapshot after the final timeout JSON", async 
   failure.result.summary.successFiles = 0;
   failure.result.summary.failedFiles = 1;
   vi.mocked(executeLint).mockImplementationOnce(async (received) => {
+    received.onProgress?.("Progress before timeout");
+    received.onWarning?.("Warning before timeout");
     received.onAnalysisUpdate?.(snapshot(1, { diagnostics: [diagnostic("Unconfirmed finding")] }));
     received.onAnalysisUpdate?.(
       snapshot(2, {
@@ -255,9 +264,14 @@ test("CLI preserves an incomplete snapshot after the final timeout JSON", async 
     return failure;
   });
 
-  expect(await runCli("0.1.0", {}, ["--format", "json"])).toBe(2);
-  expect(log).toHaveBeenCalledTimes(1);
-  expect(JSON.parse(String(log.mock.calls[0]![0]))).toEqual(failure.result);
+  expect(await runCli("0.1.0", ["--format", format])).toBe(2);
+  if (format === "json") {
+    expect(log).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(String(log.mock.calls[0]![0]))).toEqual(failure.result);
+    expect(write).not.toHaveBeenCalled();
+    return;
+  }
+  expect(log.mock.calls.flat()).toContain("Lint failed");
   const retained = String(write.mock.calls.at(-1)![0]);
   expect(retained).toContain("error (unconfirmed)");
   expect(retained).toContain("Unconfirmed finding");
@@ -265,15 +279,78 @@ test("CLI preserves an incomplete snapshot after the final timeout JSON", async 
   expect(write.mock.invocationCallOrder.at(-1)!).toBeGreaterThan(log.mock.invocationCallOrder[0]!);
 });
 
+test.each(["execute", "printHuman"] as const)(
+  "CLI sanitizes an unexpected %s exception and returns 2",
+  async (stage) => {
+    vi.stubEnv("NO_COLOR", "1");
+    const stderr = vi.spyOn(console, "error").mockImplementation(() => {});
+    const stdout = vi.spyOn(console, "log").mockImplementation(() => {});
+    const before = process.listeners("SIGINT");
+    const failure = new Error("Unexpected \x1b[2Jfailure");
+
+    expect(
+      await runToolCli(
+        {
+          name: "aqlint",
+          description: "",
+          help: "",
+          execute: async () => {
+            if (stage === "execute") throw failure;
+            return finalExecution();
+          },
+          printHuman: () => {
+            throw failure;
+          },
+          analysisLines: () => [],
+        },
+        "0.1.0",
+        stage === "execute" ? ["--format", "json"] : [],
+      ),
+    ).toBe(2);
+    expect(stderr).toHaveBeenCalledExactlyOnceWith("aqlint: Unexpected [2Jfailure");
+    expect(stdout).not.toHaveBeenCalled();
+    expect(process.listeners("SIGINT")).toEqual(before);
+  },
+);
+
+test.each(["SIGINT", "SIGTERM"] as const)(
+  "CLI forwards %s and removes its handlers",
+  async (signal) => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    const interruptListeners = process.listeners("SIGINT");
+    const terminateListeners = process.listeners("SIGTERM");
+    const existing = process.listeners(signal);
+    const execution = finalExecution();
+    execution.exitCode = 130;
+    vi.mocked(executeLint).mockImplementationOnce(async (options) => {
+      await new Promise<void>((resolve) => {
+        options.signal!.addEventListener("abort", () => resolve(), { once: true });
+      });
+      return execution;
+    });
+
+    const running = runCli("0.1.0", ["--format", "json"]);
+    const handler = process.listeners(signal).find((listener) => !existing.includes(listener));
+    expect(handler).toBeDefined();
+    handler!(signal);
+    expect(await running).toBe(130);
+    expect(log).toHaveBeenCalledTimes(1);
+    expect(process.listeners("SIGINT")).toEqual(interruptListeners);
+    expect(process.listeners("SIGTERM")).toEqual(terminateListeners);
+  },
+);
+
 test("does not repeat failed reviews or errors after final output when no partial findings remain", () => {
   const write = vi.fn();
   printAnalysisSnapshot(
-    snapshot(8, {
-      phase: "incomplete",
-      errors: [
-        { code: "INCOMPLETE_REVIEW", message: "The rule review did not finish.", ruleIds: [] },
-      ],
-    }),
+    analysisLines(
+      snapshot(8, {
+        phase: "incomplete",
+        errors: [
+          { code: "INCOMPLETE_REVIEW", message: "The rule review did not finish.", ruleIds: [] },
+        ],
+      }),
+    ),
     { isTTY: false, write } as unknown as NodeJS.WriteStream,
   );
 

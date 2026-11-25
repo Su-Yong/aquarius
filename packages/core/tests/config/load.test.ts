@@ -3,7 +3,6 @@ import { mkdtemp, mkdir, realpath, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { loadConfig } from "../../src/config/load";
-import { resolveBridge } from "../../src/ai/bridge";
 
 const directories: string[] = [];
 
@@ -14,40 +13,55 @@ afterEach(async () => {
 });
 
 describe("loadConfig", () => {
-  test("uses independent defaults when no configuration exists", async () => {
+  test.each(["lint", "format"] as const)("requires a configuration for %s", async (tool) => {
     const root = await project();
-    const lint = await loadConfig("lint", { cwd: root });
-    const format = await loadConfig("format", { cwd: root });
-
-    expect(lint).toMatchObject({
-      tool: "lint",
-      projectRoot: root,
-      configPath: undefined,
-      files: ["**/*"],
-      ignore: [],
-      plugins: [],
-      preset: [],
-      rules: {},
-      ai: { adapter: undefined, options: {}, timeoutMs: 600_000 },
+    await expect(loadConfig(tool, { cwd: root })).rejects.toMatchObject({
+      code: "CONFIG_NOT_FOUND",
     });
-    expect(format).toMatchObject({ tool: "format", configPath: undefined, preset: [], rules: {} });
+    await expect(loadConfig(tool, { cwd: root, configPath: "missing.json" })).rejects.toMatchObject(
+      { code: "CONFIG_NOT_FOUND" },
+    );
   });
 
   test.each(["lint", "format"] as const)(
-    "loads mixed rule settings and ordered repeated presets for %s",
+    "sets defaults when a %s config omits AI",
     async (tool) => {
       const root = await project();
+      await writeFile(join(root, "settings.jsonc"), "{}");
+      const config = await loadConfig(tool, { cwd: root, configPath: "settings.jsonc" });
+
+      expect(config).toMatchObject({
+        tool,
+        projectRoot: root,
+        configPath: join(root, "settings.jsonc"),
+        files: ["**/*"],
+        ignore: [],
+        plugins: [],
+        preset: [],
+        rules: {},
+        ai: { adapter: undefined, options: {}, timeoutMs: 600_000 },
+      });
+    },
+  );
+
+  test.each(["lint", "format"] as const)(
+    "loads tool-specific rule settings and ordered repeated presets for %s",
+    async (tool) => {
+      const root = await project();
+      const lintRules = {
+        "demo/check": ["warn", { nested: { limit: 3 }, list: [1, 2], nullable: null }],
+        "demo/disabled-check": "off",
+        "demo/error-check": "error",
+      };
+      const formatRules = {
+        "demo/format": true,
+        "demo/disabled-format": false,
+        "demo/configured-format": { style: "compact" },
+      };
       const input = {
         plugins: ["rules-package", "team-package"],
         preset: ["demo/all", "team/strict", "demo/all"],
-        rules: {
-          "demo/check": ["warn", { nested: { limit: 3 }, list: [1, 2], nullable: null }],
-          "demo/disabled-check": "off",
-          "demo/error-check": "error",
-          "demo/format": true,
-          "demo/disabled-format": false,
-          "demo/configured-format": { style: "compact" },
-        },
+        rules: tool === "lint" ? lintRules : formatRules,
       };
       await writeFile(join(root, "settings.jsonc"), JSON.stringify(input));
 
@@ -56,39 +70,49 @@ describe("loadConfig", () => {
       expect(config.plugins).toEqual(input.plugins);
       expect(config.preset).toEqual(input.preset);
       expect(config.rules).toEqual(input.rules);
-    },
-  );
 
-  test.each(["lint", "format"] as const)(
-    "requires an explicit AI adapter before resolving a %s bridge",
-    async (tool) => {
-      const root = await project();
-      const config = await loadConfig(tool, { cwd: root });
-      await expect(resolveBridge(config)).rejects.toMatchObject({
-        code: "AI_ADAPTER_REQUIRED",
-        message: expect.stringContaining("ai.adapter"),
-      });
-    },
-  );
-
-  test.each([{}, { options: { model: "example" } }, { adapter: " " }])(
-    "rejects an AI configuration without a usable adapter: %j",
-    async (ai) => {
-      const root = await project();
-      await writeFile(join(root, ".aqlintrc.json"), JSON.stringify({ ai }));
-      await expect(loadConfig("lint", { cwd: root })).rejects.toMatchObject({
+      await writeFile(
+        join(root, "settings.jsonc"),
+        JSON.stringify({ ...input, rules: { ...lintRules, ...formatRules } }),
+      );
+      await expect(
+        loadConfig(tool, { cwd: root, configPath: "settings.jsonc" }),
+      ).rejects.toMatchObject({
         code: "CONFIG_INVALID",
-        message: expect.stringContaining("ai.adapter"),
+        message: expect.stringContaining("rules"),
       });
     },
   );
+
+  test("loads AI settings without choosing an adapter during configuration", async () => {
+    const root = await project();
+    await writeFile(
+      join(root, ".aqlintrc.json"),
+      JSON.stringify({ ai: { options: { model: "example" }, fileBatchSize: 2 } }),
+    );
+    const config = await loadConfig("lint", { cwd: root });
+    expect(config.ai).toEqual({
+      adapter: undefined,
+      options: { model: "example" },
+      fileBatchSize: 2,
+      timeoutMs: 600_000,
+    });
+  });
+
+  test("rejects an invalid adapter specifier if supplied", async () => {
+    const root = await project();
+    await writeFile(join(root, ".aqlintrc.json"), JSON.stringify({ ai: { adapter: " " } }));
+    await expect(loadConfig("lint", { cwd: root })).rejects.toMatchObject({
+      code: "CONFIG_INVALID",
+      message: expect.stringContaining("ai.adapter"),
+    });
+  });
 
   test("retains defaults for an explicitly selected adapter", async () => {
     const root = await project();
-    await writeFile(join(root, ".aqlintrc.json"), '{ "ai": { "adapter": "codex" } }');
+    await writeFile(join(root, ".aqlintrc.json"), '{ "ai": { "adapter": "@aquarius/codex" } }');
     const config = await loadConfig("lint", { cwd: root });
-    expect(config.ai).toEqual({ adapter: "codex", options: {}, timeoutMs: 600_000 });
-    expect((await resolveBridge(config)).id).toBe("codex");
+    expect(config.ai).toEqual({ adapter: "@aquarius/codex", options: {}, timeoutMs: 600_000 });
   });
 
   test.each([1, 8, Number.MAX_SAFE_INTEGER])(
@@ -98,14 +122,14 @@ describe("loadConfig", () => {
       await writeFile(
         join(root, ".aqlintrc.json"),
         JSON.stringify({
-          ai: { adapter: "codex", fileBatchSize: value, maxConcurrency: value },
+          ai: { adapter: "@aquarius/codex", fileBatchSize: value, maxConcurrency: value },
         }),
       );
 
       const config = await loadConfig("lint", { cwd: root });
 
       expect(config.ai).toEqual({
-        adapter: "codex",
+        adapter: "@aquarius/codex",
         options: {},
         timeoutMs: 600_000,
         fileBatchSize: value,
@@ -123,7 +147,7 @@ describe("loadConfig", () => {
       for (const value of invalidValues) {
         await writeFile(
           join(root, ".aqlintrc.json"),
-          `{ "ai": { "adapter": "codex", "${field}": ${value} } }`,
+          `{ "ai": { "adapter": "@aquarius/codex", "${field}": ${value} } }`,
         );
 
         await expect(loadConfig("lint", { cwd: root })).rejects.toMatchObject({
@@ -284,13 +308,6 @@ describe("loadConfig", () => {
     const loaded = await loadConfig("lint", { cwd: nested });
     expect(loaded.projectRoot).toBe(root);
     expect(loaded.configPath).toBe(join(root, ".aqlintrc.jsonc"));
-  });
-
-  test("uses the working directory when no config exists in a Git repository", async () => {
-    const root = await project();
-    const nested = join(root, "nested");
-    await mkdir(nested);
-    expect((await loadConfig("lint", { cwd: nested })).projectRoot).toBe(nested);
   });
 
   test("an explicit config sets the project root and pattern base", async () => {

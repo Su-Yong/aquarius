@@ -3,7 +3,9 @@ import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { expect, test } from "vitest";
-import { applyFileChanges, captureBaseline, planFileChanges } from "../src/changes/apply";
+import { applyFileChanges } from "../src/changes/apply";
+import { planFileChanges } from "../src/changes/plan";
+import { captureBaseline } from "../src/changes/state";
 import { createGitUndoStore, undoLastFileChanges } from "../src/undo/store";
 
 const temporaryProject = async (): Promise<string> => {

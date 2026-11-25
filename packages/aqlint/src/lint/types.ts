@@ -1,5 +1,10 @@
-import type { ActiveSeverity, RunError, SkippedRule } from "@aquarius/core/internal";
-import type { EvidenceLocation, FileResult, SourceLocation } from "./schemas";
+import type {
+  ActiveSeverity,
+  AdapterRunInfo,
+  AnalysisSnapshot,
+  ReviewResponse,
+} from "@aquarius/core/runtime";
+import type { EvidenceLocation, SourceLocation } from "./schemas";
 
 export interface Diagnostic {
   rules: { rule: string; severity: ActiveSeverity }[];
@@ -18,37 +23,18 @@ export interface LintSummary {
   activeRules: number;
 }
 
-export interface LintResult {
-  changedFiles?: string[];
+export interface LintFindings {
   diagnostics: Diagnostic[];
-  errors: RunError[];
-  skippedRules: SkippedRule[];
+}
+
+export type LintResponse = ReviewResponse & LintFindings;
+
+export interface LintResult extends Omit<LintResponse, "retryable"> {
+  ai?: AdapterRunInfo;
   summary: LintSummary;
-  fileResults: FileResult[];
 }
 
-export type ReviewStatus = "pending" | "in_progress" | FileResult["status"];
-
-export interface FileReview {
-  path: string;
-  status: ReviewStatus;
-  reason: string;
-}
-
-export interface RuleReview {
-  ruleId: string;
-  status: ReviewStatus;
-  reason: string;
-}
-
-export interface LintAnalysisSnapshot {
-  phase: "provisional" | "final" | "incomplete";
-  revision: number;
-  diagnostics: readonly Diagnostic[];
-  fileResults: readonly FileReview[];
-  ruleResults: readonly RuleReview[];
-  errors: readonly RunError[];
-}
+export type LintAnalysisSnapshot = AnalysisSnapshot & LintFindings;
 
 export interface LintExecutionResult {
   result: LintResult;

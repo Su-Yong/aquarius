@@ -1,10 +1,11 @@
 import { lstat, readFile, realpath } from "node:fs/promises";
 import { dirname, isAbsolute, join, parse as parsePath, resolve } from "node:path";
 import { parse, printParseErrorCode, type ParseError } from "jsonc-parser";
-import { AquariusError } from "../shared/errors";
+import { AquariusError, errorMessage, isNodeError } from "../shared/errors";
 import type { ToolKind } from "../shared/types";
+import { formatZodIssues } from "../shared/zod";
 import type { RuleSettings } from "../rules/types";
-import { formatZodIssues, projectConfigSchema } from "./schemas";
+import { formatConfigSchema, lintConfigSchema } from "./schemas";
 import type { LoadedConfig, ProjectConfig } from "./types";
 
 const CONFIG_NAMES: Record<ToolKind, readonly string[]> = {
@@ -22,17 +23,21 @@ export const loadConfig = async (
   const configPath = options.configPath
     ? await resolveConfigPath(cwd, options.configPath)
     : await findConfig(cwd, CONFIG_NAMES[tool]);
-  const projectRoot = configPath ? dirname(configPath) : cwd;
-  const configDirectory = projectRoot;
-  const input = configPath ? await readConfig(configPath) : {};
-  const config = validateConfig(input);
+  if (!configPath) {
+    throw new AquariusError(
+      "CONFIG_NOT_FOUND",
+      `No ${CONFIG_NAMES[tool].join(" or ")} configuration found from ${cwd}.`,
+    );
+  }
+  const projectRoot = dirname(configPath);
+  const config = validateConfig(tool, await readConfig(configPath));
 
   return {
     tool,
     cwd,
     projectRoot,
     configPath,
-    configDirectory,
+    configDirectory: projectRoot,
     files: config.files ?? ["**/*"],
     ignore: config.ignore ?? [],
     plugins: config.plugins ?? [],
@@ -118,8 +123,9 @@ const readConfig = async (configPath: string): Promise<unknown> => {
   return value;
 };
 
-const validateConfig = (input: unknown): ProjectConfig => {
-  const parsed = projectConfigSchema.safeParse(input);
+const validateConfig = (tool: ToolKind, input: unknown): ProjectConfig => {
+  const schema = tool === "lint" ? lintConfigSchema : formatConfigSchema;
+  const parsed = schema.safeParse(input);
   if (!parsed.success) invalid(formatZodIssues(parsed.error));
   const config = parsed.data;
 
@@ -190,9 +196,3 @@ const lineAndColumn = (text: string, offset: number): { line: number; column: nu
   const before = text.slice(0, offset).split(/\r\n|\r|\n/);
   return { line: before.length, column: before.at(-1)!.length + 1 };
 };
-
-const isNodeError = (error: unknown, code: string): boolean =>
-  error instanceof Error && "code" in error && error.code === code;
-
-const errorMessage = (error: unknown): string =>
-  error instanceof Error ? error.message : String(error);

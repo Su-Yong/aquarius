@@ -1,13 +1,15 @@
 import { isDeepStrictEqual } from "node:util";
-import { ruleSettingSchema } from "../config/schemas";
-import { importProjectModule } from "./modules";
+import { errorMessage } from "../shared/errors";
+import { isPlainObject } from "../shared/json";
+import { importProjectModule } from "../shared/modules";
+import { formatZodIssues } from "../shared/zod";
 import {
   formatInstructionsSchema,
   formatRuleSchema,
-  formatRuleZodIssues,
   lintInstructionsSchema,
   lintRuleSchema,
   rulePluginShapeSchema,
+  ruleSettingSchema,
 } from "./schemas";
 import type { LoadedConfig } from "../config/types";
 import type { JsonObject, RunError } from "../shared/types";
@@ -22,7 +24,7 @@ interface SelectedRule {
 
 export const prepareRules = async (
   config: LoadedConfig,
-  builtinPlugins: Record<string, RulePlugin> = {},
+  suppliedPlugins: Record<string, RulePlugin> = {},
 ): Promise<PreparedRules> => {
   const errors: RunError[] = [];
   const lintRules = new Map<string, LintRule>();
@@ -32,11 +34,9 @@ export const prepareRules = async (
   for (const specifier of config.plugins) {
     let plugin: RulePlugin;
     try {
-      plugin = (await importProjectModule(
-        specifier,
-        config.configDirectory,
-        Object.hasOwn(builtinPlugins, specifier) ? builtinPlugins[specifier] : undefined,
-      )) as RulePlugin;
+      plugin = Object.hasOwn(suppliedPlugins, specifier)
+        ? suppliedPlugins[specifier]!
+        : ((await importProjectModule(specifier, config.configDirectory)) as RulePlugin);
     } catch (error) {
       errors.push(
         runError("PLUGIN_LOAD_FAILED", `Cannot load plugin ${specifier}: ${errorMessage(error)}`),
@@ -83,7 +83,7 @@ export const prepareRules = async (
         errors.push(
           runError(
             "RULE_SETTING_INVALID",
-            `${source.name}: ${id}: ${formatRuleZodIssues(parsed.error)}`,
+            `${source.name}: ${id}: ${formatZodIssues(parsed.error, "value")}`,
             [id],
           ),
         );
@@ -172,7 +172,7 @@ const registerPlugin = (
 ): void => {
   const parsed = rulePluginShapeSchema.safeParse(plugin);
   if (!parsed.success || !isNamespace(plugin?.namespace)) {
-    const detail = parsed.success ? "namespace is invalid" : formatRuleZodIssues(parsed.error);
+    const detail = parsed.success ? "namespace is invalid" : formatZodIssues(parsed.error, "value");
     errors.push(runError("PLUGIN_INVALID", `Plugin ${specifier} is invalid: ${detail}`));
     return;
   }
@@ -215,7 +215,7 @@ const registerRuleList = <T extends LintRule | FormatRule>(
     const parsed = schema.safeParse(candidate);
     const problem = parsed.success
       ? validateRuleId(candidateId)
-      : formatRuleZodIssues(parsed.error);
+      : formatZodIssues(parsed.error, "value");
     if (problem) {
       errors.push(runError("RULE_INVALID", `${id}: ${problem}`, [id]));
       continue;
@@ -239,7 +239,7 @@ const prepareOptions = (rule: LintRule | FormatRule, selected: JsonObject): Json
 
   const parsed = rule.optionsSchema.safeParse(selected);
   if (!parsed.success) {
-    throw new RulePreparationError("RULE_OPTIONS_INVALID", formatRuleZodIssues(parsed.error));
+    throw new RulePreparationError("RULE_OPTIONS_INVALID", formatZodIssues(parsed.error, "value"));
   }
   if (!isDeepStrictEqual(parsed.data, selected)) {
     throw new RulePreparationError(
@@ -288,7 +288,10 @@ const validateInstructions = (tool: LoadedConfig["tool"], input: unknown): void 
     input,
   );
   if (!parsed.success) {
-    throw new RulePreparationError("RULE_INSTRUCTIONS_INVALID", formatRuleZodIssues(parsed.error));
+    throw new RulePreparationError(
+      "RULE_INSTRUCTIONS_INVALID",
+      formatZodIssues(parsed.error, "value"),
+    );
   }
 };
 
@@ -303,20 +306,11 @@ const isRuleId = (value: string): boolean =>
   !value.endsWith("/") &&
   value.split("/").every((part) => /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(part));
 
-const isPlainObject = (value: unknown): value is JsonObject => {
-  if (value === null || typeof value !== "object" || Array.isArray(value)) return false;
-  const prototype = Object.getPrototypeOf(value);
-  return prototype === Object.prototype || prototype === null;
-};
-
 const runError = (code: string, message: string, ruleIds: string[] = []): RunError => ({
   code,
   message,
   ruleIds,
 });
-
-const errorMessage = (error: unknown): string =>
-  error instanceof Error ? error.message : String(error);
 
 class RulePreparationError extends Error {
   constructor(

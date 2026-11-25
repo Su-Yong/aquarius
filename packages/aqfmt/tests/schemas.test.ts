@@ -1,9 +1,6 @@
 import { expect, test } from "vitest";
-import {
-  fileChangeSchema,
-  formatResponseJsonSchema,
-  formatResponseSchema,
-} from "../src/format/schemas";
+import { fileChangeSchema } from "../src/changes/schema";
+import { formatResponseJsonSchema, formatResponseSchema } from "../src/format/schemas";
 import { parseUndoManifest } from "../src/undo/schema";
 
 test("format response schema is strict and produces the AI JSON schema", () => {

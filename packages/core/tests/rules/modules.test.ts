@@ -2,7 +2,7 @@ import { afterEach, expect, test } from "vitest";
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { importProjectModule } from "../../src/rules/modules";
+import { importProjectModule } from "../../src/shared/modules";
 
 const directories: string[] = [];
 
@@ -50,17 +50,13 @@ test("uses ESM import conditions for an import-only package export", async () =>
   await expect(importProjectModule("import-only-rules", directory)).resolves.toEqual({
     id: "import-condition",
   });
-  await expect(
-    importProjectModule("import-only-rules", directory, { id: "bundled-old-version" }),
-  ).resolves.toEqual({ id: "import-condition" });
 });
 
-test("uses a bundled fallback only when the package is absent, not when its entry is broken", async () => {
+test("rejects missing packages and broken local package entries", async () => {
   const directory = await project();
-  const fallback = { id: "bundled" };
-  await expect(importProjectModule("missing-bundled-plugin", directory, fallback)).resolves.toBe(
-    fallback,
-  );
+  await expect(importProjectModule("missing-plugin", directory)).rejects.toMatchObject({
+    code: "ERR_MODULE_NOT_FOUND",
+  });
   const broken = join(directory, "node_modules", "broken-plugin");
   await mkdir(broken, { recursive: true });
   await writeFile(
@@ -71,7 +67,7 @@ test("uses a bundled fallback only when the package is absent, not when its entr
       exports: "./absent.mjs",
     }),
   );
-  await expect(importProjectModule("broken-plugin", directory, fallback)).rejects.toThrow();
+  await expect(importProjectModule("broken-plugin", directory)).rejects.toThrow();
 });
 
 const project = async (): Promise<string> => {

@@ -7,7 +7,7 @@ export interface ProjectConfig {
   plugins?: string[];
   preset?: string[];
   ai?: {
-    adapter: string;
+    adapter?: string;
     options?: JsonObject;
     timeoutMs?: number;
     fileBatchSize?: number;

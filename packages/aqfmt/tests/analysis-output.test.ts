@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
-import { progressLineText } from "@aquarius/core/internal";
-import { analysisLines, printAnalysisSnapshot } from "../src/cli/analysis-output";
+import { printAnalysisSnapshot, progressLineText } from "@aquarius/core/cli";
+import { analysisLines } from "../src/cli/analysis-output";
 import { runCli } from "../src/cli/run";
 import { executeFormat } from "../src/format/execute";
 import type { FormatAnalysisSnapshot, FormatExecutionResult } from "../src/format/types";
@@ -88,7 +88,7 @@ test("styles terminal output and removes untrusted controls and line breaks", ()
     proposedFiles: ["done.ts\x1b[2J"],
     warnings: [{ code: "NOTICE", ruleIds: [], message: "Details\ncontinued", paths: [] }],
   });
-  printAnalysisSnapshot(current, stream);
+  printAnalysisSnapshot(analysisLines(current), stream);
   const output = String(write.mock.calls.at(-1)![0]);
   expect(output).toContain("\x1b[36mdone.ts\x1b[39m: \x1b[32mreviewed\x1b[39m");
   expect(output).toContain("Details continued");
@@ -96,13 +96,13 @@ test("styles terminal output and removes untrusted controls and line breaks", ()
   expect(output).not.toContain("\x07");
 
   vi.stubEnv("NO_COLOR", "1");
-  printAnalysisSnapshot(current, stream);
+  printAnalysisSnapshot(analysisLines(current), stream);
   const noColor = String(write.mock.calls.at(-1)![0]);
   expect(noColor).not.toContain("\x1b");
   expect(noColor).toContain("✓ File done.ts");
 
   vi.stubEnv("TERM", "dumb");
-  printAnalysisSnapshot(current, stream);
+  printAnalysisSnapshot(analysisLines(current), stream);
   const plain = String(write.mock.calls.at(-1)![0]);
   expect(plain).not.toMatch(/[✓↷✖⚠•]/u);
 });
@@ -110,10 +110,12 @@ test("styles terminal output and removes untrusted controls and line breaks", ()
 test("keeps incomplete review status explicit even when there are no proposals", () => {
   const write = vi.fn();
   printAnalysisSnapshot(
-    snapshot({
-      phase: "incomplete",
-      fileResults: [{ path: "src/main.ts", status: "failed", reason: "Timed out" }],
-    }),
+    analysisLines(
+      snapshot({
+        phase: "incomplete",
+        fileResults: [{ path: "src/main.ts", status: "failed", reason: "Timed out" }],
+      }),
+    ),
     { isTTY: false, write } as unknown as NodeJS.WriteStream,
   );
   const output = String(write.mock.calls[0]![0]);
@@ -123,7 +125,7 @@ test("keeps incomplete review status explicit even when there are no proposals",
   expect(output).not.toContain("Formatting review complete");
 });
 
-test("prints cumulative progress on stderr before one final stdout JSON", async () => {
+test("prints current progress on stderr before final text output", async () => {
   vi.stubEnv("TERM", "dumb");
   const log = vi.spyOn(console, "log").mockImplementation(() => {});
   const write = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
@@ -147,13 +149,12 @@ test("prints cumulative progress on stderr before one final stdout JSON", async 
     );
     return result;
   });
-  const running = runCli("0.1.0", {}, ["--format", "json"]);
+  const running = runCli("0.1.0", ["--format", "text"]);
   expect(log).not.toHaveBeenCalled();
   expect(String(write.mock.calls.at(-1)![0])).toContain("Proposed change old.ts");
   release!();
   expect(await running).toBe(0);
-  expect(log).toHaveBeenCalledTimes(1);
-  expect(JSON.parse(String(log.mock.calls[0]![0]))).toEqual(result.result);
+  expect(log.mock.calls.flat()).toContain("Formatted src/main.ts");
   const updates = write.mock.calls.map(([value]) => String(value));
   expect(updates.some((value) => value.includes("Proposed files: 0"))).toBe(true);
   const final = updates.at(-1)!;
@@ -162,33 +163,39 @@ test("prints cumulative progress on stderr before one final stdout JSON", async 
   expect(final).not.toContain("old.ts");
 });
 
-test.each([2, 130])(
-  "retains incomplete stderr state after final JSON for exit %s",
-  async (exitCode) => {
-    vi.stubEnv("TERM", "dumb");
-    const log = vi.spyOn(console, "log").mockImplementation(() => {});
-    const write = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
-    const result = finalExecution();
-    result.exitCode = exitCode;
-    result.result.changedFiles = [];
-    result.result.errors = [{ code: "AI_ABORTED", message: "Stopped", ruleIds: [] }];
-    vi.mocked(executeFormat).mockImplementationOnce(async (options) => {
-      options.onAnalysisUpdate?.(
-        snapshot({
-          phase: "incomplete",
-          proposedFiles: ["src/main.ts"],
-          errors: result.result.errors,
-        }),
-      );
-      return result;
-    });
-    expect(await runCli("0.1.0", {}, ["--format", "json"])).toBe(exitCode);
+test.each([
+  { exitCode: 2, format: "text" },
+  { exitCode: 2, format: "json" },
+  { exitCode: 130, format: "json" },
+])("CLI exit $exitCode separates $format output from progress", async ({ exitCode, format }) => {
+  vi.stubEnv("TERM", "dumb");
+  const log = vi.spyOn(console, "log").mockImplementation(() => {});
+  const write = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+  const result = finalExecution();
+  result.exitCode = exitCode;
+  result.result.changedFiles = [];
+  result.result.errors = [{ code: "AI_ABORTED", message: "Stopped", ruleIds: [] }];
+  vi.mocked(executeFormat).mockImplementationOnce(async (options) => {
+    options.onProgress?.("Progress before failure");
+    options.onWarning?.("Warning before failure");
+    options.onAnalysisUpdate?.(
+      snapshot({
+        phase: "incomplete",
+        proposedFiles: ["src/main.ts"],
+        errors: result.result.errors,
+      }),
+    );
+    return result;
+  });
+  expect(await runCli("0.1.0", ["--format", format])).toBe(exitCode);
+  if (format === "json") {
     expect(log).toHaveBeenCalledTimes(1);
     expect(JSON.parse(String(log.mock.calls[0]![0]))).toEqual(result.result);
-    expect(String(write.mock.calls.at(-1)![0])).toContain("Formatting review incomplete");
-    expect(String(write.mock.calls.at(-1)![0])).toContain("Proposed change src/main.ts");
-    expect(write.mock.invocationCallOrder.at(-1)!).toBeGreaterThan(
-      log.mock.invocationCallOrder[0]!,
-    );
-  },
-);
+    expect(write).not.toHaveBeenCalled();
+    return;
+  }
+  expect(log.mock.calls.flat()).toContain("Formatting failed");
+  expect(String(write.mock.calls.at(-1)![0])).toContain("Formatting review incomplete");
+  expect(String(write.mock.calls.at(-1)![0])).toContain("Proposed change src/main.ts");
+  expect(write.mock.invocationCallOrder.at(-1)!).toBeGreaterThan(log.mock.invocationCallOrder[0]!);
+});

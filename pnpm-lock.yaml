@@ -171,6 +171,12 @@ importers:
 
   .:
     devDependencies:
+      '@aquarius/codex':
+        specifier: workspace:*
+        version: link:packages/codex
+      '@aquarius/rules':
+        specifier: workspace:*
+        version: link:packages/rules
       '@changesets/cli':
         specifier: 3.0.3
         version: 3.0.3
@@ -201,21 +207,38 @@ importers:
       '@aquarius/core':
         specifier: workspace:*
         version: link:../core
-      '@aquarius/rules':
-        specifier: workspace:*
-        version: link:../rules
       zod:
         specifier: 4.6.7
         version: 4.6.7
+    devDependencies:
+      '@aquarius/codex':
+        specifier: workspace:*
+        version: link:../codex
+      '@aquarius/rules':
+        specifier: workspace:*
+        version: link:../rules
 
   packages/aqlint:
     dependencies:
       '@aquarius/core':
         specifier: workspace:*
         version: link:../core
+      zod:
+        specifier: 4.6.7
+        version: 4.6.7
+    devDependencies:
+      '@aquarius/codex':
+        specifier: workspace:*
+        version: link:../codex
       '@aquarius/rules':
         specifier: workspace:*
         version: link:../rules
+
+  packages/codex:
+    dependencies:
+      '@aquarius/core':
+        specifier: workspace:*
+        version: link:../core
       zod:
         specifier: 4.6.7
         version: 4.6.7

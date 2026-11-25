@@ -2,7 +2,8 @@ import { access, mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promise
 import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { afterEach, describe, expect, test, vi } from "vitest";
-import type { AiBridge, BridgeInput, RulePlugin } from "@aquarius/core/internal";
+import type { AiAdapter, AdapterExecuteRequest } from "@aquarius/core/runtime";
+import type { RulePlugin } from "@aquarius/core";
 import { executeFormat } from "../src/format/execute";
 import type { FileChange, FormatAnalysisSnapshot } from "../src/format/types";
 
@@ -49,7 +50,7 @@ const project = async (
   return { root, paths };
 };
 
-const targets = (input: BridgeInput): string[] => {
+const targets = (input: AdapterExecuteRequest): string[] => {
   const metadata = JSON.parse(input.prompt.split("\n\n").at(-1)!) as { targets: string[] };
   return metadata.targets;
 };
@@ -62,8 +63,8 @@ const change = (path: string, newText = replacement): FileChange => ({
   ruleIds: ["fixture/format"],
 });
 
-const response = (input: BridgeInput, changes: FileChange[] = []) => ({
-  completedRuleIds: input.ruleResources.files.map(({ ruleId }) => ruleId),
+const response = (input: AdapterExecuteRequest, changes: FileChange[] = []) => ({
+  completedRuleIds: input.ruleResources.map(({ ruleId }) => ruleId),
   skippedRules: [],
   changes,
   warnings: [],
@@ -88,24 +89,36 @@ describe("format parity through real execution components", () => {
     "applies file replacements and reports all %s original targets",
     async (count) => {
       const { root, paths } = await project(count);
-      const run = vi.fn(async (input: BridgeInput) =>
+      const run = vi.fn(async (input: AdapterExecuteRequest) =>
         response(
           input,
           targets(input).map((path) => change(path)),
         ),
       );
 
-      const execution = await executeFormat(
-        { cwd: root, fileBatchSize: 2, maxConcurrency: 2 },
-        { fixture: plugin },
-        { id: "replacement-fixture", run },
-      );
+      const snapshots: FormatAnalysisSnapshot[] = [];
+      const execution = await executeFormat({
+        cwd: root,
+        fileBatchSize: 2,
+        maxConcurrency: 2,
+        plugins: { fixture: plugin },
+        adapter: { id: "replacement-fixture", run },
+        onAnalysisUpdate: (snapshot) => snapshots.push(snapshot),
+      });
 
       expect(execution.exitCode).toBe(0);
       expect(run).toHaveBeenCalledTimes(Math.ceil(count / 2));
       expect(execution.result.errors).toEqual([]);
       expect(execution.result.changedFiles).toEqual(paths);
       expect(execution.result.proposedFiles).toEqual(paths);
+      expect(execution.result.warnings).toContainEqual(
+        expect.objectContaining({ code: "UNDO_UNAVAILABLE" }),
+      );
+      expect(snapshots.at(-1)).toMatchObject({
+        phase: "final",
+        proposedFiles: paths,
+        warnings: execution.result.warnings,
+      });
       expect(execution.result.fileResults).toEqual(
         paths.map((path) => ({ path, status: "completed", reason: "" })),
       );
@@ -133,7 +146,7 @@ describe("format parity through real execution components", () => {
     "rejects file-only $operation for $count files without retry or writes",
     async ({ count, operation }) => {
       const { root, paths } = await project(count);
-      const run = vi.fn(async (input: BridgeInput) => {
+      const run = vi.fn(async (input: AdapterExecuteRequest) => {
         const first = targets(input)[0]!;
         const ruleIds = ["fixture/format"];
         let proposed: FileChange;
@@ -147,11 +160,13 @@ describe("format parity through real execution components", () => {
         return response(input, [proposed]);
       });
 
-      const execution = await executeFormat(
-        { cwd: root, fileBatchSize: 2, maxConcurrency: 1 },
-        { fixture: plugin },
-        { id: "structural-fixture", run },
-      );
+      const execution = await executeFormat({
+        cwd: root,
+        fileBatchSize: 2,
+        maxConcurrency: 1,
+        plugins: { fixture: plugin },
+        adapter: { id: "structural-fixture", run },
+      });
 
       expect(execution.exitCode).toBe(2);
       expect(run).toHaveBeenCalledTimes(1);
@@ -178,7 +193,7 @@ describe("format parity through real execution components", () => {
           { ...plugin.formatRules![0]!, id: "structure", scope },
         ],
       };
-      const run = vi.fn(async (input: BridgeInput) =>
+      const run = vi.fn(async (input: AdapterExecuteRequest) =>
         response(input, [
           change(paths[0]!),
           {
@@ -196,11 +211,13 @@ describe("format parity through real execution components", () => {
         ]),
       );
 
-      const execution = await executeFormat(
-        { cwd: root, fileBatchSize: 1, maxConcurrency: 3 },
-        { fixture: mixedPlugin },
-        { id: "mixed-scope-fixture", run },
-      );
+      const execution = await executeFormat({
+        cwd: root,
+        fileBatchSize: 1,
+        maxConcurrency: 3,
+        plugins: { fixture: mixedPlugin },
+        adapter: { id: "mixed-scope-fixture", run },
+      });
 
       expect(execution.exitCode).toBe(0);
       expect(run).toHaveBeenCalledTimes(1);
@@ -230,7 +247,7 @@ describe("format parity through real execution components", () => {
   test("preserves a completed batch but skips later batches and writes nothing after failure", async () => {
     const { root, paths } = await project(5);
     let calls = 0;
-    const run = vi.fn(async (input: BridgeInput) => {
+    const run = vi.fn(async (input: AdapterExecuteRequest) => {
       calls += 1;
       if (calls === 1) {
         return response(input, [change(targets(input)[0]!)]);
@@ -249,11 +266,13 @@ describe("format parity through real execution components", () => {
       };
     });
 
-    const execution = await executeFormat(
-      { cwd: root, fileBatchSize: 1, maxConcurrency: 1 },
-      { fixture: plugin },
-      { id: "partial-failure-fixture", run },
-    );
+    const execution = await executeFormat({
+      cwd: root,
+      fileBatchSize: 1,
+      maxConcurrency: 1,
+      plugins: { fixture: plugin },
+      adapter: { id: "partial-failure-fixture", run },
+    });
 
     expect(execution.exitCode).toBe(2);
     expect(run).toHaveBeenCalledTimes(2);
@@ -282,15 +301,15 @@ describe("format parity through real execution components", () => {
   });
 
   test("retries one incomplete batch and applies only its replacement proposal", async () => {
-    const { root, paths } = await project(2);
-    let calls = 0;
-    const run = vi.fn(async (input: BridgeInput) => {
-      calls += 1;
-      if (calls === 1) {
+    const { root, paths } = await project(3);
+    const run = vi.fn(async (input: AdapterExecuteRequest) => {
+      const assigned = targets(input);
+      if (assigned.includes(paths[2]!)) return response(input);
+      if (!input.prompt.includes("previous attempt")) {
         return {
           ...response(
             input,
-            paths.map((path) => change(path, "discarded\n")),
+            assigned.map((path) => change(path, "discarded\n")),
           ),
           completedRuleIds: [],
           fileResults: [],
@@ -299,34 +318,35 @@ describe("format parity through real execution components", () => {
       return response(input, [change(paths[1]!)]);
     });
 
-    const execution = await executeFormat(
-      { cwd: root, fileBatchSize: 2 },
-      { fixture: plugin },
-      { id: "retry-fixture", run },
-    );
+    const execution = await executeFormat({
+      cwd: root,
+      fileBatchSize: 2,
+      plugins: { fixture: plugin },
+      adapter: { id: "retry-fixture", run },
+    });
 
     expect(execution.exitCode).toBe(0);
-    expect(run).toHaveBeenCalledTimes(2);
+    expect(run).toHaveBeenCalledTimes(3);
     expect(execution.result.errors).toEqual([]);
     expect(execution.result.proposedFiles).toEqual([paths[1]]);
     expect(execution.result.changedFiles).toEqual([paths[1]]);
-    expect(execution.result.summary.completedFiles).toBe(2);
+    expect(execution.result.summary.completedFiles).toBe(3);
     expect(await readFile(join(root, paths[0]!), "utf8")).toBe(original);
     expect(await readFile(join(root, paths[1]!), "utf8")).toBe(replacement);
   });
 
   test("rejects a legacy response without file results instead of guessing completion", async () => {
     const { root, paths } = await project(1);
-    const run = vi.fn(async (input: BridgeInput) => {
+    const run = vi.fn(async (input: AdapterExecuteRequest) => {
       const { fileResults: _fileResults, ...legacy } = response(input, [change(paths[0]!)]);
       return legacy;
     });
 
-    const execution = await executeFormat(
-      { cwd: root },
-      { fixture: plugin },
-      { id: "legacy-response-fixture", run },
-    );
+    const execution = await executeFormat({
+      cwd: root,
+      plugins: { fixture: plugin },
+      adapter: { id: "legacy-response-fixture", run },
+    });
 
     expect(execution.exitCode).toBe(2);
     expect(run).toHaveBeenCalledTimes(1);
@@ -340,7 +360,7 @@ describe("format parity through real execution components", () => {
     const { root, paths } = await project(1);
     const warnings = vi.fn();
     const snapshots: FormatAnalysisSnapshot[] = [];
-    const ai: AiBridge = {
+    const ai: AiAdapter = {
       id: "invalid-intermediate-fixture",
       async run(input) {
         input.onAnalysisUpdate?.({
@@ -356,15 +376,13 @@ describe("format parity through real execution components", () => {
       },
     };
 
-    const execution = await executeFormat(
-      {
-        cwd: root,
-        onWarning: warnings,
-        onAnalysisUpdate: (snapshot) => snapshots.push(snapshot),
-      },
-      { fixture: plugin },
-      ai,
-    );
+    const execution = await executeFormat({
+      cwd: root,
+      onWarning: warnings,
+      onAnalysisUpdate: (snapshot) => snapshots.push(snapshot),
+      plugins: { fixture: plugin },
+      adapter: ai,
+    });
 
     expect(execution.exitCode).toBe(0);
     expect(warnings).toHaveBeenCalled();
@@ -382,21 +400,19 @@ describe("format parity through real execution components", () => {
     async (scope) => {
       const { root, paths } = await project(2);
       const controller = new AbortController();
-      const run = vi.fn(async (input: BridgeInput) => response(input));
+      const run = vi.fn(async (input: AdapterExecuteRequest) => response(input));
       const scopedPlugin: RulePlugin = {
         ...plugin,
         formatRules: [{ ...plugin.formatRules![0]!, scope }],
       };
 
-      const execution = await executeFormat(
-        {
-          cwd: root,
-          signal: controller.signal,
-          onAnalysisUpdate: () => controller.abort(),
-        },
-        { fixture: scopedPlugin },
-        { id: "cancel-before-request", run },
-      );
+      const execution = await executeFormat({
+        cwd: root,
+        signal: controller.signal,
+        onAnalysisUpdate: () => controller.abort(),
+        plugins: { fixture: scopedPlugin },
+        adapter: { id: "cancel-before-request", run },
+      });
 
       expect(execution.exitCode).toBe(130);
       expect(run).not.toHaveBeenCalled();
@@ -419,26 +435,24 @@ describe("format parity through real execution components", () => {
       const { root, paths } = await project(1);
       const controller = new AbortController();
       const snapshots: FormatAnalysisSnapshot[] = [];
-      const ai: AiBridge = {
+      const ai: AiAdapter = {
         id: "cancel-at-final-publication",
         async run(input) {
           return response(input, [change(paths[0]!)]);
         },
       };
 
-      const execution = await executeFormat(
-        {
-          cwd: root,
-          check,
-          signal: controller.signal,
-          onAnalysisUpdate: (snapshot) => {
-            snapshots.push(snapshot);
-            if (snapshot.phase === "final") controller.abort();
-          },
+      const execution = await executeFormat({
+        cwd: root,
+        check,
+        signal: controller.signal,
+        onAnalysisUpdate: (snapshot) => {
+          snapshots.push(snapshot);
+          if (snapshot.phase === "final") controller.abort();
         },
-        { fixture: plugin },
-        ai,
-      );
+        plugins: { fixture: plugin },
+        adapter: ai,
+      });
 
       expect(execution.exitCode).toBe(130);
       expect(execution.result.errors).toContainEqual(
@@ -453,10 +467,10 @@ describe("format parity through real execution components", () => {
 
   test("preserves the last valid provisional proposal as incomplete after timeout", async () => {
     const { root, paths } = await project(1, {
-      ai: { adapter: "codex", timeoutMs: 25 },
+      ai: { adapter: "@aquarius/codex", timeoutMs: 25 },
     });
     const snapshots: FormatAnalysisSnapshot[] = [];
-    const run = vi.fn(async (input: BridgeInput) => {
+    const run = vi.fn(async (input: AdapterExecuteRequest) => {
       input.onAnalysisUpdate?.({
         type: "aquarius.analysis_update",
         revision: 1,
@@ -468,11 +482,12 @@ describe("format parity through real execution components", () => {
       return new Promise<never>(() => {});
     });
 
-    const execution = await executeFormat(
-      { cwd: root, onAnalysisUpdate: (snapshot) => snapshots.push(snapshot) },
-      { fixture: plugin },
-      { id: "provisional-timeout-fixture", run },
-    );
+    const execution = await executeFormat({
+      cwd: root,
+      onAnalysisUpdate: (snapshot) => snapshots.push(snapshot),
+      plugins: { fixture: plugin },
+      adapter: { id: "provisional-timeout-fixture", run },
+    });
 
     expect(execution.exitCode).toBe(2);
     expect(run).toHaveBeenCalledTimes(1);

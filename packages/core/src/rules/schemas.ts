@@ -1,9 +1,14 @@
 import { z } from "zod";
+import { jsonObjectSchema, nonEmptyStringSchema } from "../shared/zod";
 import type { FormatRule, LintRule } from "./types";
 
-const nonEmptyStringSchema = z.string().refine((value) => value.trim() !== "", {
-  message: "must be a non-empty string",
-});
+const severitySchema = z.enum(["off", "warn", "error"]);
+export const lintRuleSettingSchema = z.union([
+  severitySchema,
+  z.tuple([severitySchema, jsonObjectSchema]),
+]);
+export const formatRuleSettingSchema = z.union([z.boolean(), jsonObjectSchema]);
+export const ruleSettingSchema = z.union([lintRuleSettingSchema, formatRuleSettingSchema]);
 
 const stringArraySchema = z.array(nonEmptyStringSchema);
 const scopeSchema = z.enum(["file", "module", "project"]);
@@ -79,14 +84,3 @@ export const formatInstructionsSchema = z
       .optional(),
   })
   .strict();
-
-export const formatRuleZodIssues = (error: z.ZodError): string =>
-  error.issues
-    .map((issue) => {
-      const path = issue.path.length > 0 ? issue.path.join(".") : "value";
-      if (issue.code === "unrecognized_keys") {
-        return `${path} contains unknown field(s): ${issue.keys.join(", ")}`;
-      }
-      return `${path} ${issue.message}`;
-    })
-    .join("; ");

@@ -1,11 +1,11 @@
 import { parseDocument } from "yaml";
 import { z } from "zod";
-import { AquariusError } from "../shared/errors";
+import { AquariusError, errorMessage } from "../shared/errors";
+import { isPlainObject } from "../shared/json";
+import { formatZodIssues, jsonObjectSchema } from "../shared/zod";
 import type { JsonObject } from "../shared/types";
-import { formatRuleZodIssues, formatInstructionsSchema, lintInstructionsSchema } from "./schemas";
+import { formatInstructionsSchema, lintInstructionsSchema } from "./schemas";
 import type { FormatInstructions, FormatRule, LintInstructions, LintRule } from "./types";
-
-const jsonObjectSchema = z.record(z.string(), z.json());
 
 const yamlRuleBaseShape = {
   id: z.string().min(1),
@@ -67,7 +67,7 @@ const parseYaml = <T>(text: string, schema: z.ZodType<T>): T => {
   }
 
   const parsed = schema.safeParse(value);
-  if (!parsed.success) invalid(formatRuleZodIssues(parsed.error));
+  if (!parsed.success) invalid(formatZodIssues(parsed.error, "value"));
   return parsed.data;
 };
 
@@ -150,15 +150,6 @@ const validateTemplateSyntax = (template: string): void => {
     invalid("template contains a malformed placeholder");
 };
 
-const isPlainObject = (value: unknown): value is JsonObject => {
-  if (value === null || typeof value !== "object" || Array.isArray(value)) return false;
-  const prototype = Object.getPrototypeOf(value);
-  return prototype === Object.prototype || prototype === null;
-};
-
 const invalid: (message: string) => never = (message) => {
   throw new AquariusError("YAML_RULE_INVALID", message);
 };
-
-const errorMessage = (error: unknown): string =>
-  error instanceof Error ? error.message : String(error);

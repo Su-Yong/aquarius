@@ -1,4 +1,5 @@
 import type { RuleSettings } from "@aquarius/core";
+import { formatRules } from "./format";
 
 export const allRulesPreset: RuleSettings = {
   "aquarius/contracts/no-input-mutation": ["error", { allowOwnershipTransfer: false }],
@@ -378,7 +379,64 @@ export const allRulesPreset: RuleSettings = {
   "aquarius/performance/bounded-recursion": "warn",
   "aquarius/performance/no-busy-waiting": "warn",
   "aquarius/performance/preserve-semantics-under-optimization": "warn",
-  "aquarius/style/prefer-early-return": true,
-  "aquarius/readability/name-compound-conditions": true,
+  ...Object.fromEntries(formatRules.map(({ id }) => [`aquarius/${id}`, true])),
+};
+
+export const formatSafePreset: RuleSettings = {
+  "aquarius/imports/organize": true,
+  "aquarius/control-flow/exit-style": true,
+  "aquarius/control-flow/ternary-style": true,
+  "aquarius/expressions/step-granularity": true,
+  "aquarius/expressions/variable-mutability": true,
+  "aquarius/expressions/condition-readability": true,
+  "aquarius/naming/magic-values": true,
+  "aquarius/naming/callback-style": true,
+  "aquarius/structure/declaration-placement": true,
+  "aquarius/comments/enforce-policy": {
+    redundantComments: "remove",
+    commentedCode: "keep",
+    sectionComments: "keep",
+    docs: { mode: "keep" },
+  },
+};
+
+export const formatRecommendedPreset: RuleSettings = {
+  ...formatSafePreset,
+  "aquarius/comments/enforce-policy": {
+    redundantComments: "remove",
+    commentedCode: "remove",
+    sectionComments: "keep",
+    docs: { mode: "sync-existing" },
+  },
+  "aquarius/control-flow/branch-dispatch": true,
+  "aquarius/control-flow/loop-termination": true,
+  "aquarius/control-flow/async-style": true,
+  "aquarius/control-flow/error-scope": true,
+  "aquarius/control-flow/consolidate-branches": true,
+  "aquarius/expressions/iteration-style": true,
+  "aquarius/expressions/object-build-style": true,
+  "aquarius/naming/identifier-clarity": true,
+  "aquarius/structure/order-sections": true,
+  "aquarius/types/enforce-declaration-style": true,
+};
+
+export const formatTestsPreset: RuleSettings = {
+  "aquarius/tests/enforce-structure": true,
+  "aquarius/tests/case-style": true,
+  "aquarius/tests/description-style": true,
+};
+
+export const formatRefactorPreset: RuleSettings = {
+  "aquarius/imports/barrel-style": true,
+  "aquarius/naming/enforce-convention": true,
+  "aquarius/structure/abstraction-density": true,
+  "aquarius/structure/flag-argument-style": true,
+  "aquarius/structure/io-core-separation": true,
+  "aquarius/types/state-modeling": true,
+  "aquarius/refactor/parameter-style": true,
   "aquarius/refactor/separate-responsibilities": true,
+  "aquarius/refactor/dispatch-architecture": true,
+  "aquarius/refactor/data-representation": true,
+  "aquarius/refactor/deduplicate-internals": true,
+  "aquarius/refactor/layer-depth": true,
 };

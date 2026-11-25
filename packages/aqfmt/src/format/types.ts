@@ -1,16 +1,22 @@
-import type { RunError, SkippedRule, TargetOptions } from "@aquarius/core/internal";
-import type { FileChange, FormatFileResult, FormatWarning } from "./schemas";
+import type {
+  AdapterRunInfo,
+  Analysis,
+  AnalysisSnapshot,
+  ReviewResponse,
+  ToolExecutionOptions,
+} from "@aquarius/core/runtime";
+import type { FileChange } from "../changes/schema";
+import type { FormatWarning } from "./schemas";
 
-export type { FileChange, FormatFileResult, FormatWarning } from "./schemas";
+export type { FileChange } from "../changes/schema";
+export type { FormatWarning } from "./schemas";
 
-export interface FormatResponse {
+export interface FormatDetails {
   changes: FileChange[];
   warnings: FormatWarning[];
-  errors: RunError[];
-  skippedRules: SkippedRule[];
-  fileResults: FormatFileResult[];
-  retryable: boolean;
 }
+
+export type FormatResponse = ReviewResponse & FormatDetails;
 
 export interface FormatSummary {
   totalFiles: number | null;
@@ -20,60 +26,27 @@ export interface FormatSummary {
   activeRules: number;
 }
 
-export interface FormatResult {
+export interface FormatResult extends Omit<ReviewResponse, "retryable"> {
+  ai?: AdapterRunInfo;
   changedFiles: string[];
   proposedFiles: string[];
   wouldChangeFiles?: string[];
   restoredFiles?: string[];
   warnings: FormatWarning[];
-  errors: RunError[];
-  skippedRules: SkippedRule[];
   summary: FormatSummary;
-  fileResults: FormatFileResult[];
 }
 
-export type FormatReviewStatus = "pending" | "in_progress" | FormatFileResult["status"];
-
-export interface FormatFileReview {
-  path: string;
-  status: FormatReviewStatus;
-  reason: string;
+export interface FormatSnapshotDetails {
+  proposedFiles: string[];
+  warnings: FormatWarning[];
 }
 
-export interface FormatRuleReview {
-  ruleId: string;
-  status: FormatReviewStatus;
-  reason: string;
-}
+export type FormatAnalysisSnapshot = AnalysisSnapshot & FormatSnapshotDetails;
+export type FormatAnalysis = Analysis<FormatSnapshotDetails, FormatResponse>;
 
-export interface FormatAnalysisSnapshot {
-  phase: "provisional" | "final" | "incomplete";
-  revision: number;
-  fileResults: readonly FormatFileReview[];
-  ruleResults: readonly FormatRuleReview[];
-  proposedFiles: readonly string[];
-  warnings: readonly FormatWarning[];
-  errors: readonly RunError[];
-}
-
-export interface FormatAnalysis {
-  update: (raw: unknown) => void;
-  flush: () => Promise<void>;
-  finish: (response: FormatResponse) => Promise<FormatAnalysisSnapshot>;
-  interrupt: (errors?: readonly RunError[]) => Promise<FormatAnalysisSnapshot>;
-}
-
-export interface FormatExecutionOptions extends TargetOptions {
-  cwd: string;
-  configPath?: string;
+export interface FormatExecutionOptions extends ToolExecutionOptions<FormatSnapshotDetails> {
   check?: boolean;
   undo?: boolean;
-  fileBatchSize?: number;
-  maxConcurrency?: number;
-  signal?: AbortSignal;
-  onProgress?: (message: string) => void;
-  onWarning?: (message: string) => void;
-  onAnalysisUpdate?: (snapshot: FormatAnalysisSnapshot) => void;
 }
 
 export interface FormatExecutionResult {

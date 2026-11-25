@@ -755,7 +755,7 @@ const loaded = (overrides: Partial<LoadedConfig> = {}): LoadedConfig => {
     ignore: [],
     plugins: [],
     preset: [],
-    ai: { adapter: "codex", options: {}, timeoutMs: 600_000 },
+    ai: { adapter: "@aquarius/codex", options: {}, timeoutMs: 600_000 },
     rules: {},
     ...overrides,
   };

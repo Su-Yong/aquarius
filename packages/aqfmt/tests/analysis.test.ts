@@ -1,13 +1,8 @@
 import { describe, expect, test, vi } from "vitest";
-import type { PathPolicy, PreparedRule, RuleResources } from "@aquarius/core/internal";
+import type { FileReview, PathPolicy, PreparedRule, RuleResource } from "@aquarius/core/runtime";
 import { createFormatAnalysis } from "../src/format/analysis";
 import type { FormatAnalysisUpdate } from "../src/format/schemas";
-import type {
-  FormatAnalysisSnapshot,
-  FormatFileReview,
-  FormatResponse,
-  FormatWarning,
-} from "../src/format/types";
+import type { FormatAnalysisSnapshot, FormatResponse, FormatWarning } from "../src/format/types";
 
 const rules: PreparedRule[] = ["first", "second"].map((name) => ({
   id: `fixture/${name}`,
@@ -23,21 +18,18 @@ const policy: PathPolicy = {
   projectRoot: "/project",
   targets: ["a.ts", "b.ts"],
   readableFiles: ["a.ts", "b.ts", "README.md"],
-  ignoreRules: [],
   isIgnored: (path) => path === "ignored.ts",
   canWrite: (path) => ["a.ts", "b.ts", "new.ts", "rule-resources/first.json"].includes(path),
 };
 
-const resources: RuleResources = {
-  directory: "/resources",
-  files: rules.map((rule) => ({
-    ruleId: rule.id,
-    scope: rule.scope,
-    applicability: "Source files",
-    detailsPath: `rule-resources/${rule.id.split("/")[1]}.json`,
-    contentHash: "fixture",
-  })),
-};
+const resources: RuleResource[] = rules.map((rule) => ({
+  ruleId: rule.id,
+  scope: rule.scope,
+  applicability: "Source files",
+  detailsPath: `rule-resources/${rule.id.split("/")[1]}.json`,
+  content: "{}",
+  contentHash: "fixture",
+}));
 
 const warning = (
   message = "A transformation needs more context.",
@@ -473,7 +465,7 @@ describe("provisional formatting analysis", () => {
   test("isolates callback mutations and returned snapshots from the internal state", async () => {
     const analysis = createFormatAnalysis(rules, policy, resources, {
       onUpdate: (snapshot) => {
-        (snapshot.fileResults as FormatFileReview[])[0]!.status = "failed";
+        (snapshot.fileResults as FileReview[])[0]!.status = "failed";
         (snapshot.proposedFiles as string[]).push("injected.ts");
         if (snapshot.warnings[0]) {
           snapshot.warnings[0].message = "Injected warning";

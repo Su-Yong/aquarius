@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import type { PathPolicy, PreparedRule, RuleResources } from "@aquarius/core/internal";
+import type { PathPolicy, PreparedRule, RuleResource } from "@aquarius/core/runtime";
 import {
   createFormatValidator,
   formatChangePaths,
@@ -23,23 +23,20 @@ const policy: PathPolicy = {
   projectRoot: process.cwd(),
   targets: ["src/example.ts"],
   readableFiles: ["src/example.ts"],
-  ignoreRules: [],
   isIgnored: () => false,
   canWrite: () => true,
 };
 
-const resources: RuleResources = {
-  directory: "/unused-rule-resource-source",
-  files: [
-    {
-      ruleId: "fixture/style",
-      scope: "file",
-      applicability: "Conditional statements",
-      detailsPath: ".aquarius-rules-test/style.json",
-      contentHash: "unused-for-result-validation",
-    },
-  ],
-};
+const resources: RuleResource[] = [
+  {
+    ruleId: "fixture/style",
+    scope: "file",
+    applicability: "Conditional statements",
+    detailsPath: ".aquarius-rules-test/style.json",
+    content: "{}",
+    contentHash: "unused-for-result-validation",
+  },
+];
 
 const change = {
   op: "replace",

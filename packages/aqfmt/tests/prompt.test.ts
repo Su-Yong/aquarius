@@ -1,12 +1,11 @@
 import { describe, expect, test } from "vitest";
-import type { PathPolicy, RuleReference } from "@aquarius/core/internal";
+import type { PathPolicy, RuleReference } from "@aquarius/core/runtime";
 import { buildFormatPrompt } from "../src/format/prompt";
 
 const policy: PathPolicy = {
   projectRoot: "/project",
   targets: ["src/a.ts"],
   readableFiles: ["src/a.ts", "src/context.ts"],
-  ignoreRules: [],
   isIgnored: () => false,
   canWrite: (path) => path.startsWith("src/"),
 };
@@ -43,8 +42,8 @@ describe("format prompt contracts", () => {
     expect(prompt).toContain("New files and move destinations belong in changes");
     expect(prompt).toContain("INCOMPLETE_FILE_REVIEW");
     expect(prompt).toContain("INCOMPLETE_AI_RESPONSE");
-    expect(prompt).toContain('type "aquarius.analysis_update"');
-    expect(prompt).toContain("proposedFiles and warnings are the complete current lists");
+    expect(prompt).toContain("aquarius.analysis_update");
+    expect(prompt).toContain("proposedFiles and warnings as the complete current lists");
     expect(prompt).toContain("use an empty array to clear it");
     expect(prompt).toContain("never write source files");
   });

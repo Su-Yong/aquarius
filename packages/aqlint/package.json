@@ -22,7 +22,6 @@
   },
   "dependencies": {
     "@aquarius/core": "workspace:*",
-    "@aquarius/rules": "workspace:*",
     "zod": "4.6.7"
   },
   "scripts": {
@@ -31,5 +30,9 @@
     "typecheck": "tsc --project tsconfig.json --noEmit",
     "start": "node dist/cli.mjs",
     "test": "vitest run"
+  },
+  "devDependencies": {
+    "@aquarius/codex": "workspace:*",
+    "@aquarius/rules": "workspace:*"
   }
 }

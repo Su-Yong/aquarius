@@ -1,9 +1,9 @@
 import { randomUUID } from "node:crypto";
-import { access, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "vitest";
-import { loadConfig, resolveBridge } from "@aquarius/core/internal";
+import { codexAdapter } from "@aquarius/codex";
 import type { RulePlugin } from "@aquarius/core";
 import { executeLint } from "../src/lint/execute";
 
@@ -42,7 +42,6 @@ liveTest(
         },
       ],
     };
-    let resourceDirectory: string | undefined;
 
     try {
       await writeFile(join(root, "fixture.ts"), source);
@@ -55,23 +54,32 @@ liveTest(
             "fixture/flag-value": "error",
             "fixture/archive-handle": "warn",
           },
-          ai: { adapter: "codex", timeoutMs: 120_000 },
+          ai: { adapter: "@aquarius/codex", timeoutMs: 120_000 },
         }),
       );
       const beforeEntries = await readdir(root);
-      const codex = await resolveBridge(await loadConfig("lint", { cwd: root }));
-      const execution = await executeLint(
-        { cwd: root },
-        { "fixture-live": plugin },
-        {
+      const execution = await executeLint({
+        cwd: root,
+        plugins: { "fixture-live": plugin },
+        adapter: {
+          ...codexAdapter,
           id: "codex-rule-resource-test",
-          run: async (input) => {
-            resourceDirectory = input.ruleResources.directory;
-            expect(input.prompt).not.toContain(violationToken);
-            return codex.run(input);
+          async createSession(context: Parameters<typeof codexAdapter.createSession>[0]) {
+            expect(context.ruleResources).toHaveLength(2);
+            expect(
+              context.ruleResources.find(({ ruleId }) => ruleId === "fixture/flag-value")?.content,
+            ).toContain(violationToken);
+            const session = await codexAdapter.createSession(context);
+            return {
+              execute(request) {
+                expect(request.prompt).not.toContain(violationToken);
+                return session.execute(request);
+              },
+              dispose: () => session.dispose(),
+            };
           },
         },
-      );
+      });
 
       console.log(JSON.stringify({ ruleResourcesLive: execution }));
       expect(execution.result.errors).toEqual([]);
@@ -91,8 +99,6 @@ liveTest(
       ]);
       expect(await readFile(join(root, "fixture.ts"), "utf8")).toBe(source);
       expect(await readdir(root)).toEqual(beforeEntries);
-      expect(resourceDirectory).toBeDefined();
-      await expect(access(resourceDirectory!)).rejects.toMatchObject({ code: "ENOENT" });
     } finally {
       await rm(root, { recursive: true, force: true });
     }

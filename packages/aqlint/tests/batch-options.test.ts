@@ -35,7 +35,7 @@ afterEach(() => {
 });
 
 test("forwards explicit batching overrides as numbers", async () => {
-  const code = await runCli("0.1.0", {}, [
+  const code = await runCli("0.1.0", [
     "--file-batch-size",
     "2",
     "--max-concurrency=5",
@@ -54,12 +54,11 @@ test("forwards explicit batching overrides as numbers", async () => {
       configPath: "custom.json",
       paths: ["src"],
     }),
-    {},
   );
 });
 
 test("leaves omitted batching options available for configuration defaults", async () => {
-  expect(await runCli("0.1.0", {}, ["--format", "json"])).toBe(0);
+  expect(await runCli("0.1.0", ["--format", "json"])).toBe(0);
   expect(vi.mocked(executeLint).mock.calls[0]![0]).toMatchObject({
     fileBatchSize: undefined,
     maxConcurrency: undefined,
@@ -69,14 +68,14 @@ test("leaves omitted batching options available for configuration defaults", asy
 test.each(["--file-batch-size", "--max-concurrency"])(
   "rejects %s without its required value",
   async (flag) => {
-    expect(await runCli("0.1.0", {}, [flag])).toBe(2);
+    expect(await runCli("0.1.0", [flag])).toBe(2);
     expect(executeLint).not.toHaveBeenCalled();
     expect(console.error).toHaveBeenCalledWith(expect.stringContaining(flag));
   },
 );
 
 test("documents both batching controls in help", async () => {
-  expect(await runCli("0.1.0", {}, ["--help"])).toBe(0);
+  expect(await runCli("0.1.0", ["--help"])).toBe(0);
   const help = String(vi.mocked(console.log).mock.calls[0]![0]);
 
   expect(help).toContain("--file-batch-size N");
@@ -87,7 +86,7 @@ test("documents both batching controls in help", async () => {
 });
 
 test("documents explicit preset and rule selection in help", async () => {
-  expect(await runCli("0.1.0", {}, ["--help"])).toBe(0);
+  expect(await runCli("0.1.0", ["--help"])).toBe(0);
   const help = String(vi.mocked(console.log).mock.calls[0]![0]);
 
   expect(help).toContain("without activating them");

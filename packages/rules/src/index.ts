@@ -1,8 +1,12 @@
 import type { RulePlugin } from "@aquarius/core";
-import { allRulesPreset } from "./presets";
-import { nameCompoundConditions } from "./format/name-compound-conditions";
-import { preferEarlyReturn } from "./format/prefer-early-return";
-import { separateResponsibilities } from "./format/separate-responsibilities";
+import {
+  allRulesPreset,
+  formatRecommendedPreset,
+  formatRefactorPreset,
+  formatSafePreset,
+  formatTestsPreset,
+} from "./presets";
+import { formatRules } from "./format";
 import { architectureRules } from "./lint/architecture";
 import { section02Rules } from "./lint/section-02";
 import { section03Rules } from "./lint/section-03";
@@ -34,7 +38,13 @@ import { usePublicEntry } from "./lint/use-public-entry";
 
 export const aquariusRules: RulePlugin = {
   namespace: "aquarius",
-  presets: { all: allRulesPreset },
+  presets: {
+    all: allRulesPreset,
+    "format-safe": formatSafePreset,
+    "format-recommended": formatRecommendedPreset,
+    "format-tests": formatTestsPreset,
+    "format-refactor": formatRefactorPreset,
+  },
   lintRules: [
     noInputMutation,
     usePublicEntry,
@@ -65,7 +75,7 @@ export const aquariusRules: RulePlugin = {
     ...section24Rules,
     ...section25Rules,
   ],
-  formatRules: [preferEarlyReturn, nameCompoundConditions, separateResponsibilities],
+  formatRules,
 };
 
 export default aquariusRules;

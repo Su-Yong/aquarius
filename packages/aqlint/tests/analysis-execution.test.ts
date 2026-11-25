@@ -1,8 +1,9 @@
-import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, test, vi } from "vitest";
-import type { AiBridge, BridgeInput, RulePlugin } from "@aquarius/core";
+import type { RulePlugin } from "@aquarius/core";
+import type { AdapterExecuteRequest, AiAdapter } from "@aquarius/core/runtime";
 import { executeLint } from "../src/lint/execute";
 import type { AiDiagnostic, AnalysisUpdate } from "../src/lint/schemas";
 import type { LintAnalysisSnapshot } from "../src/lint/types";
@@ -45,7 +46,7 @@ const project = async (
       files: ["src/**"],
       plugins: ["fixture"],
       preset: ["fixture/all"],
-      ai: { adapter: "codex", timeoutMs, ...ai },
+      ai: { adapter: "@aquarius/codex", timeoutMs, ...ai },
     }),
   );
   return root;
@@ -97,12 +98,12 @@ const manyFiles = (count: number): string[] => [
   ),
 ];
 
-const targetsFor = (input: BridgeInput): string[] =>
+const targetsFor = (input: AdapterExecuteRequest): string[] =>
   JSON.parse(input.prompt.split("\n\n").at(-1)!).targets;
 
-const batchReply = (input: BridgeInput, diagnostics: AiDiagnostic[] = []) => ({
+const batchReply = (input: AdapterExecuteRequest, diagnostics: AiDiagnostic[] = []) => ({
   ...reply(diagnostics),
-  completedRuleIds: input.ruleResources.files.map(({ ruleId }) => ruleId),
+  completedRuleIds: input.ruleResources.map(({ ruleId }) => ruleId),
   fileResults: targetsFor(input).map((path) => ({ path, status: "completed", reason: "" })),
 });
 
@@ -118,10 +119,11 @@ describe("incremental lint execution", () => {
       const root = await project(5_000, targets);
       let attempts = 0;
       const snapshots: LintAnalysisSnapshot[] = [];
-      const execution = await executeLint(
-        { cwd: root, onAnalysisUpdate: (snapshot) => snapshots.push(snapshot) },
-        { fixture: plugin },
-        {
+      const execution = await executeLint({
+        cwd: root,
+        onAnalysisUpdate: (snapshot) => snapshots.push(snapshot),
+        plugins: { fixture: plugin },
+        adapter: {
           id: "retry-incomplete",
           run: async (input) => {
             const batch = targetsFor(input);
@@ -156,7 +158,11 @@ describe("incremental lint execution", () => {
                 ...batchReply(input),
                 completedRuleIds: [],
                 errors: [
-                  { code: "INCOMPLETE_REVIEW", message: "Review did not finish.", ruleIds: [] },
+                  {
+                    code: "INCOMPLETE_FILE_REVIEW",
+                    message: "Review did not finish.",
+                    ruleIds: [],
+                  },
                 ],
                 fileResults: batch.map((path) => ({
                   path,
@@ -168,7 +174,7 @@ describe("incremental lint execution", () => {
             return batchReply(input);
           },
         },
-      );
+      });
 
       expect(attempts).toBe(2);
       expect(execution.exitCode).toBe(stillIncomplete ? 2 : 1);
@@ -191,7 +197,7 @@ describe("incremental lint execution", () => {
     const requested: string[][] = [];
     let active = 0;
     let peak = 0;
-    const bridge: AiBridge = {
+    const adapter: AiAdapter = {
       id: "batched",
       run: async (input) => {
         active += 1;
@@ -199,7 +205,7 @@ describe("incremental lint execution", () => {
         try {
           const metadata = JSON.parse(input.prompt.split("\n\n").at(-1)!);
           const batch = targetsFor(input);
-          const ids = input.ruleResources.files.map(({ ruleId }) => ruleId);
+          const ids = input.ruleResources.map(({ ruleId }) => ruleId);
           requested.push(batch);
           expect(batch.length).toBeLessThanOrEqual(4);
           expect(ids).toHaveLength(35);
@@ -240,16 +246,14 @@ describe("incremental lint execution", () => {
         }
       },
     };
-    const execution = await executeLint(
-      {
-        cwd: root,
-        paths: targets,
-        onAnalysisUpdate: (snapshot) => snapshots.push(snapshot),
-        onWarning: (message) => warnings.push(message),
-      },
-      { fixture: manyRules(35) },
-      bridge,
-    );
+    const execution = await executeLint({
+      cwd: root,
+      paths: targets,
+      onAnalysisUpdate: (snapshot) => snapshots.push(snapshot),
+      onWarning: (message) => warnings.push(message),
+      plugins: { fixture: manyRules(35) },
+      adapter,
+    });
 
     expect(execution.exitCode).toBe(1);
     expect(execution.result.errors).toEqual([]);
@@ -281,85 +285,159 @@ describe("incremental lint execution", () => {
 
   test("does not split a single file when many rules are active", async () => {
     const root = await project();
-    const run = vi.fn(async (input: BridgeInput) => {
-      expect(input.ruleResources.files).toHaveLength(35);
+    const run = vi.fn(async (input: AdapterExecuteRequest) => {
+      expect(input.ruleResources).toHaveLength(35);
       expect(targetsFor(input)).toEqual([path]);
       return batchReply(input);
     });
-    const execution = await executeLint(
-      { cwd: root },
-      { fixture: manyRules(35) },
-      { id: "one", run },
-    );
+    const execution = await executeLint({
+      cwd: root,
+      plugins: { fixture: manyRules(35) },
+      adapter: { id: "one", run },
+    });
 
     expect(execution.exitCode).toBe(0);
     expect(run).toHaveBeenCalledTimes(1);
   });
 
-  test("keeps a failed batch's files separate from another batch's valid findings", async () => {
+  test("reports completed, failed, cancelled, and unstarted file groups", async () => {
     const targets = manyFiles(5);
     const root = await project(5_000, targets);
+    const [completed, failed, cancelled, ...unstarted] = targets;
+    const secondRule = "fixture/second";
     const snapshots: LintAnalysisSnapshot[] = [];
-    const execution = await executeLint(
-      { cwd: root, onAnalysisUpdate: (snapshot) => snapshots.push(snapshot) },
-      { fixture: manyRules(17) },
-      {
-        id: "partial-batch-failure",
-        run: async (input) => {
-          const batch = targetsFor(input);
-          if (batch.includes(path)) {
-            return {
-              ...batchReply(input),
-              completedRuleIds: [],
-              errors: [{ code: "READ_FAILED", message: "Rule details unavailable.", ruleIds: [] }],
-              fileResults: batch.map((path) => ({
-                path,
-                status: "failed",
-                reason: "Rule details unavailable.",
-              })),
-            };
-          }
-          return batchReply(input, [
+    const scopedPlugin: RulePlugin = {
+      ...plugin,
+      lintRules: [...plugin.lintRules!, { ...plugin.lintRules![0]!, id: "second" }],
+      presets: { all: { [ruleId]: "error", [secondRule]: "error" } },
+    };
+    const error = {
+      code: "READ_FAILED",
+      message: "Rule details unavailable.",
+      ruleIds: [ruleId],
+    };
+    const groupStarted = Promise.withResolvers<void>();
+    const dispose = vi.fn();
+    const execute = vi.fn(async (input: AdapterExecuteRequest) => {
+      const target = targetsFor(input)[0]!;
+      if (target === completed) {
+        return batchReply(input, [finding("Confirmed finding", target)]);
+      }
+      if (target === failed) {
+        await groupStarted.promise;
+        return {
+          ...batchReply(input),
+          completedRuleIds: [secondRule],
+          errors: [error],
+          fileResults: [
             {
-              ...finding("Confirmed finding", batch[0]!),
-              ruleIds: [input.ruleResources.files[0]!.ruleId],
+              path: target,
+              status: "failed",
+              reason: "Rule details unavailable.",
             },
-          ]);
-        },
-      },
-    );
+          ],
+        };
+      }
+      expect(target).toBe(cancelled);
+      input.onAnalysisUpdate?.(
+        update(1, {
+          ruleResults: [{ ruleId: secondRule, status: "completed", reason: "" }],
+        }),
+      );
+      await vi.waitFor(() => {
+        expect(
+          snapshots.at(-1)?.ruleResults.find(({ ruleId }) => ruleId === secondRule)?.status,
+        ).toBe("in_progress");
+      });
+      groupStarted.resolve();
+      return await new Promise((_resolve, reject) => {
+        input.signal.addEventListener("abort", () => reject(input.signal.reason), { once: true });
+      });
+    });
+    const createSession = vi.fn(() => ({ execute, dispose }));
+
+    const execution = await executeLint({
+      cwd: root,
+      fileBatchSize: 1,
+      maxConcurrency: 2,
+      plugins: { fixture: scopedPlugin },
+      onAnalysisUpdate: (snapshot) => snapshots.push(snapshot),
+      adapter: { id: "partial-batch-failure", createSession },
+    });
 
     expect(execution.exitCode).toBe(2);
-    expect(execution.result.errors).toEqual([
-      { code: "READ_FAILED", message: "Rule details unavailable.", ruleIds: [] },
-    ]);
-    expect(execution.result.diagnostics[0]!.message).toBe("Confirmed finding");
-    expect(
-      execution.result.fileResults
-        .filter(({ status }) => status === "failed")
-        .map(({ path }) => path),
-    ).toEqual(targets.slice(0, 4));
-    expect(execution.result.summary).toMatchObject({
-      successFiles: 0,
-      warningFiles: 0,
-      failedFiles: 5,
-      activeRules: 17,
+    expect(createSession).toHaveBeenCalledOnce();
+    expect(execute).toHaveBeenCalledTimes(3);
+    expect(dispose).toHaveBeenCalledOnce();
+    expect(execution.result.errors).toEqual([error]);
+    expect(snapshots.at(-1)).toMatchObject({
+      phase: "incomplete",
+      ruleResults: [
+        { ruleId, status: "failed", reason: error.message },
+        {
+          ruleId: secondRule,
+          status: "failed",
+          reason: expect.stringContaining("every file group"),
+        },
+      ],
     });
-    expect(snapshots.at(-1)!.phase).toBe("incomplete");
+    expect(execution.result.diagnostics.map(({ message }) => message)).toEqual([
+      "Confirmed finding",
+    ]);
+    expect(execution.result.fileResults).toEqual([
+      { path: completed, status: "completed", reason: "" },
+      { path: failed, status: "failed", reason: "Rule details unavailable." },
+      {
+        path: cancelled,
+        status: "skipped",
+        reason: "Cancelled because another file group failed.",
+      },
+      ...unstarted.map((path) => ({
+        path,
+        status: "skipped",
+        reason: "Not started because another file group failed.",
+      })),
+    ]);
   });
+
+  test.each(["module", "project"] as const)(
+    "does not divide the scope of a %s rule",
+    async (scope) => {
+      const targets = manyFiles(5);
+      const root = await project(5_000, targets);
+      const scopedPlugin: RulePlugin = {
+        ...plugin,
+        lintRules: [{ ...plugin.lintRules![0]!, scope }],
+      };
+      const run = vi.fn(async (input: AdapterExecuteRequest) => {
+        expect(targetsFor(input)).toEqual(targets);
+        return batchReply(input);
+      });
+      const execution = await executeLint({
+        cwd: root,
+        fileBatchSize: 1,
+        plugins: { fixture: scopedPlugin },
+        adapter: { id: "scoped", run },
+      });
+
+      expect(execution.exitCode).toBe(0);
+      expect(run).toHaveBeenCalledOnce();
+      expect(execution.result.summary.successFiles).toBe(targets.length);
+    },
+  );
 
   test("reports a rule as skipped only when every file batch skips it", async () => {
     const targets = manyFiles(9);
     const root = await project(5_000, targets);
-    const execution = await executeLint(
-      { cwd: root },
-      { fixture: manyRules(17) },
-      {
+    const execution = await executeLint({
+      cwd: root,
+      plugins: { fixture: manyRules(17) },
+      adapter: {
         id: "all-batches-skipped",
         run: async (input) => ({
           ...batchReply(input),
           completedRuleIds: [],
-          skippedRules: input.ruleResources.files.map(({ ruleId }) => ({
+          skippedRules: input.ruleResources.map(({ ruleId }) => ({
             ruleId,
             reason: "No matching prerequisite.",
           })),
@@ -370,7 +448,7 @@ describe("incremental lint execution", () => {
           })),
         }),
       },
-    );
+    });
 
     expect(execution.exitCode).toBe(0);
     expect(execution.result.skippedRules).toHaveLength(17);
@@ -381,20 +459,18 @@ describe("incremental lint execution", () => {
     expect(execution.result.summary.skippedFiles).toBe(9);
   });
 
-  test("publishes a batch failure while retaining a finding on a newly skipped file", async () => {
+  test("publishes canonical file outcomes and retains provisional findings in the incomplete snapshot", async () => {
     const targets = manyFiles(5);
     const failedPath = targets[1]!;
     const root = await project(5_000, targets);
     const snapshots: LintAnalysisSnapshot[] = [];
     const warnings: string[] = [];
-    const execution = await executeLint(
-      {
-        cwd: root,
-        onAnalysisUpdate: (snapshot) => snapshots.push(snapshot),
-        onWarning: (message) => warnings.push(message),
-      },
-      { fixture: plugin },
-      {
+    const execution = await executeLint({
+      cwd: root,
+      onAnalysisUpdate: (snapshot) => snapshots.push(snapshot),
+      onWarning: (message) => warnings.push(message),
+      plugins: { fixture: plugin },
+      adapter: {
         id: "incomplete-skipped-file",
         run: async (input) => {
           const batch = targetsFor(input);
@@ -422,7 +498,7 @@ describe("incremental lint execution", () => {
           };
         },
       },
-    );
+    });
 
     expect(execution.exitCode).toBe(2);
     expect(warnings).toEqual([]);
@@ -431,7 +507,7 @@ describe("incremental lint execution", () => {
     const latest = snapshots.at(-1)!;
     expect(latest.phase).toBe("incomplete");
     expect(latest.diagnostics.map(({ message }) => message)).toEqual(["Tentative finding"]);
-    expect(latest.fileResults.find((file) => file.path === path)?.status).toBe("in_progress");
+    expect(latest.fileResults.find((file) => file.path === path)?.status).toBe("skipped");
     expect(latest.fileResults.find((file) => file.path === failedPath)?.status).toBe("failed");
     expect(latest.ruleResults[0]!.status).toBe("failed");
   });
@@ -441,16 +517,14 @@ describe("incremental lint execution", () => {
     const root = await project(5_000, targets);
     const snapshots: LintAnalysisSnapshot[] = [];
     const warnings: string[] = [];
-    const execution = await executeLint(
-      {
-        cwd: root,
-        fileBatchSize: 1,
-        maxConcurrency: 1,
-        onAnalysisUpdate: (snapshot) => snapshots.push(snapshot),
-        onWarning: (message) => warnings.push(message),
-      },
-      { fixture: plugin },
-      {
+    const execution = await executeLint({
+      cwd: root,
+      fileBatchSize: 1,
+      maxConcurrency: 1,
+      onAnalysisUpdate: (snapshot) => snapshots.push(snapshot),
+      onWarning: (message) => warnings.push(message),
+      plugins: { fixture: plugin },
+      adapter: {
         id: "mixed-rule-outcomes",
         run: async (input) => {
           const target = targetsFor(input)[0]!;
@@ -474,7 +548,7 @@ describe("incremental lint execution", () => {
           return batchReply(input, [finding("Applicable here", target)]);
         },
       },
-    );
+    });
 
     expect(execution.exitCode).toBe(1);
     expect(warnings).toEqual([]);
@@ -489,20 +563,25 @@ describe("incremental lint execution", () => {
 
   test("does not silently accept a removed unknown result from a file batch", async () => {
     const root = await project(5_000, manyFiles(5));
-    const execution = await executeLint(
-      { cwd: root },
-      { fixture: plugin },
-      {
+    const execution = await executeLint({
+      cwd: root,
+      maxConcurrency: 1,
+      plugins: { fixture: plugin },
+      adapter: {
         id: "legacy-result",
         run: async (input) => ({ ...batchReply(input), unknowns: [] }),
       },
-    );
+    });
 
     expect(execution.exitCode).toBe(2);
     expect(execution.result.errors).toContainEqual(
       expect.objectContaining({ code: "INVALID_AI_RESPONSE" }),
     );
-    expect(execution.result.summary).toMatchObject({ successFiles: 0, failedFiles: 5 });
+    expect(execution.result.summary).toMatchObject({
+      successFiles: 0,
+      failedFiles: 4,
+      skippedFiles: 1,
+    });
     expect(execution.result).not.toHaveProperty("unknowns");
   });
 
@@ -511,10 +590,10 @@ describe("incremental lint execution", () => {
     async (kind) => {
       const targets = manyFiles(5);
       const root = await project(5_000, targets);
-      const execution = await executeLint(
-        { cwd: root },
-        { fixture: plugin },
-        {
+      const execution = await executeLint({
+        cwd: root,
+        plugins: { fixture: plugin },
+        adapter: {
           id: "foreign-target",
           run: async (input) => {
             const result = batchReply(input);
@@ -527,7 +606,7 @@ describe("incremental lint execution", () => {
             return result;
           },
         },
-      );
+      });
 
       expect(execution.exitCode).toBe(2);
       const errorCode = kind === "diagnostic" ? "INVALID_RESULT_LOCATION" : "INVALID_RESULT_PATH";
@@ -540,16 +619,14 @@ describe("incremental lint execution", () => {
   test("cancels active file groups, starts no queued groups, and ignores late updates", async () => {
     const root = await project(5_000, manyFiles(13));
     const controller = new AbortController();
-    const requests: BridgeInput[] = [];
+    const requests: AdapterExecuteRequest[] = [];
     const snapshots: LintAnalysisSnapshot[] = [];
-    const execution = await executeLint(
-      {
-        cwd: root,
-        signal: controller.signal,
-        onAnalysisUpdate: (snapshot) => snapshots.push(snapshot),
-      },
-      { fixture: plugin },
-      {
+    const execution = await executeLint({
+      cwd: root,
+      signal: controller.signal,
+      onAnalysisUpdate: (snapshot) => snapshots.push(snapshot),
+      plugins: { fixture: plugin },
+      adapter: {
         id: "cancel-batches",
         run: async (input) => {
           requests.push(input);
@@ -557,7 +634,7 @@ describe("incremental lint execution", () => {
           return new Promise(() => {});
         },
       },
-    );
+    });
 
     expect(execution.exitCode).toBe(130);
     expect(requests).toHaveLength(3);
@@ -567,56 +644,6 @@ describe("incremental lint execution", () => {
     for (const request of requests) request.onAnalysisUpdate?.(update(99));
     await new Promise<void>((resolve) => setImmediate(resolve));
     expect(snapshots).toHaveLength(count);
-  });
-
-  test("rechecks every file batch against the corrected sources", async () => {
-    const targets = manyFiles(9);
-    const root = await project(5_000, targets);
-    let calls = 0;
-    const lintRequests: string[][] = [];
-    const execution = await executeLint(
-      { cwd: root, fix: true },
-      { fixture: manyRules(17) },
-      {
-        id: "batch-fix-recheck",
-        run: async (input) => {
-          calls += 1;
-          const metadata = JSON.parse(input.prompt.split("\n\n").at(-1)!);
-          if (metadata.task === "lint-fix") {
-            return {
-              changes: [
-                {
-                  path,
-                  oldText: "const value = 1;",
-                  newText: "const value = 2;",
-                  ruleIds: ["fixture/check-0"],
-                },
-              ],
-              errors: [],
-            };
-          }
-          const batch = targetsFor(input);
-          lintRequests.push(batch);
-          expect(input.ruleResources.files).toHaveLength(17);
-          const needsFix =
-            batch.includes(path) &&
-            (await readFile(join(root, path), "utf8")).includes("value = 1");
-          return batchReply(
-            input,
-            needsFix ? [{ ...finding("Needs a correction"), ruleIds: ["fixture/check-0"] }] : [],
-          );
-        },
-      },
-    );
-
-    expect(execution.exitCode).toBe(0);
-    expect(calls).toBe(7);
-    expect(lintRequests.slice(0, 3).flat()).toEqual(targets);
-    expect(lintRequests.slice(3).flat()).toEqual(targets);
-    expect(execution.result.changedFiles).toEqual([path]);
-    expect(execution.result.diagnostics).toEqual([]);
-    expect(execution.result.summary.successFiles).toBe(9);
-    expect(await readFile(join(root, path), "utf8")).toBe("const value = 2;\n");
   });
 
   test.each([
@@ -641,10 +668,11 @@ describe("incremental lint execution", () => {
       const requested: string[][] = [];
       let active = 0;
       let peak = 0;
-      const execution = await executeLint(
-        { cwd: root, ...overrides },
-        { fixture: plugin },
-        {
+      const execution = await executeLint({
+        cwd: root,
+        ...overrides,
+        plugins: { fixture: plugin },
+        adapter: {
           id: "configured-limits",
           run: async (input) => {
             requested.push(targetsFor(input));
@@ -658,7 +686,7 @@ describe("incremental lint execution", () => {
             }
           },
         },
-      );
+      });
 
       expect(execution.exitCode).toBe(0);
       expect(requested.map((batch) => batch.length)).toEqual(expectedSizes);
@@ -677,12 +705,13 @@ describe("incremental lint execution", () => {
     "rejects invalid execution option $option=$value before calling AI",
     async ({ option, value }) => {
       const root = await project();
-      const run = vi.fn(async (input: BridgeInput) => batchReply(input));
-      const execution = await executeLint(
-        { cwd: root, [option]: value },
-        { fixture: plugin },
-        { id: "invalid-limits", run },
-      );
+      const run = vi.fn(async (input: AdapterExecuteRequest) => batchReply(input));
+      const execution = await executeLint({
+        cwd: root,
+        [option]: value,
+        plugins: { fixture: plugin },
+        adapter: { id: "invalid-limits", run },
+      });
 
       expect(execution.exitCode).toBe(2);
       expect(execution.result.errors[0]?.code).toBe("INVALID_ARGUMENTS");
@@ -695,7 +724,7 @@ describe("incremental lint execution", () => {
     const snapshots: LintAnalysisSnapshot[] = [];
     const observedBeforeFinal: boolean[] = [];
     let returningFinal = false;
-    const bridge: AiBridge = {
+    const adapter: AiAdapter = {
       id: "incremental",
       run: async (input) => {
         input.onProgress?.(`Inspecting ${path}`);
@@ -736,19 +765,17 @@ describe("incremental lint execution", () => {
         return reply();
       },
     };
-    const execution = await executeLint(
-      {
-        cwd: root,
-        onAnalysisUpdate: (snapshot) => {
-          if (snapshot.phase === "provisional" && snapshot.revision > 0) {
-            observedBeforeFinal.push(!returningFinal);
-          }
-          snapshots.push(snapshot);
-        },
+    const execution = await executeLint({
+      cwd: root,
+      onAnalysisUpdate: (snapshot) => {
+        if (snapshot.phase === "provisional" && snapshot.revision > 0) {
+          observedBeforeFinal.push(!returningFinal);
+        }
+        snapshots.push(snapshot);
       },
-      { fixture: plugin },
-      bridge,
-    );
+      plugins: { fixture: plugin },
+      adapter,
+    });
 
     expect(execution.exitCode).toBe(0);
     expect(observedBeforeFinal).toEqual([true, true, true]);
@@ -766,7 +793,7 @@ describe("incremental lint execution", () => {
   test("replaces provisional findings with the canonical final JSON", async () => {
     const root = await project();
     const snapshots: LintAnalysisSnapshot[] = [];
-    const bridge: AiBridge = {
+    const adapter: AiAdapter = {
       id: "reconcile",
       run: async (input) => {
         input.onAnalysisUpdate?.(
@@ -778,11 +805,12 @@ describe("incremental lint execution", () => {
         return reply([finding("Final finding")]);
       },
     };
-    const execution = await executeLint(
-      { cwd: root, onAnalysisUpdate: (value) => snapshots.push(value) },
-      { fixture: plugin },
-      bridge,
-    );
+    const execution = await executeLint({
+      cwd: root,
+      onAnalysisUpdate: (value) => snapshots.push(value),
+      plugins: { fixture: plugin },
+      adapter,
+    });
 
     expect(execution.exitCode).toBe(1);
     expect(snapshots.at(-1)!.diagnostics).toEqual(execution.result.diagnostics);
@@ -795,8 +823,8 @@ describe("incremental lint execution", () => {
     async (failure) => {
       const root = await project(failure === "timeout" ? 500 : 5_000);
       const snapshots: LintAnalysisSnapshot[] = [];
-      let request: BridgeInput | undefined;
-      const bridge: AiBridge = {
+      let request: AdapterExecuteRequest | undefined;
+      const adapter: AiAdapter = {
         id: "interrupted",
         run: async (input) => {
           request = input;
@@ -812,11 +840,12 @@ describe("incremental lint execution", () => {
           return {};
         },
       };
-      const execution = await executeLint(
-        { cwd: root, onAnalysisUpdate: (value) => snapshots.push(value) },
-        { fixture: plugin },
-        bridge,
-      );
+      const execution = await executeLint({
+        cwd: root,
+        onAnalysisUpdate: (value) => snapshots.push(value),
+        plugins: { fixture: plugin },
+        adapter,
+      });
 
       expect(execution.exitCode).toBe(2);
       expect(execution.result.errors.length).toBeGreaterThan(0);
@@ -831,64 +860,4 @@ describe("incremental lint execution", () => {
       expect(snapshots).toHaveLength(count);
     },
   );
-
-  test("starts a fresh update sequence after fixing and only finalizes the rechecked result", async () => {
-    const root = await project();
-    const snapshots: LintAnalysisSnapshot[] = [];
-    let firstRequest: BridgeInput | undefined;
-    let calls = 0;
-    const bridge: AiBridge = {
-      id: "fix-and-recheck",
-      run: async (input) => {
-        calls += 1;
-        if (calls === 1) {
-          firstRequest = input;
-          input.onAnalysisUpdate?.(
-            update(1, { diagnostics: [{ id: "D1", diagnostic: finding("Needs a correction") }] }),
-          );
-          await vi.waitFor(() => expect(snapshots.at(-1)!.revision).toBe(1));
-          return reply([finding("Needs a correction")]);
-        }
-        if (calls === 2) {
-          expect(snapshots.at(-1)!.phase).toBe("provisional");
-          return {
-            changes: [
-              { path, oldText: "const value = 1;", newText: "const value = 2;", ruleIds: [ruleId] },
-            ],
-            errors: [],
-          };
-        }
-        expect(await readFile(join(root, path), "utf8")).toBe("const value = 2;\n");
-        expect(snapshots.at(-1)!.revision).toBe(0);
-        firstRequest!.onAnalysisUpdate?.(
-          update(99, {
-            diagnostics: [{ id: "D2", diagnostic: finding("Stale first-pass finding") }],
-          }),
-        );
-        input.onAnalysisUpdate?.(
-          update(1, {
-            fileResults: [{ path, status: "in_progress", reason: "Rechecking the correction." }],
-          }),
-        );
-        await vi.waitFor(() => expect(snapshots.at(-1)!.revision).toBe(1));
-        return reply();
-      },
-    };
-    const execution = await executeLint(
-      { cwd: root, fix: true, onAnalysisUpdate: (value) => snapshots.push(value) },
-      { fixture: plugin },
-      bridge,
-    );
-
-    expect(calls).toBe(3);
-    expect(execution.exitCode).toBe(0);
-    expect(execution.result.changedFiles).toEqual([path]);
-    expect(snapshots.filter(({ phase }) => phase === "final")).toHaveLength(1);
-    expect(snapshots.at(-1)!.diagnostics).toEqual([]);
-    expect(
-      snapshots.some(({ diagnostics }) =>
-        diagnostics.some(({ message }) => message.includes("Stale")),
-      ),
-    ).toBe(false);
-  });
 });

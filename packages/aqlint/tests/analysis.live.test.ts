@@ -3,7 +3,7 @@ import { mkdtemp, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promis
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "vitest";
-import { loadConfig, resolveBridge } from "@aquarius/core/internal";
+import { codexAdapter } from "@aquarius/codex";
 import type { RulePlugin } from "@aquarius/core";
 import { executeLint } from "../src/lint/execute";
 import type { LintAnalysisSnapshot } from "../src/lint/types";
@@ -53,33 +53,41 @@ liveTest(
           files: ["src/**/*.ts"],
           plugins: ["fixture-live"],
           rules: { "fixture/flag-value": "error" },
-          ai: { adapter: "codex", options: { reasoningEffort: "low" }, timeoutMs: 120_000 },
+          ai: {
+            adapter: "@aquarius/codex",
+            options: { reasoning: { effort: "low" } },
+            timeoutMs: 120_000,
+          },
         }),
       );
       const beforeEntries = await readdir(root, { recursive: true });
-      const bridge = await resolveBridge(await loadConfig("lint", { cwd: root }));
-      const execution = await executeLint(
-        {
-          cwd: root,
-          onWarning: (message) => warnings.push(message),
-          onAnalysisUpdate: (snapshot) => {
-            snapshots.push(snapshot);
-            if (!adapterReturned && snapshot.phase === "provisional" && snapshot.revision > 0) {
-              reportsBeforeFinal.push(snapshot);
-            }
-          },
+      const execution = await executeLint({
+        cwd: root,
+        plugins: { "fixture-live": plugin },
+        onWarning: (message) => warnings.push(message),
+        onAnalysisUpdate: (snapshot) => {
+          snapshots.push(snapshot);
+          if (!adapterReturned && snapshot.phase === "provisional" && snapshot.revision > 0) {
+            reportsBeforeFinal.push(snapshot);
+          }
         },
-        { "fixture-live": plugin },
-        {
+        adapter: {
+          ...codexAdapter,
           id: "codex-incremental-live",
-          run: async (input) => {
-            expect(input.prompt).not.toContain(token);
-            const result = await bridge.run(input);
-            adapterReturned = true;
-            return result;
+          async createSession(context: Parameters<typeof codexAdapter.createSession>[0]) {
+            const session = await codexAdapter.createSession(context);
+            return {
+              async execute(request) {
+                expect(request.prompt).not.toContain(token);
+                const result = await session.execute(request);
+                adapterReturned = true;
+                return result;
+              },
+              dispose: () => session.dispose(),
+            };
           },
         },
-      );
+      });
 
       console.log(
         JSON.stringify({

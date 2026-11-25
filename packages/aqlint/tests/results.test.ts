@@ -2,8 +2,8 @@ import { mkdtemp, mkdir, realpath, rm, symlink, writeFile } from "node:fs/promis
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, describe, expect, test } from "vitest";
-import type { PathPolicy, PreparedRule } from "@aquarius/core/internal";
-import { normalizeLintResponse, summarizeLintResult } from "../src/lint/results";
+import type { PathPolicy, PreparedRule } from "@aquarius/core/runtime";
+import { normalizeLintResponse as normalize, summarizeLintResult } from "../src/lint/results";
 import type { FileResult } from "../src/lint/schemas";
 
 const roots: string[] = [];
@@ -32,10 +32,18 @@ const createPolicy = async (targets = ["a.ts", "b.ts"]): Promise<PathPolicy> => 
     projectRoot,
     targets,
     readableFiles,
-    ignoreRules: [],
     isIgnored: () => false,
     canWrite: (path) => targets.includes(path),
   };
+};
+
+const normalizeLintResponse = async (
+  raw: unknown,
+  rules: readonly PreparedRule[],
+  policy: PathPolicy,
+) => {
+  const result = await normalize(raw, rules, policy);
+  return { ...result, summary: summarizeLintResult(result, rules.length) };
 };
 
 const fileResult = (
@@ -332,14 +340,15 @@ describe("file processing results", () => {
     expect(result.errors).toEqual([expect.objectContaining({ code: "INVALID_RESULT_PATH" })]);
   });
 
-  test("preserves valid diagnostics but fails all targets when fileResults is missing", async () => {
+  test("rejects all output when the required fileResults array is missing", async () => {
     const policy = await createPolicy();
     const legacy = reply(policy, { diagnostics: [diagnostic()] });
     delete legacy.fileResults;
     const result = await normalizeLintResponse(legacy, rules, policy);
 
     expect(result.summary).toMatchObject({ totalFiles: 2, successFiles: 0, failedFiles: 2 });
-    expect(result.diagnostics).toHaveLength(1);
+    expect(result.diagnostics).toEqual([]);
+    expect(result.retryable).toBe(false);
     expect(result.errors).toEqual([expect.objectContaining({ code: "INVALID_AI_RESPONSE" })]);
   });
 

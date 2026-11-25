@@ -1,20 +1,17 @@
-import { lstat, readFile, realpath } from "node:fs/promises";
-import { isAbsolute, relative, resolve, sep } from "node:path";
 import {
   AquariusError,
-  checkCompletion,
-  collectErrors,
+  beginResponseNormalization,
   nonempty,
   normalizedPath,
   parseResultItem,
+  readStableRegularFile,
   references,
-  resultEnvelope,
   toRunError,
-} from "@aquarius/core/internal";
-import type { ActiveSeverity, PathPolicy, PreparedRule, RunError } from "@aquarius/core/internal";
-import { diagnosticSchema, fileResultSchema } from "./schemas";
-import type { FileResult, SourceLocation } from "./schemas";
-import type { Diagnostic, LintResult, LintSummary } from "./types";
+} from "@aquarius/core/runtime";
+import type { ActiveSeverity, PathPolicy, PreparedRule } from "@aquarius/core/runtime";
+import { diagnosticSchema } from "./schemas";
+import type { SourceLocation } from "./schemas";
+import type { Diagnostic, LintResponse, LintResult, LintSummary } from "./types";
 
 const sourceReader = (policy: PathPolicy) => {
   const allowed = new Set(policy.readableFiles);
@@ -29,33 +26,28 @@ const sourceReader = (policy: PathPolicy) => {
       );
     }
 
-    let pending = cache.get(path);
-    if (!pending) {
-      pending = (async () => {
-        const absolute = resolve(policy.projectRoot, path);
-        const canonical = await realpath(absolute);
-        const inside = relative(policy.projectRoot, canonical);
-        if (
-          inside === ".." ||
-          inside.startsWith(`..${sep}`) ||
-          isAbsolute(inside) ||
-          relative(absolute, canonical) !== "" ||
-          !(await lstat(absolute)).isFile()
-        ) {
-          throw new AquariusError(
-            "INVALID_RESULT_PATH",
-            `Result file is not a stable regular project file: ${path}`,
-          );
-        }
-        const bytes = await readFile(absolute);
-        const text = bytes.toString("utf8");
-        if (!Buffer.from(text, "utf8").equals(bytes)) {
-          throw new AquariusError("INVALID_RESULT_PATH", `Result file is not UTF-8 text: ${path}`);
-        }
-        return text.split(/\r\n|\n|\r/u);
-      })();
-      cache.set(path, pending);
+    const cached = cache.get(path);
+    if (cached) {
+      return await cached;
     }
+
+    const pending = (async () => {
+      let bytes: Buffer;
+      try {
+        ({ content: bytes } = await readStableRegularFile(policy.projectRoot, path));
+      } catch {
+        throw new AquariusError(
+          "INVALID_RESULT_PATH",
+          `Result file is not a stable regular project file: ${path}`,
+        );
+      }
+      const text = bytes.toString("utf8");
+      if (!Buffer.from(text, "utf8").equals(bytes)) {
+        throw new AquariusError("INVALID_RESULT_PATH", `Result file is not UTF-8 text: ${path}`);
+      }
+      return text.split(/\r\n|\n|\r/u);
+    })();
+    cache.set(path, pending);
     return await pending;
   };
 };
@@ -154,164 +146,71 @@ export const groupDiagnostics = (diagnostics: readonly Diagnostic[]): Diagnostic
   return [...grouped.values()];
 };
 
+const findingPaths = (item: unknown, targets: ReadonlySet<string>): string[] => {
+  if (
+    typeof item !== "object" ||
+    item === null ||
+    !("locations" in item) ||
+    !Array.isArray(item.locations)
+  ) {
+    return [];
+  }
+
+  const affected = new Set<string>();
+  for (const location of item.locations) {
+    if (
+      typeof location !== "object" ||
+      location === null ||
+      !("path" in location) ||
+      typeof location.path !== "string" ||
+      !targets.has(location.path)
+    ) {
+      continue;
+    }
+    affected.add(location.path);
+  }
+  return [...affected];
+};
+
 export const normalizeLintResponse = async (
   raw: unknown,
   rules: readonly PreparedRule[],
   policy: PathPolicy,
-): Promise<LintResult> => {
-  const errors: RunError[] = [];
-  const diagnostics: Diagnostic[] = [];
-  const skippedRules: LintResult["skippedRules"] = [];
-  const known = new Set(rules.map(({ id }) => id));
+): Promise<LintResponse> => {
+  const normalization = beginResponseNormalization(raw, rules, policy, ["diagnostics"]);
+  const { body, skippedRuleIds, reported, recordItemError, finish } = normalization;
+  if (!body) {
+    return { ...finish(), diagnostics: [] };
+  }
+
   const targets = new Set(policy.targets);
-  const reportedFiles = new Map<string, FileResult>();
-  const fileFailures = new Map<string, string>();
-  let globalFailure: string | undefined;
-
-  const finish = (): LintResult => {
-    const fileResults = policy.targets.map((path): FileResult => {
-      const failure = globalFailure ?? fileFailures.get(path);
-      if (failure) return { path, status: "failed", reason: failure };
-      if (
-        rules.length > 0 &&
-        skippedRules.length === rules.length &&
-        reportedFiles.get(path)?.status === "completed"
-      ) {
-        return { path, status: "skipped", reason: "No requested rule applies." };
-      }
-      return (
-        reportedFiles.get(path) ?? {
-          path,
-          status: "failed",
-          reason: "No file processing result was returned.",
-        }
-      );
-    });
-    const result = { diagnostics, errors, skippedRules, fileResults };
-    return {
-      ...result,
-      summary: summarizeLintResult(result, rules.length, policy.targets.length),
-    };
-  };
-
-  const recordFindingError = (item: unknown, error: RunError): void => {
-    errors.push(error);
-    const affected = new Set<string>();
-    if (
-      typeof item === "object" &&
-      item !== null &&
-      "locations" in item &&
-      Array.isArray(item.locations)
-    ) {
-      for (const location of item.locations) {
-        if (
-          typeof location === "object" &&
-          location !== null &&
-          "path" in location &&
-          typeof location.path === "string" &&
-          targets.has(location.path)
-        ) {
-          affected.add(location.path);
-        }
-      }
-    }
-    if (affected.size === 0) {
-      globalFailure ??= error.message;
-      return;
-    }
-    for (const path of affected) fileFailures.set(path, error.message);
-  };
-
-  const fields = ["completedRuleIds", "skippedRules", "diagnostics", "errors", "fileResults"];
-  let body: Record<string, unknown[]>;
-  try {
-    body = resultEnvelope(raw, fields);
-  } catch (cause) {
-    const error = toRunError(cause);
-    errors.push(error);
-    globalFailure = error.message;
-    if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return finish();
-    // Preserve valid findings without inventing completion for missing file statuses.
-    try {
-      body = resultEnvelope({ ...raw, fileResults: [] }, fields);
-    } catch {
-      return finish();
-    }
-  }
-
-  collectErrors(body.errors!, known, errors);
-  skippedRules.push(...checkCompletion(body.completedRuleIds!, body.skippedRules!, known, errors));
-  const skippedRuleIds = new Set(skippedRules.map(({ ruleId }) => ruleId));
-  if (errors.length) globalFailure ??= errors[0]!.message;
-
-  const seen = new Set<string>();
-  for (const item of body.fileResults!) {
-    let path: string | undefined;
-    if (
-      typeof item === "object" &&
-      item !== null &&
-      "path" in item &&
-      typeof item.path === "string" &&
-      targets.has(item.path)
-    ) {
-      path = item.path;
-    }
-    try {
-      const supplied = parseResultItem(fileResultSchema, item, "file processing result");
-      normalizedPath(supplied.path);
-      if (!targets.has(supplied.path)) {
-        throw new AquariusError(
-          "INVALID_RESULT_PATH",
-          `File processing result is outside the selected targets: ${supplied.path}`,
-        );
-      }
-      if (seen.has(supplied.path)) {
-        throw new AquariusError(
-          "DUPLICATE_FILE_RESULT",
-          `More than one processing result was returned for ${supplied.path}.`,
-        );
-      }
-      seen.add(supplied.path);
-      if (supplied.status !== "completed") nonempty(supplied.reason, "File processing reason");
-      reportedFiles.set(supplied.path, supplied);
-    } catch (cause) {
-      const error = toRunError(cause, "INVALID_FILE_RESULT");
-      errors.push(error);
-      if (path) fileFailures.set(path, error.message);
-    }
-  }
-  if (!globalFailure) {
-    for (const path of targets) {
-      if (reportedFiles.has(path) || fileFailures.has(path)) continue;
-      const message = `AI did not report a processing result for ${path}.`;
-      errors.push({ code: "INCOMPLETE_FILE_RESULTS", message, ruleIds: [] });
-      fileFailures.set(path, message);
-    }
-  }
-
   const validator = createLintFindingValidator(rules, policy);
-  const validDiagnostics: Diagnostic[] = [];
-
+  const findings: Diagnostic[] = [];
   for (const item of body.diagnostics!) {
     try {
-      validDiagnostics.push(await validator.diagnostic(item, skippedRuleIds));
+      findings.push(await validator.diagnostic(item, skippedRuleIds));
     } catch (cause) {
-      recordFindingError(item, toRunError(cause, "INVALID_DIAGNOSTIC"));
+      recordItemError(toRunError(cause, "INVALID_DIAGNOSTIC"), findingPaths(item, targets));
     }
   }
-  diagnostics.push(...groupDiagnostics(validDiagnostics));
 
-  const findingPaths = new Set(
-    diagnostics.flatMap(({ locations }) => locations.map(({ path }) => path)),
-  );
-  for (const path of findingPaths) {
-    if (reportedFiles.get(path)?.status !== "skipped") continue;
-    const message = `Skipped file ${path} also has a diagnostic.`;
-    errors.push({ code: "CONFLICTING_FILE_RESULT", message, ruleIds: [] });
-    fileFailures.set(path, message);
+  const diagnostics = groupDiagnostics(findings);
+  const paths = new Set(diagnostics.flatMap(({ locations }) => locations.map(({ path }) => path)));
+  for (const path of paths) {
+    if (reported.get(path)?.status !== "skipped") {
+      continue;
+    }
+    recordItemError(
+      {
+        code: "CONFLICTING_FILE_RESULT",
+        message: `Skipped file ${path} also has a diagnostic.`,
+        ruleIds: [],
+      },
+      [path],
+    );
   }
 
-  return finish();
+  return { ...finish(), diagnostics };
 };
 
 export const summarizeLintResult = (
@@ -339,13 +238,17 @@ export const summarizeLintResult = (
   for (const file of result.fileResults) {
     if (file.status === "failed" || levels.get(file.path) === "error") {
       summary.failedFiles += 1;
-    } else if (file.status === "skipped") {
-      summary.skippedFiles += 1;
-    } else if (levels.get(file.path) === "warn") {
-      summary.warningFiles += 1;
-    } else {
-      summary.successFiles += 1;
+      continue;
     }
+    if (file.status === "skipped") {
+      summary.skippedFiles += 1;
+      continue;
+    }
+    if (levels.get(file.path) === "warn") {
+      summary.warningFiles += 1;
+      continue;
+    }
+    summary.successFiles += 1;
   }
   return summary;
 };

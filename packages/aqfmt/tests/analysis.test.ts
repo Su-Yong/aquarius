@@ -59,8 +59,7 @@ const response = (changes: Partial<FormatResponse> = {}): FormatResponse => ({
     {
       op: "replace",
       path: "b.ts",
-      oldText: "old",
-      newText: "new",
+      patch: "@@ -1 +1 @@\n-old\n+new\n",
       ruleIds: ["fixture/first"],
     },
   ],

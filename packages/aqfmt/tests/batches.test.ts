@@ -44,8 +44,7 @@ const reply = (targets: readonly string[], overrides: Partial<RawResponse> = {})
 const replacement = (path: string): FileChange => ({
   op: "replace",
   path,
-  oldText: "before",
-  newText: "after",
+  patch: "@@ -1 +1 @@\n-before\n+after\n",
   ruleIds: ["fixture/style"],
 });
 
@@ -177,29 +176,24 @@ describe("format file groups", () => {
     expect(result.errors.length).toBeGreaterThan(0);
   });
 
-  test("rejects changes to another group and skips groups that never started", async () => {
-    const run = vi.fn(async (input: AdapterExecuteRequest) =>
-      reply(selected(input), {
-        changes: [replacement("b.ts")],
-      }),
-    );
+  test("rejects changes to another group and still reviews that group's files", async () => {
+    const run = vi.fn(async (input: AdapterExecuteRequest) => {
+      const [path] = selected(input);
+      return reply([path!], {
+        changes: [replacement(path === "a.ts" ? "b.ts" : path!)],
+      });
+    });
     const current = fixture(["a.ts", "b.ts", "c.ts"], run);
     const result = await current.run();
 
-    expect(run).toHaveBeenCalledTimes(1);
-    expect(result.errors.length).toBeGreaterThan(0);
-    expect(result.proposedFiles).toEqual([]);
-    expect(result.fileResults.slice(1)).toEqual([
-      {
-        path: "b.ts",
-        status: "skipped",
-        reason: expect.stringContaining("another file group failed"),
-      },
-      {
-        path: "c.ts",
-        status: "skipped",
-        reason: expect.stringContaining("another file group failed"),
-      },
+    expect(run).toHaveBeenCalledTimes(3);
+    expect(result.errors).toEqual([expect.objectContaining({ code: "CHANGE_OUTSIDE_SCOPE" })]);
+    expect(result.proposedFiles).toEqual(["b.ts", "c.ts"]);
+    expect(result.wouldChangeFiles).toEqual(["b.ts", "c.ts"]);
+    expect(result.fileResults.map(({ status }) => status)).toEqual([
+      "completed",
+      "completed",
+      "completed",
     ]);
     expect(current.snapshots.at(-1)?.fileResults).toEqual(result.fileResults);
   });
@@ -276,32 +270,58 @@ describe("format file groups", () => {
     expect(result.proposedFiles).toEqual(["a.ts"]);
   });
 
-  test("stops after the second incomplete response", async () => {
-    const run = vi.fn(async () => reply([]));
+  test("retries an incomplete response in its only file group", async () => {
+    const run = vi.fn(async (input: AdapterExecuteRequest) =>
+      input.prompt.includes("previous attempt")
+        ? reply(["a.ts"], { changes: [replacement("a.ts")] })
+        : reply([]),
+    );
+    const result = await fixture(["a.ts"], run).run();
+
+    expect(run).toHaveBeenCalledTimes(2);
+    expect(result.errors).toEqual([]);
+    expect(result.wouldChangeFiles).toEqual(["a.ts"]);
+  });
+
+  test("stops retrying a group after its second incomplete response", async () => {
+    const run = vi.fn(async (input: AdapterExecuteRequest) => {
+      const paths = selected(input);
+      return paths[0] === "a.ts" ? reply([]) : reply(paths);
+    });
+    const current = fixture(["a.ts", "b.ts"], run);
+    const result = await current.run();
+
+    expect(run.mock.calls.map(([input]) => selected(input))).toEqual([
+      ["a.ts"],
+      ["a.ts"],
+      ["b.ts"],
+    ]);
+    expect(result.fileResults[0]?.status).toBe("failed");
+    expect(result.fileResults[1]?.status).toBe("completed");
+  });
+
+  test("does not retry a malformed response", async () => {
+    const run = vi.fn(async (input: AdapterExecuteRequest) => {
+      const paths = selected(input);
+      return paths[0] === "a.ts" ? { changes: [] } : reply(paths);
+    });
     const current = fixture(["a.ts", "b.ts"], run);
     const result = await current.run();
 
     expect(run).toHaveBeenCalledTimes(2);
-    expect(result.fileResults[0]?.status).toBe("failed");
-    expect(result.fileResults[1]?.status).toBe("skipped");
-  });
-
-  test("does not retry a malformed response", async () => {
-    const run = vi.fn(async () => ({ changes: [] }));
-    const current = fixture(["a.ts", "b.ts"], run);
-    const result = await current.run();
-
-    expect(run).toHaveBeenCalledTimes(1);
     expect(result.errors[0]?.code).toBe("INVALID_AI_RESPONSE");
-    expect(result.fileResults.map(({ status }) => status)).toEqual(["failed", "skipped"]);
+    expect(result.fileResults.map(({ status }) => status)).toEqual(["failed", "completed"]);
   });
 
-  test("cancels an in-flight group immediately after another group fails", async () => {
+  test("keeps in-flight and queued groups running after another group fails", async () => {
     const first = Promise.withResolvers<RawResponse>();
     const second = Promise.withResolvers<RawResponse>();
-    const run = vi.fn(async (input: AdapterExecuteRequest) =>
-      selected(input)[0] === "a.ts" ? first.promise : second.promise,
-    );
+    const run = vi.fn(async (input: AdapterExecuteRequest) => {
+      const [path] = selected(input);
+      if (path === "a.ts") return first.promise;
+      if (path === "b.ts") return second.promise;
+      return reply([path!], { changes: [replacement(path!)] });
+    });
     const current = fixture(["a.ts", "b.ts", "c.ts", "d.ts"], run);
     const running = current.run({ maxConcurrency: 2 });
     await vi.waitFor(() => expect(run).toHaveBeenCalledTimes(2));
@@ -313,16 +333,17 @@ describe("format file groups", () => {
         ],
       }),
     );
-    await vi.waitFor(() => expect(current.snapshots.at(-1)?.ruleResults[0]?.status).toBe("failed"));
-    expect(run.mock.calls[1]?.[0].signal.aborted).toBe(true);
+    await vi.waitFor(() => expect(run).toHaveBeenCalledTimes(4));
+    expect(run.mock.calls[1]?.[0].signal.aborted).toBe(false);
+    second.resolve(reply(["b.ts"], { changes: [replacement("b.ts")] }));
     const result = await running;
 
-    expect(run).toHaveBeenCalledTimes(2);
-    expect(result.proposedFiles).toEqual([]);
-    expect(result.fileResults.slice(1)).toEqual([
-      { path: "b.ts", status: "skipped", reason: "Cancelled because another file group failed." },
-      { path: "c.ts", status: "skipped", reason: "Not started because another file group failed." },
-      { path: "d.ts", status: "skipped", reason: "Not started because another file group failed." },
+    expect(result.proposedFiles).toEqual(["b.ts", "c.ts", "d.ts"]);
+    expect(result.fileResults.map(({ status }) => status)).toEqual([
+      "failed",
+      "completed",
+      "completed",
+      "completed",
     ]);
     expect(current.snapshots.at(-1)?.fileResults).toEqual(result.fileResults);
     expect(current.snapshots.at(-1)?.ruleResults[0]?.status).toBe("failed");
@@ -340,6 +361,7 @@ describe("format file groups", () => {
     const result = await current.run();
     expect(result.changedFiles).toEqual([]);
     expect(result.errors[0]?.code).toBe("SOURCE_CHANGED");
+    expect(result.wouldChangeFiles).toEqual(["b.ts"]);
     expect(current.snapshots.at(-1)).toMatchObject({
       phase: "incomplete",
       ruleResults: [
@@ -348,41 +370,52 @@ describe("format file groups", () => {
     });
   });
 
-  test("does not begin a retry after a different group has failed", async () => {
+  test("retries an incomplete group after a different group has failed", async () => {
     const first = Promise.withResolvers<RawResponse>();
     const second = Promise.withResolvers<RawResponse>();
-    const run = vi.fn(async (input: AdapterExecuteRequest) =>
-      selected(input)[0] === "a.ts" ? first.promise : second.promise,
-    );
+    const run = vi.fn(async (input: AdapterExecuteRequest) => {
+      const paths = selected(input);
+      if (paths[0] === "b.ts") return second.promise;
+      if (paths[0] === "a.ts" && !input.prompt.includes("previous attempt")) return first.promise;
+      return reply(paths);
+    });
     const current = fixture(["a.ts", "b.ts", "c.ts"], run);
     const running = current.run({ maxConcurrency: 2 });
     await vi.waitFor(() => expect(run).toHaveBeenCalledTimes(2));
-    second.resolve(reply(["b.ts"], { changes: [replacement("c.ts")] }));
+    second.resolve(
+      reply(["b.ts"], {
+        fileResults: [{ path: "b.ts", status: "failed", reason: "Unable to review b.ts." }],
+      }),
+    );
     await vi.waitFor(() => expect(current.snapshots.at(-1)?.ruleResults[0]?.status).toBe("failed"));
     first.resolve(reply([]));
     const result = await running;
 
-    expect(run).toHaveBeenCalledTimes(2);
-    expect(result.fileResults.at(-1)?.status).toBe("skipped");
+    expect(run).toHaveBeenCalledTimes(4);
+    expect(run.mock.calls.filter(([input]) => selected(input)[0] === "a.ts")).toHaveLength(2);
+    expect(result.fileResults.map(({ status }) => status)).toEqual([
+      "completed",
+      "failed",
+      "completed",
+    ]);
   });
 
-  test("times out a group without retrying or discarding earlier results", async () => {
+  test("times out a group without retrying and keeps results from other groups", async () => {
     const run = vi.fn(async (input: AdapterExecuteRequest) => {
-      if (selected(input)[0] === "a.ts") {
-        return reply(["a.ts"], { changes: [replacement("a.ts")] });
-      }
-      return new Promise(() => {});
+      const [path] = selected(input);
+      if (path === "b.ts") return new Promise(() => {});
+      return reply([path!], { changes: [replacement(path!)] });
     });
     const current = fixture(["a.ts", "b.ts", "c.ts"], run);
     const result = await current.run({ timeoutMs: 25 });
 
-    expect(run).toHaveBeenCalledTimes(2);
+    expect(run).toHaveBeenCalledTimes(3);
     expect(result.errors[0]?.code).toBe("AI_TIMEOUT");
-    expect(result.proposedFiles).toEqual(["a.ts"]);
+    expect(result.proposedFiles).toEqual(["a.ts", "c.ts"]);
     expect(result.fileResults.map(({ status }) => status)).toEqual([
       "completed",
       "failed",
-      "skipped",
+      "completed",
     ]);
   });
 
@@ -449,24 +482,25 @@ describe("format file groups", () => {
     expect(result.errors[0]?.code).toBe("AI_ABORTED");
   });
 
-  test("retains a context warning when its referenced file group never starts", async () => {
+  test("retains a context warning when its referenced file group fails", async () => {
     const run = vi.fn(async (input: AdapterExecuteRequest) => {
       const targets = selected(input);
       if (targets[0] === "a.ts") {
         return reply(targets, { warnings: [warning("c.ts")] });
       }
+      if (targets[0] === "b.ts") return reply(targets);
       return reply(targets, {
         completedRuleIds: [],
         errors: [
-          { code: "RULE_FAILED", ruleIds: ["fixture/style"], message: "Cannot review b.ts." },
+          { code: "RULE_FAILED", ruleIds: ["fixture/style"], message: "Cannot review c.ts." },
         ],
       });
     });
     const current = fixture(["a.ts", "b.ts", "c.ts"], run);
     const result = await current.run();
 
-    expect(run).toHaveBeenCalledTimes(2);
-    expect(result.fileResults.at(-1)?.status).toBe("skipped");
+    expect(run).toHaveBeenCalledTimes(3);
+    expect(result.fileResults.at(-1)?.status).toBe("failed");
     expect(result.warnings).toEqual([warning("c.ts")]);
     expect(current.snapshots.at(-1)?.fileResults).toEqual(result.fileResults);
     expect(current.snapshots.at(-1)?.warnings).toEqual(result.warnings);
@@ -494,9 +528,12 @@ describe("format file groups", () => {
     expect(result.skippedRules).toEqual([
       {
         ruleId: "fixture/style",
-        reason: "No matching code in a.ts. No matching code in b.ts.",
+        reason: "No matching code in a.ts. (+1 more batch reasons)",
       },
     ]);
-    expect(current.snapshots.at(-1)?.ruleResults[0]?.status).toBe("skipped");
+    expect(current.snapshots.at(-1)?.ruleResults[0]).toMatchObject({
+      status: "skipped",
+      reason: result.skippedRules[0]?.reason,
+    });
   });
 });

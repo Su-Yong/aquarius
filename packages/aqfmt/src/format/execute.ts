@@ -1,12 +1,20 @@
 import { AquariusError, loadConfig, runToolExecution, toRunError } from "@aquarius/core/runtime";
 import { applyFileChanges } from "../changes/apply";
-import { planFileChanges } from "../changes/plan";
-import { captureBaseline } from "../changes/state";
-import type { FileBaseline } from "../changes/types";
+import { ReplacementPatchError } from "../changes/patch";
+import { planFileChanges, planPartialFileReplacements } from "../changes/plan";
+import { captureBaseline, pathKey } from "../changes/state";
+import type { FileBaseline, FileChangePlan } from "../changes/types";
 import { createGitUndoStore, undoLastFileChanges } from "../undo/store";
 import { createFormatAnalysis, formatSnapshotDetails } from "./analysis";
 import { buildFormatPrompt } from "./prompt";
-import { formatChangePaths, normalizeFormatResponse, summarizeFormatResult } from "./results";
+import { validateBatchReplacements } from "./repair";
+import {
+  completedReplacements,
+  formatChangePaths,
+  normalizeFormatResponse,
+  recordReplacementFailures,
+  summarizeFormatResult,
+} from "./results";
 import { formatResponseJsonSchema } from "./schemas";
 import type {
   FormatDetails,
@@ -61,6 +69,8 @@ export const executeFormat = async (
   }
 
   let baseline: ReadonlyMap<string, FileBaseline> = new Map();
+  const aliasedPaths = new Set<string>();
+  const hasAlias = (path: string): boolean => aliasedPaths.has(pathKey(path));
   let changedFiles: string[] = [];
   let wouldChangeFiles: string[] | undefined;
   const execution = await runToolExecution<FormatDetails, FormatSnapshotDetails>(options, {
@@ -72,6 +82,9 @@ export const executeFormat = async (
       reason: "Rule preparation failed; formatting did not start.",
     },
     onPreparationError: () => "select",
+    continueOnBatchFailure: true,
+    retrySingleFileGroup: true,
+    afterReviewOnFailure: true,
     outputSchema: formatResponseJsonSchema,
     empty: { changes: [], warnings: [] },
     buildPrompt: buildFormatPrompt,
@@ -88,14 +101,46 @@ export const executeFormat = async (
     }),
     beforeReview: async (policy) => {
       baseline = await captureBaseline(policy.projectRoot, policy.targets);
+      const byIdentity = Map.groupBy(baseline, ([, { identity }]) => identity);
+      byIdentity.delete(undefined);
+      for (const entries of byIdentity.values()) {
+        if (entries.length < 2) continue;
+        for (const [path] of entries) aliasedPaths.add(path);
+      }
     },
-    afterReview: async (response, policy) => {
-      const plan = await planFileChanges(
-        policy.projectRoot,
-        response.changes,
-        policy.canWrite,
-        baseline,
-      );
+    afterBatch: (response, context) =>
+      validateBatchReplacements(response, context, baseline, (path) => !hasAlias(path)),
+    // Wait to repair a hard-linked target until proposals for its aliases are known.
+    afterBatches: (response, context) =>
+      validateBatchReplacements(response, context, baseline, hasAlias),
+    afterReview: async (response, policy, rules) => {
+      let plan: FileChangePlan;
+      if (rules.every(({ scope }) => scope === "file")) {
+        const replacements = completedReplacements(response);
+        const partial = await planPartialFileReplacements(
+          policy.projectRoot,
+          replacements,
+          policy.canWrite,
+          baseline,
+        );
+        plan = partial.plan;
+        response = recordReplacementFailures(response, partial.failures);
+      } else {
+        try {
+          plan = await planFileChanges(
+            policy.projectRoot,
+            response.changes,
+            policy.canWrite,
+            baseline,
+          );
+        } catch (cause) {
+          if (!(cause instanceof ReplacementPatchError)) throw cause;
+          return {
+            ...response,
+            errors: [...response.errors, toRunError(cause, undefined, cause.ruleIds)],
+          };
+        }
+      }
       assertNotCancelled(options.signal);
       if (options.check) {
         wouldChangeFiles = plan.files.map(({ path }) => path);

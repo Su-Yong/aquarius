@@ -35,6 +35,13 @@ const gitProject = async (): Promise<string> => {
 
 const canWrite = () => true;
 
+const replaceLineWithoutNewline = (path: string, before: string, after: string) => ({
+  op: "replace" as const,
+  path,
+  patch: `@@ -1 +1 @@\n-${before}\n\\ No newline at end of file\n+${after}\n\\ No newline at end of file\n`,
+  ruleIds: ["fmt/a"],
+});
+
 test("undo restores dirty content without changing the index or unrelated edits", async () => {
   const root = await gitProject();
   try {
@@ -51,8 +58,7 @@ test("undo restores dirty content without changing the index or unrelated edits"
         {
           op: "replace",
           path: "tracked.txt",
-          oldText: "user dirty version",
-          newText: "formatted version",
+          patch: "@@ -1 +1 @@\n-user dirty version\n+formatted version\n",
           ruleIds: ["fmt/a"],
         },
       ],
@@ -87,7 +93,12 @@ test("undo covers create, delete, move, replacement, and created directories", a
     const plan = await planFileChanges(
       root,
       [
-        { op: "replace", path: "src/move.txt", oldText: "old", newText: "new", ruleIds: ["fmt/a"] },
+        {
+          op: "replace",
+          path: "src/move.txt",
+          patch: "@@ -1 +1 @@\n-move old\n+move new\n",
+          ruleIds: ["fmt/a"],
+        },
         { op: "move", from: "src/move.txt", to: "created/deep/moved.txt", ruleIds: ["fmt/a"] },
         { op: "delete", path: "delete.txt", ruleIds: ["fmt/a"] },
         { op: "create", path: "created/new.txt", content: "new file\n", ruleIds: ["fmt/a"] },
@@ -123,8 +134,8 @@ test("a later edit to one touched file rejects the entire undo", async () => {
     const plan = await planFileChanges(
       root,
       [
-        { op: "replace", path: "a.txt", oldText: "old", newText: "new", ruleIds: ["fmt/a"] },
-        { op: "replace", path: "b.txt", oldText: "old", newText: "new", ruleIds: ["fmt/a"] },
+        replaceLineWithoutNewline("a.txt", "a old", "a new"),
+        replaceLineWithoutNewline("b.txt", "b old", "b new"),
       ],
       canWrite,
       baseline,
@@ -148,7 +159,7 @@ test("a no-op keeps the previous record and a later real change replaces it", as
     const firstBaseline = await captureBaseline(root, ["first.txt"]);
     const firstPlan = await planFileChanges(
       root,
-      [{ op: "replace", path: "first.txt", oldText: "old", newText: "new", ruleIds: ["fmt/a"] }],
+      [replaceLineWithoutNewline("first.txt", "first old", "first new")],
       canWrite,
       firstBaseline,
     );
@@ -162,7 +173,7 @@ test("a no-op keeps the previous record and a later real change replaces it", as
     await applyFileChanges(
       await planFileChanges(
         root,
-        [{ op: "replace", path: "first.txt", oldText: "old", newText: "new", ruleIds: ["fmt/a"] }],
+        [replaceLineWithoutNewline("first.txt", "first old", "first new")],
         canWrite,
         replayBaseline,
       ),
@@ -172,7 +183,7 @@ test("a no-op keeps the previous record and a later real change replaces it", as
     await applyFileChanges(
       await planFileChanges(
         root,
-        [{ op: "replace", path: "second.txt", oldText: "old", newText: "new", ruleIds: ["fmt/a"] }],
+        [replaceLineWithoutNewline("second.txt", "second old", "second new")],
         canWrite,
         secondBaseline,
       ),
@@ -193,7 +204,7 @@ test("a pre-write failure keeps the previous successful undo record", async () =
     await writeFile(path.join(root, "second.txt"), "second old");
     const firstPlan = await planFileChanges(
       root,
-      [{ op: "replace", path: "first.txt", oldText: "old", newText: "new", ruleIds: ["fmt/a"] }],
+      [replaceLineWithoutNewline("first.txt", "first old", "first new")],
       canWrite,
       await captureBaseline(root, ["first.txt"]),
     );
@@ -201,7 +212,7 @@ test("a pre-write failure keeps the previous successful undo record", async () =
 
     const secondPlan = await planFileChanges(
       root,
-      [{ op: "replace", path: "second.txt", oldText: "old", newText: "new", ruleIds: ["fmt/a"] }],
+      [replaceLineWithoutNewline("second.txt", "second old", "second new")],
       canWrite,
       await captureBaseline(root, ["second.txt"]),
     );
@@ -227,7 +238,7 @@ test("non-Git projects still format but cannot undo", async () => {
     const baseline = await captureBaseline(root, ["file.txt"]);
     const plan = await planFileChanges(
       root,
-      [{ op: "replace", path: "file.txt", oldText: "old", newText: "new", ruleIds: ["fmt/a"] }],
+      [replaceLineWithoutNewline("file.txt", "old", "new")],
       canWrite,
       baseline,
     );
@@ -247,7 +258,7 @@ test("an incomplete pending transaction blocks new work and preserves its record
     const baseline = await captureBaseline(root, ["file.txt"]);
     const plan = await planFileChanges(
       root,
-      [{ op: "replace", path: "file.txt", oldText: "old", newText: "new", ruleIds: ["fmt/a"] }],
+      [replaceLineWithoutNewline("file.txt", "old", "new")],
       canWrite,
       baseline,
     );
@@ -270,7 +281,7 @@ test("recovers a lock owned by a dead process when no journal is pending", async
     await writeFile(path.join(root, "file.txt"), "old");
     const plan = await planFileChanges(
       root,
-      [{ op: "replace", path: "file.txt", oldText: "old", newText: "new", ruleIds: ["fmt/a"] }],
+      [replaceLineWithoutNewline("file.txt", "old", "new")],
       canWrite,
       await captureBaseline(root, ["file.txt"]),
     );
@@ -295,7 +306,7 @@ test("serializes concurrent attempts to recover the same stale lock", async () =
     await writeFile(path.join(root, "file.txt"), "old");
     const plan = await planFileChanges(
       root,
-      [{ op: "replace", path: "file.txt", oldText: "old", newText: "new", ruleIds: ["fmt/a"] }],
+      [replaceLineWithoutNewline("file.txt", "old", "new")],
       canWrite,
       await captureBaseline(root, ["file.txt"]),
     );
@@ -329,7 +340,7 @@ test("undo preserves an identical user file created in the final write window", 
     await writeFile(target, "old");
     const plan = await planFileChanges(
       root,
-      [{ op: "replace", path: "file.txt", oldText: "old", newText: "new", ruleIds: ["fmt/a"] }],
+      [replaceLineWithoutNewline("file.txt", "old", "new")],
       canWrite,
       await captureBaseline(root, ["file.txt"]),
     );
@@ -367,7 +378,7 @@ test("reports lock release failure without rolling back a committed change", asy
     await writeFile(path.join(root, "file.txt"), "old");
     const plan = await planFileChanges(
       root,
-      [{ op: "replace", path: "file.txt", oldText: "old", newText: "new", ruleIds: ["fmt/a"] }],
+      [replaceLineWithoutNewline("file.txt", "old", "new")],
       canWrite,
       await captureBaseline(root, ["file.txt"]),
     );

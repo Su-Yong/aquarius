@@ -1,15 +1,16 @@
 import { renderAnalysisLines, type ProgressLine } from "@aquarius/core/cli";
 import type { AdapterRunInfo } from "@aquarius/core/runtime";
-import type { FormatAnalysisSnapshot } from "../format/types";
+import type { FormatAnalysisSnapshot, FormatExecutionResult, FormatWarning } from "../format/types";
 
 export const analysisLines = (
   snapshot: FormatAnalysisSnapshot,
   ai?: AdapterRunInfo,
 ): ProgressLine[] => {
+  const incomplete = snapshot.phase === "incomplete";
   const headings = {
     provisional: "Formatting review in progress (provisional)",
     final: "Formatting review complete",
-    incomplete: "Formatting review incomplete",
+    incomplete: "Formatting review incomplete (provisional)",
   };
   const lines: ProgressLine[] = [];
   for (const path of snapshot.proposedFiles) {
@@ -45,11 +46,29 @@ export const analysisLines = (
     ai,
     heading: {
       text: [{ text: headings[snapshot.phase], color: "bold" }],
-      status: snapshot.phase === "incomplete" ? "warning" : "info",
+      status: incomplete ? "warning" : "info",
     },
-    beforeReviews: [
-      { text: [{ text: `Proposed files: ${snapshot.proposedFiles.length}`, color: "bold" }] },
-    ],
+    beforeReviews: incomplete
+      ? []
+      : [{ text: [{ text: `Proposed files: ${snapshot.proposedFiles.length}`, color: "bold" }] }],
     afterReviews: lines,
+    showReviews: !incomplete,
   });
+};
+
+const warningKey = ({ code, message, ruleIds, paths }: FormatWarning): string =>
+  JSON.stringify([code, message, [...ruleIds].sort(), [...paths].sort()]);
+
+export const incompleteAnalysisLines = (
+  snapshot: FormatAnalysisSnapshot,
+  { result }: FormatExecutionResult,
+): ProgressLine[] => {
+  const confirmedPaths = new Set(result.proposedFiles);
+  const confirmedWarnings = new Set(result.warnings.map(warningKey));
+  const proposedFiles = snapshot.proposedFiles.filter((path) => !confirmedPaths.has(path));
+  const warnings = snapshot.warnings.filter(
+    (warning) => !confirmedWarnings.has(warningKey(warning)),
+  );
+  if (!proposedFiles.length && !warnings.length) return [];
+  return analysisLines({ ...snapshot, proposedFiles, warnings });
 };

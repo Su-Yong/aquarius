@@ -41,8 +41,7 @@ const resources: RuleResource[] = [
 const change = {
   op: "replace",
   path: "src/example.ts",
-  oldText: "before",
-  newText: "after",
+  patch: "@@ -1 +1 @@\n-before\n+after\n",
   ruleIds: ["fixture/style"],
 };
 
@@ -133,7 +132,11 @@ describe("format rule results", () => {
   });
 
   test.each([
-    { op: "replace", path: ".aquarius-rules-test/style.json", oldText: "before", newText: "after" },
+    {
+      op: "replace",
+      path: ".aquarius-rules-test/style.json",
+      patch: "@@ -1 +1 @@\n-before\n+after\n",
+    },
     { op: "create", path: ".aquarius-rules-test/new.ts", content: "new content" },
     { op: "create", path: ".AQUARIUS-RULES-TEST/new.ts", content: "new content" },
     { op: "delete", path: ".aquarius-rules-test/style.json" },
@@ -356,7 +359,7 @@ describe("format file outcomes and partial results", () => {
 
   test("invalid changes affect their own file while independent valid proposals survive", () => {
     const result = normalize({
-      changes: [{ ...change, oldText: 42 }, otherChange],
+      changes: [{ ...change, patch: 42 }, otherChange],
     });
 
     expect(result.changes).toEqual([otherChange]);

@@ -11,8 +11,7 @@ test("format response schema is strict and produces the AI JSON schema", () => {
       {
         op: "replace",
         path: "src/file.ts",
-        oldText: "before",
-        newText: "after",
+        patch: "@@ -1 +1 @@\n-before\n+after\n",
         ruleIds: ["style/early-return"],
       },
     ],
@@ -45,7 +44,7 @@ test("format AI schema uses Codex-compatible unions with strict operation fields
           anyOf: [
             {
               properties: { op: { const: "replace" } },
-              required: ["op", "path", "oldText", "newText", "ruleIds"],
+              required: ["op", "path", "patch", "ruleIds"],
               additionalProperties: false,
             },
             {
@@ -75,8 +74,7 @@ test.each([
   {
     op: "replace",
     path: "src/file.ts",
-    oldText: "before",
-    newText: "after",
+    patch: "@@ -1 +1 @@\n-before\n+after\n",
     ruleIds: ["style/early-return"],
   },
   { op: "create", path: "src/file.ts", content: "created", ruleIds: ["style/early-return"] },

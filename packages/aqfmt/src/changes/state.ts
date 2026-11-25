@@ -272,7 +272,11 @@ export const captureBaseline = async (
     if (result.has(key)) fail("PATH_CONFLICT", `Duplicate baseline path: ${relativePath}`);
     const state = await readProjectFileState(projectRoot, relativePath);
     if (state === null) fail("SOURCE_MISSING", `Cannot capture a missing file: ${relativePath}`);
-    result.set(key, { hash: sha256(state.content), mode: state.mode });
+    result.set(key, {
+      hash: sha256(state.content),
+      mode: state.mode,
+      identity: fileIdentity(state),
+    });
   }
   return result;
 };

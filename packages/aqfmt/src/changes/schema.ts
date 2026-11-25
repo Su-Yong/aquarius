@@ -6,8 +6,7 @@ export const fileChangeSchema = z.union([
   z.strictObject({
     op: z.literal("replace"),
     path: z.string(),
-    oldText: z.string(),
-    newText: z.string(),
+    patch: z.string(),
     ruleIds: ruleIdsSchema,
   }),
   z.strictObject({
@@ -30,3 +29,4 @@ export const fileChangeSchema = z.union([
 ]);
 
 export type FileChange = z.infer<typeof fileChangeSchema>;
+export type ReplaceChange = Extract<FileChange, { op: "replace" }>;

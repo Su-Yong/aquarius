@@ -225,6 +225,40 @@ test("preserves valid reviews and labels proposals as unapplied on failure", () 
   }
 });
 
+test.each([
+  { check: false, heading: "Formatting completed with errors", action: "✓ Formatted", written: 1 },
+  {
+    check: true,
+    heading: "Formatting check completed with errors",
+    action: "⚠ Would format",
+    written: 0,
+  },
+])("reports partial results once in $heading", ({ check, heading, action, written }) => {
+  const tty = Object.getOwnPropertyDescriptor(process.stdout, "isTTY");
+  const log = vi.spyOn(console, "log").mockImplementation(() => {});
+  vi.stubEnv("NO_COLOR", "1");
+  try {
+    Object.defineProperty(process.stdout, "isTTY", { configurable: true, value: true });
+    const result = emptyResult();
+    result.proposedFiles = ["good.ts", "pending.ts"];
+    result.summary = { ...result.summary, totalFiles: 2, completedFiles: 1, failedFiles: 1 };
+    if (check) result.wouldChangeFiles = ["good.ts"];
+    else result.changedFiles = ["good.ts"];
+    printHuman({ result, exitCode: 2 }, check);
+    const output = log.mock.calls.flat().join("\n");
+    expect(output).toContain(heading);
+    expect(output).toMatch(new RegExp(`Written files:\\s+${written}`));
+    expect(output).toContain(`${action} good.ts`);
+    expect(output).toContain("Proposed (not applied) pending.ts");
+    expect(output).not.toContain("Proposed (not applied) good.ts");
+  } finally {
+    if (tty) Object.defineProperty(process.stdout, "isTTY", tty);
+    else Reflect.deleteProperty(process.stdout, "isTTY");
+    log.mockRestore();
+    vi.unstubAllEnvs();
+  }
+});
+
 test("undo output reports restored files without a review summary", () => {
   const log = vi.spyOn(console, "log").mockImplementation(() => {});
   try {

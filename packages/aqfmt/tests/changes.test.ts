@@ -13,7 +13,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { expect, test } from "vitest";
 import { applyFileChanges } from "../src/changes/apply";
-import { planFileChanges } from "../src/changes/plan";
+import { planFileChanges, planPartialFileReplacements } from "../src/changes/plan";
 import { captureBaseline } from "../src/changes/state";
 import type { UndoStore } from "../src/changes/types";
 
@@ -38,7 +38,7 @@ test("plans every replacement against the same original and applies it once", as
   const root = await temporaryProject();
   try {
     await mkdir(path.join(root, "src"));
-    await writeFile(path.join(root, "src", "sample.txt"), "one two three\n");
+    await writeFile(path.join(root, "src", "sample.txt"), "one\ntwo\nthree\n");
     const baseline = await captureBaseline(root, ["src/sample.txt"]);
     const plan = await planFileChanges(
       root,
@@ -46,15 +46,13 @@ test("plans every replacement against the same original and applies it once", as
         {
           op: "replace",
           path: "src/sample.txt",
-          oldText: "three",
-          newText: "THREE",
+          patch: "@@ -3 +3 @@\n-three\n+THREE\n",
           ruleIds: ["fmt/a"],
         },
         {
           op: "replace",
           path: "src/sample.txt",
-          oldText: "one",
-          newText: "ONE",
+          patch: "@@ -1 +1 @@\n-one\n+ONE\n",
           ruleIds: ["fmt/b"],
         },
       ],
@@ -62,12 +60,12 @@ test("plans every replacement against the same original and applies it once", as
       baseline,
     );
 
-    expect(Buffer.from(plan.files[0]!.after!.content).toString()).toBe("ONE two THREE\n");
+    expect(Buffer.from(plan.files[0]!.after!.content).toString()).toBe("ONE\ntwo\nTHREE\n");
     await expect(applyFileChanges(plan, null)).resolves.toEqual({
       changedFiles: ["src/sample.txt"],
       undoAvailable: false,
     });
-    expect(await readFile(path.join(root, "src", "sample.txt"), "utf8")).toBe("ONE two THREE\n");
+    expect(await readFile(path.join(root, "src", "sample.txt"), "utf8")).toBe("ONE\ntwo\nTHREE\n");
 
     const noOpBaseline = await captureBaseline(root, ["src/sample.txt"]);
     const noOp = await planFileChanges(
@@ -76,8 +74,7 @@ test("plans every replacement against the same original and applies it once", as
         {
           op: "replace",
           path: "src/sample.txt",
-          oldText: "two",
-          newText: "two",
+          patch: "@@ -2 +2 @@\n-two\n+two\n",
           ruleIds: ["fmt/a"],
         },
       ],
@@ -85,6 +82,39 @@ test("plans every replacement against the same original and applies it once", as
       noOpBaseline,
     );
     expect(noOp.files).toEqual([]);
+  } finally {
+    await removeTemporaryProject(root);
+  }
+});
+
+test("both planners normalize caller-supplied baseline paths", async () => {
+  const root = await temporaryProject();
+  try {
+    const relativePath = "src/nested/sample.txt";
+    await mkdir(path.join(root, "src", "nested"), { recursive: true });
+    await writeFile(path.join(root, relativePath), "before\n");
+    const baseline = await captureBaseline(root, [relativePath]);
+    const suppliedBaseline = new Map([["src//nested\\sample.txt", baseline.get(relativePath)!]]);
+    const changes = [
+      {
+        op: "replace" as const,
+        path: relativePath,
+        patch: "@@ -1 +1 @@\n-before\n+after\n",
+        ruleIds: ["fmt/a"],
+      },
+    ];
+
+    const fullPlan = await planFileChanges(root, changes, canWrite, suppliedBaseline);
+    const { plan, failures } = await planPartialFileReplacements(
+      root,
+      changes,
+      canWrite,
+      suppliedBaseline,
+    );
+
+    expect(failures).toEqual([]);
+    expect(plan).toEqual(fullPlan);
+    expect(plan.files.map(({ path }) => path)).toEqual([relativePath]);
   } finally {
     await removeTemporaryProject(root);
   }
@@ -104,8 +134,7 @@ test("preserves a UTF-8 BOM and exact CRLF bytes during replacement", async () =
         {
           op: "replace",
           path: "bom.txt",
-          oldText: "one\r\n",
-          newText: "ONE\r\n",
+          patch: "@@ -1 +1 @@\n-one\n+ONE\n",
           ruleIds: ["fmt/a"],
         },
       ],
@@ -124,8 +153,8 @@ test("preserves a UTF-8 BOM and exact CRLF bytes during replacement", async () =
 test("rejects ambiguous and overlapping replacement ranges", async () => {
   const root = await temporaryProject();
   try {
-    await writeFile(path.join(root, "ambiguous.txt"), "abc abc");
-    await writeFile(path.join(root, "overlap.txt"), "abcdef");
+    await writeFile(path.join(root, "ambiguous.txt"), "abc\nother\nabc\n");
+    await writeFile(path.join(root, "overlap.txt"), "abc\n");
     const baseline = await captureBaseline(root, ["ambiguous.txt", "overlap.txt"]);
     await expect(
       planFileChanges(
@@ -134,21 +163,30 @@ test("rejects ambiguous and overlapping replacement ranges", async () => {
           {
             op: "replace",
             path: "ambiguous.txt",
-            oldText: "abc",
-            newText: "x",
+            patch: "@@ -2 +2 @@\n-abc\n+x\n",
             ruleIds: ["fmt/a"],
           },
         ],
         canWrite,
         baseline,
       ),
-    ).rejects.toMatchObject({ code: "REPLACE_NOT_UNIQUE" });
+    ).rejects.toMatchObject({ code: "REPLACE_MISMATCH" });
     await expect(
       planFileChanges(
         root,
         [
-          { op: "replace", path: "overlap.txt", oldText: "abc", newText: "x", ruleIds: ["fmt/a"] },
-          { op: "replace", path: "overlap.txt", oldText: "cde", newText: "y", ruleIds: ["fmt/b"] },
+          {
+            op: "replace",
+            path: "overlap.txt",
+            patch: "@@ -1 +1 @@\n-abc\n+x\n",
+            ruleIds: ["fmt/a"],
+          },
+          {
+            op: "replace",
+            path: "overlap.txt",
+            patch: "@@ -1 +1 @@\n-abc\n+y\n",
+            ruleIds: ["fmt/b"],
+          },
         ],
         canWrite,
         baseline,
@@ -173,8 +211,7 @@ test("moves transformed original content and creates safe parent directories", a
         {
           op: "replace",
           path: "src/old.txt",
-          oldText: "before",
-          newText: "after",
+          patch: "@@ -1 +1 @@\n-before value\n+after value\n",
           ruleIds: ["fmt/edit"],
         },
       ],
@@ -247,8 +284,7 @@ test("preserves edits made after baseline capture or after planning", async () =
           {
             op: "replace",
             path: "file.txt",
-            oldText: "original",
-            newText: "formatted",
+            patch: "@@ -1 +1 @@\n-original\n+formatted\n",
             ruleIds: ["fmt/a"],
           },
         ],
@@ -264,8 +300,7 @@ test("preserves edits made after baseline capture or after planning", async () =
         {
           op: "replace",
           path: "file.txt",
-          oldText: "edited before response",
-          newText: "formatted",
+          patch: "@@ -1 +1 @@\n-edited before response\n+formatted\n",
           ruleIds: ["fmt/a"],
         },
       ],
@@ -289,8 +324,18 @@ test("restores all files when recording the successful write fails", async () =>
     const plan = await planFileChanges(
       root,
       [
-        { op: "replace", path: "first.txt", oldText: "old", newText: "new", ruleIds: ["fmt/a"] },
-        { op: "replace", path: "second.txt", oldText: "old", newText: "new", ruleIds: ["fmt/a"] },
+        {
+          op: "replace",
+          path: "first.txt",
+          patch: "@@ -1 +1 @@\n-first old\n+first new\n",
+          ruleIds: ["fmt/a"],
+        },
+        {
+          op: "replace",
+          path: "second.txt",
+          patch: "@@ -1 +1 @@\n-second old\n+second new\n",
+          ruleIds: ["fmt/a"],
+        },
         { op: "create", path: "created/deep/new.txt", content: "new", ruleIds: ["fmt/a"] },
       ],
       canWrite,
@@ -333,8 +378,7 @@ test("does not overwrite an identical user file created in the final write windo
         {
           op: "replace",
           path: "race.txt",
-          oldText: "old",
-          newText: "formatted",
+          patch: "@@ -1 +1 @@\n-old\n+formatted\n",
           ruleIds: ["fmt/a"],
         },
       ],
@@ -417,12 +461,16 @@ test("rejects hard-link aliases of the same source file", async () => {
       planFileChanges(
         root,
         [
-          { op: "replace", path: "one.txt", oldText: "same", newText: "first", ruleIds: ["fmt/a"] },
+          {
+            op: "replace",
+            path: "one.txt",
+            patch: "@@ -1 +1 @@\n-same\n+first\n",
+            ruleIds: ["fmt/a"],
+          },
           {
             op: "replace",
             path: "alias.txt",
-            oldText: "same",
-            newText: "second",
+            patch: "@@ -1 +1 @@\n-same\n+second\n",
             ruleIds: ["fmt/a"],
           },
         ],
@@ -430,6 +478,90 @@ test("rejects hard-link aliases of the same source file", async () => {
         baseline,
       ),
     ).rejects.toMatchObject({ code: "PATH_ALIAS_CONFLICT" });
+  } finally {
+    await removeTemporaryProject(root);
+  }
+});
+
+test("plans replacements per file and attributes only the patches that failed", async () => {
+  const root = await temporaryProject();
+  try {
+    const names = ["good.txt", "overlap.txt", "mismatch.txt", "edited.txt", "one.txt", "alias.txt"];
+    for (const name of names.slice(0, -1)) {
+      await writeFile(path.join(root, name), "first\nsecond\n");
+    }
+    await link(path.join(root, "one.txt"), path.join(root, "alias.txt"));
+    const baseline = await captureBaseline(root, names);
+    await writeFile(path.join(root, "edited.txt"), "user edit\n");
+
+    const firstLine = "@@ -1 +1 @@\n-first\n+FIRST\n";
+    const { plan, failures } = await planPartialFileReplacements(
+      root,
+      [
+        ...names.map((path) => ({
+          op: "replace" as const,
+          path,
+          patch: firstLine,
+          ruleIds: ["fmt/a"],
+        })),
+        {
+          op: "replace",
+          path: "overlap.txt",
+          patch: "@@ -1 +1 @@\n-first\n+Different\n",
+          ruleIds: ["fmt/a", "fmt/b"],
+        },
+        {
+          op: "replace",
+          path: "overlap.txt",
+          patch: "@@ -2 +2 @@\n-second\n+SECOND\n",
+          ruleIds: ["fmt/other"],
+        },
+        {
+          op: "replace",
+          path: "mismatch.txt",
+          patch: "@@ -2 +2 @@\n-absent\n+SECOND\n",
+          ruleIds: ["fmt/c"],
+        },
+      ],
+      canWrite,
+      baseline,
+    );
+
+    expect(plan.files.map(({ path }) => path)).toEqual(["good.txt"]);
+    expect(failures).toHaveLength(5);
+    expect(failures).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          path: "overlap.txt",
+          repairable: true,
+          error: expect.objectContaining({ code: "REPLACE_OVERLAP", ruleIds: ["fmt/a", "fmt/b"] }),
+        }),
+        expect.objectContaining({
+          path: "mismatch.txt",
+          repairable: true,
+          error: expect.objectContaining({ code: "REPLACE_MISMATCH", ruleIds: ["fmt/c"] }),
+        }),
+        expect.objectContaining({
+          path: "edited.txt",
+          repairable: false,
+          error: expect.objectContaining({ code: "SOURCE_CHANGED", ruleIds: [] }),
+        }),
+        ...["one.txt", "alias.txt"].map((path) =>
+          expect.objectContaining({
+            path,
+            repairable: false,
+            error: expect.objectContaining({ code: "PATH_ALIAS_CONFLICT", ruleIds: [] }),
+          }),
+        ),
+      ]),
+    );
+    await expect(applyFileChanges(plan, null)).resolves.toMatchObject({
+      changedFiles: ["good.txt"],
+    });
+    expect(await readFile(path.join(root, "good.txt"), "utf8")).toBe("FIRST\nsecond\n");
+    expect(await readFile(path.join(root, "overlap.txt"), "utf8")).toBe("first\nsecond\n");
+    expect(await readFile(path.join(root, "mismatch.txt"), "utf8")).toBe("first\nsecond\n");
+    expect(await readFile(path.join(root, "edited.txt"), "utf8")).toBe("user edit\n");
   } finally {
     await removeTemporaryProject(root);
   }
@@ -449,8 +581,7 @@ test.runIf(process.platform === "win32")(
           {
             op: "replace",
             path: "download.txt",
-            oldText: "old",
-            newText: "new",
+            patch: "@@ -1 +1 @@\n-old\n+new\n",
             ruleIds: ["fmt/a"],
           },
         ],

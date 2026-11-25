@@ -61,8 +61,15 @@ const formatReply = () => {
       {
         op: "replace" as const,
         path: "src/sample.any",
-        oldText: original,
-        newText: replacement,
+        patch: [
+          "@@ -1,3 +1,4 @@",
+          " function label(ok) {",
+          '-  if (!ok) { return "no"; } else { return "ok"; }',
+          '+  if (!ok) return "no";',
+          '+  return "ok";',
+          " }",
+          "",
+        ].join("\n"),
         ruleIds: ["fixture/format"],
       },
     ],
@@ -760,7 +767,7 @@ describe("format execution", () => {
       "Preparing rules",
       "Selecting files",
       "Planning changes with AI",
-      expect.stringContaining("Inspecting src/sample.any"),
+      "Inspecting src/sample.any",
       "Checking results",
     ]);
   });

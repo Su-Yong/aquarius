@@ -1,5 +1,4 @@
 import { executeWithTimeout } from "../adapter/run";
-import type { AdapterExecuteRequest, AdapterSession } from "../adapter/types";
 import type { PathPolicy } from "../files/types";
 import type { PreparedRule } from "../rules/types";
 import { AquariusError, toRunError } from "../shared/errors";
@@ -8,25 +7,21 @@ import { finalRuleReviews, notify, pendingFileReview } from "./analysis";
 import { hasFailedReview } from "./results";
 import type {
   AnalysisSnapshot,
+  BatchReviewContext,
   FileResult,
   ReviewResponse,
   RuleReview,
   ToolExecutionHooks,
 } from "./types";
 
-type Request = Omit<AdapterExecuteRequest, "signal" | "prompt">;
-
-interface BatchOptions<Details extends object, SnapshotDetails extends object> {
-  session: AdapterSession;
-  request: Request;
-  rules: readonly PreparedRule[];
-  policy: PathPolicy;
+interface BatchOptions<
+  Details extends object,
+  SnapshotDetails extends object,
+> extends BatchReviewContext {
   hooks: ToolExecutionHooks<Details, SnapshotDetails>;
   writeScope: JsonObject;
   fileBatchSize: number;
   maxConcurrency: number;
-  timeoutMs: number;
-  signal: AbortSignal;
   onUpdate?: (snapshot: AnalysisSnapshot & SnapshotDetails) => void;
   onWarning?: (message: string) => void;
 }
@@ -34,6 +29,7 @@ interface BatchOptions<Details extends object, SnapshotDetails extends object> {
 interface Group<Details, SnapshotDetails> {
   paths: string[];
   started: boolean;
+  interrupted?: boolean;
   response?: ReviewResponse & Details;
   snapshot?: AnalysisSnapshot & SnapshotDetails;
 }
@@ -43,6 +39,11 @@ const reviewFiles = (
   status: FileResult["status"],
   reason: string,
 ): FileResult[] => paths.map((path) => ({ path, status, reason }));
+
+const summarizeBatchReasons = (reasons: readonly string[]): string => {
+  const [first = "", ...others] = new Set(reasons);
+  return others.length ? `${first} (+${others.length} more batch reasons)` : first;
+};
 
 const mergeSkippedRules = <Details, SnapshotDetails>(
   rules: readonly PreparedRule[],
@@ -54,8 +55,8 @@ const mergeSkippedRules = <Details, SnapshotDetails>(
         ? response.skippedRules.find(({ ruleId }) => ruleId === id)?.reason
         : undefined,
     );
-    return reasons.every((reason) => reason !== undefined)
-      ? [{ ruleId: id, reason: [...new Set(reasons)].join(" ") }]
+    return reasons.length && reasons.every((reason) => reason !== undefined)
+      ? [{ ruleId: id, reason: summarizeBatchReasons(reasons) }]
       : [];
   });
 
@@ -79,11 +80,15 @@ const mergeRuleReviews = <Details, SnapshotDetails>(
     const reviews = reviewsByGroup.map((group) => group?.[index]);
     const failed = reviews.find((rule) => rule?.status === "failed");
     if (failed) return failed;
-    if (reviews.every((rule) => rule?.status === "skipped")) {
+    if (
+      reviews.every(
+        (rule): rule is RuleReview & { status: "skipped" } => rule?.status === "skipped",
+      )
+    ) {
       return {
         ruleId: id,
         status: "skipped",
-        reason: [...new Set(reviews.map((rule) => rule?.reason))].join(" "),
+        reason: summarizeBatchReasons(reviews.map(({ reason }) => reason)),
       };
     }
     if (reviews.every((rule) => rule?.status === "skipped" || rule?.status === "completed")) {
@@ -142,10 +147,16 @@ export const reviewBatches = async <Details extends object, SnapshotDetails exte
     if (!options.onUpdate) return;
     const snapshots = groups.flatMap(({ snapshot }) => (snapshot ? [snapshot] : []));
     const failed = response && hasFailedReview(response);
-    const details =
-      response && !failed && hooks.finalDetails
-        ? hooks.finalDetails(response)
-        : hooks.mergeAnalysis(snapshots);
+    let details: SnapshotDetails;
+    if (response && hooks.finalDetails) {
+      const final = hooks.finalDetails(response);
+      const unfinished = groups.flatMap(({ response, interrupted, snapshot }) =>
+        snapshot && (!response || interrupted) ? [snapshot] : [],
+      );
+      details = unfinished.length ? hooks.mergeAnalysis([final, ...unfinished]) : final;
+    } else {
+      details = hooks.mergeAnalysis(snapshots);
+    }
     const snapshot: AnalysisSnapshot & SnapshotDetails = {
       ...details,
       phase: response ? (failed ? "incomplete" : "final") : "provisional",
@@ -181,6 +192,10 @@ export const reviewBatches = async <Details extends object, SnapshotDetails exte
       const feedback = previousErrors.length
         ? `The previous attempt left this file group incomplete: ${JSON.stringify(previousErrors)}. Review every assigned file and rule and return a complete result. Replace the previous response rather than combining both attempts.\n\n`
         : "";
+      const progressPrefix =
+        groups.length > 1
+          ? `File group ${index + 1}/${groups.length}${attempt ? " (retry)" : ""}: `
+          : "";
       if (signal.aborted) return;
       group.started = true;
       try {
@@ -191,10 +206,7 @@ export const reviewBatches = async <Details extends object, SnapshotDetails exte
             prompt:
               feedback + hooks.buildPrompt(request.ruleResources, groupPolicy, options.writeScope),
             onAnalysisUpdate: analysis.update,
-            onProgress: (message) =>
-              request.onProgress?.(
-                `File group ${index + 1}/${groups.length}${attempt ? " (retry)" : ""}: ${message}`,
-              ),
+            onProgress: (message) => request.onProgress?.(`${progressPrefix}${message}`),
           },
           options.timeoutMs,
           signal,
@@ -210,9 +222,18 @@ export const reviewBatches = async <Details extends object, SnapshotDetails exte
           continue;
         }
 
-        group.response = response;
-        if (hasFailedReview(response)) controller.abort();
-        await analysis.finish(response);
+        group.response = hooks.afterBatch
+          ? await hooks.afterBatch(response, {
+              policy: groupPolicy,
+              rules,
+              session: options.session,
+              request,
+              signal,
+              timeoutMs: options.timeoutMs,
+            })
+          : response;
+        if (!hooks.continueOnBatchFailure && hasFailedReview(group.response)) controller.abort();
+        await analysis.finish(group.response);
         return;
       } catch (cause) {
         if (signal.aborted) {
@@ -220,6 +241,7 @@ export const reviewBatches = async <Details extends object, SnapshotDetails exte
           return;
         }
         const error = toRunError(cause);
+        group.interrupted = true;
         group.response = {
           ...hooks.empty,
           fileResults: reviewFiles(group.paths, "failed", error.message),
@@ -227,7 +249,7 @@ export const reviewBatches = async <Details extends object, SnapshotDetails exte
           skippedRules: [],
           retryable: false,
         };
-        controller.abort();
+        if (!hooks.continueOnBatchFailure) controller.abort();
         await analysis.interrupt([error]);
         return;
       }
@@ -247,7 +269,7 @@ export const reviewBatches = async <Details extends object, SnapshotDetails exte
 
   const responses = groups.flatMap(({ response }) => (response ? [response] : []));
   const errors = responses.flatMap((response) => response.errors);
-  if (options.signal.aborted) {
+  if (options.signal.aborted && !errors.some(({ code }) => code === "AI_ABORTED")) {
     errors.push(toRunError(new AquariusError("AI_ABORTED", "Execution was cancelled.")));
   }
   const response: ReviewResponse & Details = {

@@ -43,6 +43,10 @@ interface CliTool<Details extends object, Execution> {
   execute: (options: ToolExecutionOptions<Details>, values: OptionValues) => Promise<Execution>;
   printHuman: (execution: Execution, values: OptionValues) => void;
   analysisLines: (snapshot: AnalysisSnapshot & Details, ai?: AdapterRunInfo) => ProgressLine[];
+  incompleteAnalysisLines?: (
+    snapshot: AnalysisSnapshot & Details,
+    execution: Execution,
+  ) => ProgressLine[];
 }
 
 const parseCliArgs = (args: string[], extraOptions: ParseArgsOptionsConfig | undefined) => {
@@ -131,6 +135,7 @@ export const runToolCli = async <
             },
             onAnalysisUpdate: (snapshot: AnalysisSnapshot & Details) => {
               latestAnalysis = snapshot;
+              if (snapshot.phase === "incomplete" && tool.incompleteAnalysisLines) return;
               progress.updateDetails(tool.analysisLines(snapshot, ai));
             },
             onWarning: (message: string) => {
@@ -156,7 +161,10 @@ export const runToolCli = async <
 
     tool.printHuman(execution, values);
     if (latestAnalysis?.phase === "incomplete") {
-      printAnalysisSnapshot(tool.analysisLines(latestAnalysis, ai));
+      printAnalysisSnapshot(
+        tool.incompleteAnalysisLines?.(latestAnalysis, execution) ??
+          tool.analysisLines(latestAnalysis, ai),
+      );
     }
     return execution.exitCode;
   } catch (cause) {

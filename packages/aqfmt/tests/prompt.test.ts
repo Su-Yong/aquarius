@@ -47,4 +47,13 @@ describe("format prompt contracts", () => {
     expect(prompt).toContain("use an empty array to clear it");
     expect(prompt).toContain("never write source files");
   });
+
+  test("requests Unified Diff hunks against the original file", () => {
+    const prompt = buildFormatPrompt([rule("file")], policy, {});
+
+    expect(prompt).toContain("Unified Diff");
+    expect(prompt).toContain("patch");
+    expect(prompt).toContain("@@");
+    expect(prompt).toContain("original file");
+  });
 });

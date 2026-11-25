@@ -1,5 +1,11 @@
 import type { z } from "zod";
-import type { AdapterRunInfo, AiAdapter, RuleResource } from "../adapter/types";
+import type {
+  AdapterExecuteRequest,
+  AdapterRunInfo,
+  AdapterSession,
+  AiAdapter,
+  RuleResource,
+} from "../adapter/types";
 import type { PathPolicy, TargetOptions } from "../files/types";
 import type { PreparedRule, RulePlugin } from "../rules/types";
 import type { JsonObject, RunError, SkippedRule, ToolKind } from "../shared/types";
@@ -56,8 +62,25 @@ export interface ToolExecutionOptions<Details> extends TargetOptions {
   onAnalysisUpdate?: (snapshot: AnalysisSnapshot & Details) => void;
 }
 
+export interface BatchReviewContext {
+  policy: PathPolicy;
+  rules: readonly PreparedRule[];
+  session: AdapterSession;
+  request: Omit<AdapterExecuteRequest, "signal" | "prompt">;
+  signal: AbortSignal;
+  timeoutMs: number;
+}
+
+type BatchReview<Details> = (
+  response: ReviewResponse & Details,
+  context: BatchReviewContext,
+) => Promise<ReviewResponse & Details>;
+
 export interface ToolExecutionHooks<Details extends object, SnapshotDetails extends object> {
   tool: ToolKind;
+  continueOnBatchFailure?: boolean;
+  retrySingleFileGroup?: boolean;
+  afterReviewOnFailure?: boolean;
   reviewProgress: string;
   unreviewedFile: Omit<FileResult, "path">;
   preparationFailedFile: Omit<FileResult, "path">;
@@ -85,8 +108,11 @@ export interface ToolExecutionHooks<Details extends object, SnapshotDetails exte
   mergeAnalysis: (details: readonly SnapshotDetails[]) => SnapshotDetails;
   finalDetails?: (response: ReviewResponse & Details) => SnapshotDetails;
   beforeReview?: (policy: PathPolicy) => Promise<void>;
+  afterBatch?: BatchReview<Details>;
+  afterBatches?: BatchReview<Details>;
   afterReview?: (
     response: ReviewResponse & Details,
     policy: PathPolicy,
+    rules: readonly PreparedRule[],
   ) => Promise<ReviewResponse & Details>;
 }

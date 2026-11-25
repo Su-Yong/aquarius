@@ -7,8 +7,15 @@ import {
   references,
   toRunError,
 } from "@aquarius/core/runtime";
-import type { FileResult, PathPolicy, PreparedRule, RuleResource } from "@aquarius/core/runtime";
-import { fileChangeSchema, type FileChange } from "../changes/schema";
+import type {
+  FileResult,
+  PathPolicy,
+  PreparedRule,
+  RuleResource,
+  RunError,
+} from "@aquarius/core/runtime";
+import { fileChangeSchema, type FileChange, type ReplaceChange } from "../changes/schema";
+import type { ReplacementFailure } from "../changes/plan";
 import { formatWarningSchema } from "./schemas";
 import type { FormatResponse, FormatSummary, FormatWarning } from "./types";
 
@@ -20,6 +27,46 @@ export const formatChangePaths = (changes: readonly FileChange[]): string[] =>
       ),
     ),
   ].sort();
+
+export const completedReplacements = ({
+  changes,
+  fileResults,
+}: FormatResponse): ReplaceChange[] => {
+  const completed = new Set(
+    fileResults.filter(({ status }) => status === "completed").map(({ path }) => path),
+  );
+  return changes.filter(
+    (change): change is ReplaceChange => change.op === "replace" && completed.has(change.path),
+  );
+};
+
+export const recordReplacementFailures = (
+  response: FormatResponse,
+  failures: readonly ReplacementFailure[],
+): FormatResponse => {
+  if (!failures.length) return response;
+
+  const byPath = new Map(failures.map((failure) => [failure.path, failure]));
+  const seenAliases = new Set<string>();
+  const errors = [...response.errors, ...failures.map(({ error }) => error)].filter((error) => {
+    if (error.code !== "PATH_ALIAS_CONFLICT") return true;
+    const key = JSON.stringify([error.message, error.ruleIds]);
+    if (seenAliases.has(key)) return false;
+    seenAliases.add(key);
+    return true;
+  });
+  return {
+    ...response,
+    changes: response.changes.filter(
+      (change) => change.op !== "replace" || !byPath.get(change.path)?.repairable,
+    ),
+    errors,
+    fileResults: response.fileResults.map((file) => {
+      const failure = byPath.get(file.path);
+      return failure ? { path: file.path, status: "failed", reason: failure.error.message } : file;
+    }),
+  };
+};
 
 export const summarizeFormatResult = (
   fileResults: readonly FileResult[],
@@ -127,6 +174,7 @@ export const normalizeFormatResponse = (
 ): FormatResponse => {
   const changes: FileChange[] = [];
   const warnings: FormatWarning[] = [];
+  const unassignedScopeErrors: RunError[] = [];
   const normalization = beginResponseNormalization(raw, rules, policy, ["changes", "warnings"]);
   const { body, skippedRuleIds, reported, recordItemError, finish } = normalization;
   if (!body) {
@@ -134,6 +182,8 @@ export const normalizeFormatResponse = (
   }
 
   const validator = createFormatValidator(rules, policy, ruleResources, skippedRuleIds);
+  const fileOnly = rules.every(({ scope }) => scope === "file");
+  const targets = new Set(policy.targets);
   for (const item of body.changes!) {
     try {
       const change = validator.change(item);
@@ -148,7 +198,17 @@ export const normalizeFormatResponse = (
       }
       changes.push(change);
     } catch (cause) {
-      recordItemError(toRunError(cause, "INVALID_FILE_CHANGE"), itemPaths(item));
+      const error = toRunError(cause, "INVALID_FILE_CHANGE");
+      const paths = itemPaths(item);
+      if (
+        fileOnly &&
+        error.code === "CHANGE_OUTSIDE_SCOPE" &&
+        !paths.some((path) => targets.has(path))
+      ) {
+        unassignedScopeErrors.push(error);
+      } else {
+        recordItemError(error, paths);
+      }
     }
   }
 
@@ -160,8 +220,11 @@ export const normalizeFormatResponse = (
     }
   }
 
+  const response = finish();
   return {
-    ...finish(),
+    ...response,
+    errors: [...response.errors, ...unassignedScopeErrors],
+    retryable: response.retryable && unassignedScopeErrors.length === 0,
     changes,
     warnings,
   };

@@ -12,6 +12,7 @@ export const printHuman = (execution: FormatExecutionResult, check: boolean): vo
   const summary = result.summary;
   const failed = result.errors.length > 0 || summary.failedFiles > 0 || execution.exitCode === 2;
   const undo = result.restoredFiles !== undefined;
+  const displayedChanges = check ? (result.wouldChangeFiles ?? []) : result.changedFiles;
   let heading = check ? "Formatting check complete" : "Formatting complete";
   let status: "success" | "warning" | "error" | "info" = "success";
 
@@ -25,7 +26,9 @@ export const printHuman = (execution: FormatExecutionResult, check: boolean): vo
     heading = "Formatting not started";
     status = failed ? "error" : "info";
   } else if (failed) {
-    heading = "Formatting failed";
+    heading = displayedChanges.length
+      ? `${check ? "Formatting check" : "Formatting"} completed with errors`
+      : "Formatting failed";
     status = "error";
   } else if (summary.totalFiles === 0) {
     heading = "No files selected";
@@ -33,7 +36,7 @@ export const printHuman = (execution: FormatExecutionResult, check: boolean): vo
   } else if (summary.skippedFiles === summary.totalFiles) {
     heading = "Formatting skipped";
     status = "info";
-  } else if (check && result.wouldChangeFiles?.length) {
+  } else if (check && displayedChanges.length) {
     heading = "Formatting changes needed";
     status = "warning";
   } else if (result.warnings.length > 0 || summary.skippedFiles > 0) {
@@ -56,7 +59,7 @@ export const printHuman = (execution: FormatExecutionResult, check: boolean): vo
       ],
     });
   }
-  for (const file of check ? (result.wouldChangeFiles ?? []) : result.changedFiles) {
+  for (const file of displayedChanges) {
     console.log(
       statusText(
         safeText(`${check ? "Would format" : "Formatted"} ${file}`),
@@ -66,9 +69,9 @@ export const printHuman = (execution: FormatExecutionResult, check: boolean): vo
     );
   }
   if (failed || execution.exitCode === 130) {
-    const applied = new Set(result.changedFiles);
+    const displayed = new Set(displayedChanges);
     for (const file of result.proposedFiles) {
-      if (applied.has(file)) continue;
+      if (displayed.has(file)) continue;
       console.log(
         statusText(safeText(`Proposed (not applied) ${file}`), "warning", process.stdout),
       );

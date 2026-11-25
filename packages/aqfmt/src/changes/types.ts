@@ -1,6 +1,7 @@
 export interface FileBaseline {
   hash: string;
   mode: number;
+  identity?: string;
 }
 
 export interface FileState {

@@ -1,5 +1,6 @@
-import { AquariusError } from "@aquarius/core/runtime";
-import type { FileChange } from "./schema";
+import { AquariusError, toRunError, type RunError } from "@aquarius/core/runtime";
+import { applyReplacementPatches, ReplacementPatchError } from "./patch";
+import type { FileChange, ReplaceChange } from "./schema";
 import {
   canonicalProjectRoot,
   fileIdentity,
@@ -11,22 +12,17 @@ import {
 } from "./state";
 import type { FileBaseline, FileChangePlan, FileState, PlannedFile } from "./types";
 
-const textDecoder = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
 const textEncoder = new TextEncoder();
 
 interface SourceChanges {
   path: string;
-  replacements: { oldText: string; newText: string }[];
+  replacements: ReplaceChange[];
   delete: boolean;
   moveTo?: string;
 }
 
 const fail: (code: string, message: string) => never = (code, message) => {
   throw new AquariusError(code, message);
-};
-
-const copyState = (state: FileState): FileState => {
-  return { content: new Uint8Array(state.content), mode: state.mode };
 };
 
 const registerPath = (
@@ -56,40 +52,15 @@ const assertNoPrefixConflicts = (paths: readonly string[]): void => {
   }
 };
 
-const applyReplacements = (
-  relativePath: string,
-  state: FileState,
-  replacements: SourceChanges["replacements"],
-): FileState => {
-  if (replacements.length === 0) return copyState(state);
-  let original: string;
-  try {
-    original = textDecoder.decode(state.content);
-  } catch {
-    fail("FILE_ENCODING_UNSUPPORTED", `Replacement requires valid UTF-8 text: ${relativePath}`);
+const normalizeBaseline = (
+  projectRoot: string,
+  baseline: ReadonlyMap<string, FileBaseline>,
+): Map<string, FileBaseline> => {
+  const normalized = new Map<string, FileBaseline>();
+  for (const [input, value] of baseline) {
+    normalized.set(pathKey(normalizeRelativePath(projectRoot, input)), value);
   }
-  const located = replacements.map(({ oldText, newText }) => {
-    if (!oldText) fail("REPLACE_TEXT_EMPTY", `oldText cannot be empty: ${relativePath}`);
-    const start = original.indexOf(oldText);
-    if (start < 0 || original.indexOf(oldText, start + oldText.length) >= 0) {
-      fail(
-        "REPLACE_NOT_UNIQUE",
-        `oldText must occur exactly once in the original file: ${relativePath}`,
-      );
-    }
-    return { start, end: start + oldText.length, newText };
-  });
-  located.sort((left, right) => left.start - right.start || left.end - right.end);
-  for (let index = 1; index < located.length; index += 1) {
-    if (located[index]!.start < located[index - 1]!.end) {
-      fail("REPLACE_OVERLAP", `Replacement ranges overlap in the original file: ${relativePath}`);
-    }
-  }
-  let transformed = original;
-  for (const replacement of located.reverse()) {
-    transformed = `${transformed.slice(0, replacement.start)}${replacement.newText}${transformed.slice(replacement.end)}`;
-  }
-  return { content: textEncoder.encode(transformed), mode: state.mode };
+  return normalized;
 };
 
 export const planFileChanges = async (
@@ -99,10 +70,7 @@ export const planFileChanges = async (
   baseline: ReadonlyMap<string, FileBaseline>,
 ): Promise<FileChangePlan> => {
   const projectRoot = await canonicalProjectRoot(root);
-  const normalizedBaseline = new Map<string, FileBaseline>();
-  for (const [input, value] of baseline) {
-    normalizedBaseline.set(pathKey(normalizeRelativePath(projectRoot, input)), value);
-  }
+  const normalizedBaseline = normalizeBaseline(projectRoot, baseline);
 
   const sources = new Map<string, SourceChanges>();
   const creates = new Map<string, { path: string; content: string }>();
@@ -131,7 +99,7 @@ export const planFileChanges = async (
       const source = sourceFor(relativePath);
       if (source.delete)
         fail("CHANGE_CONFLICT", `Cannot replace and delete the same file: ${relativePath}`);
-      source.replacements.push({ oldText: change.oldText, newText: change.newText });
+      source.replacements.push(change);
     } else if (change.op === "delete") {
       const relativePath = writablePath(change.path);
       const source = sourceFor(relativePath);
@@ -180,7 +148,7 @@ export const planFileChanges = async (
         fail("PATH_ALIAS_CONFLICT", `Changed paths name the same file: ${alias}, ${source.path}`);
       sourceIdentities.set(identity, source.path);
     }
-    const transformed = applyReplacements(source.path, before, source.replacements);
+    const transformed = applyReplacementPatches(source.path, before, source.replacements);
     if (source.delete) {
       setPlanned({ path: source.path, before, after: null });
     } else if (source.moveTo) {
@@ -222,4 +190,74 @@ export const planFileChanges = async (
     projectRoot,
     files: [...planned.values()].sort((left, right) => left.path.localeCompare(right.path)),
   };
+};
+
+export interface ReplacementFailure {
+  path: string;
+  error: RunError;
+  repairable: boolean;
+}
+
+export const planPartialFileReplacements = async (
+  root: string,
+  changes: readonly ReplaceChange[],
+  canWrite: (relativePath: string) => boolean,
+  baseline: ReadonlyMap<string, FileBaseline>,
+): Promise<{ plan: FileChangePlan; failures: ReplacementFailure[] }> => {
+  const projectRoot = await canonicalProjectRoot(root);
+  const normalizedBaseline = normalizeBaseline(projectRoot, baseline);
+  const files: PlannedFile[] = [];
+  const failures: ReplacementFailure[] = [];
+  const replacements = Map.groupBy(changes, ({ path }) => pathKey(path));
+  const sources: { path: string; before: FileState; changes: ReplaceChange[] }[] = [];
+  const aliases = new Map<string, string[]>();
+
+  const recordFailure = (path: string, cause: unknown): void => {
+    const patchError = cause instanceof ReplacementPatchError ? cause : undefined;
+    failures.push({
+      path,
+      error: toRunError(cause, undefined, patchError?.ruleIds),
+      repairable: patchError !== undefined,
+    });
+  };
+
+  for (const entries of replacements.values()) {
+    const { path } = entries[0]!;
+    try {
+      const relativePath = normalizeRelativePath(projectRoot, path);
+      if (path !== relativePath || !canWrite(relativePath)) {
+        fail("CHANGE_OUTSIDE_SCOPE", `Change is outside the selected scope: ${path}`);
+      }
+      const before = await requireSourceState(projectRoot, relativePath, normalizedBaseline);
+      const identity = fileIdentity(before);
+      const expectedIdentity = normalizedBaseline.get(pathKey(relativePath))?.identity;
+      if (expectedIdentity !== undefined && expectedIdentity !== identity) {
+        fail("SOURCE_CHANGED", `File changed after the AI baseline was captured: ${relativePath}`);
+      }
+      sources.push({ path, before, changes: entries });
+      if (identity) {
+        const paths = aliases.get(identity);
+        if (paths) paths.push(path);
+        else aliases.set(identity, [path]);
+      }
+    } catch (cause) {
+      recordFailure(path, cause);
+    }
+  }
+
+  for (const { path, before, changes } of sources) {
+    try {
+      const paths = aliases.get(fileIdentity(before) ?? "");
+      if (paths && paths.length > 1) {
+        fail("PATH_ALIAS_CONFLICT", `Changed paths name the same file: ${paths.join(", ")}`);
+      }
+      const after = applyReplacementPatches(path, before, changes);
+      if (!fileStatesEqual(before, after)) files.push({ path, before, after });
+    } catch (cause) {
+      recordFailure(path, cause);
+    }
+  }
+
+  files.sort((left, right) => left.path.localeCompare(right.path));
+  return { plan: { projectRoot, files }, failures };
 };

@@ -55,11 +55,10 @@ const targets = (input: AdapterExecuteRequest): string[] => {
   return metadata.targets;
 };
 
-const change = (path: string, newText = replacement): FileChange => ({
+const change = (path: string, updated = replacement): FileChange => ({
   op: "replace",
   path,
-  oldText: original,
-  newText,
+  patch: `@@ -1 +1 @@\n-${original}+${updated}`,
   ruleIds: ["fixture/format"],
 });
 
@@ -169,7 +168,7 @@ describe("format parity through real execution components", () => {
       });
 
       expect(execution.exitCode).toBe(2);
-      expect(run).toHaveBeenCalledTimes(1);
+      expect(run).toHaveBeenCalledTimes(Math.ceil(count / 2));
       expect(execution.result.errors.length).toBeGreaterThan(0);
       expect(execution.result.changedFiles).toEqual([]);
       for (const path of paths) {
@@ -244,24 +243,88 @@ describe("format parity through real execution components", () => {
     },
   );
 
-  test("preserves a completed batch but skips later batches and writes nothing after failure", async () => {
+  test.each([
+    {
+      scope: "module",
+      code: "REPLACE_OVERLAP",
+      patches: [`@@ -1 +1 @@\n-${original}+${replacement}`, `@@ -1 +1 @@\n-${original}+other\n`],
+    },
+    {
+      scope: "project",
+      code: "REPLACE_MISMATCH",
+      patches: [`@@ -1 +1 @@\n-missing\n+${replacement}`],
+    },
+  ] as const)(
+    "applies nothing when a $scope rule returns $code",
+    async ({ scope, code, patches }) => {
+      const { root, paths } = await project(2, {
+        rules: { "fixture/format": true, "fixture/structure": true },
+      });
+      const mixedPlugin: RulePlugin = {
+        ...plugin,
+        formatRules: [
+          ...plugin.formatRules!,
+          { ...plugin.formatRules![0]!, id: "structure", scope },
+        ],
+      };
+      const [validPath, invalidPath] = paths;
+      const execute = vi.fn(async (input: AdapterExecuteRequest) =>
+        response(input, [
+          change(validPath),
+          ...patches.map((patch): FileChange => ({
+            op: "replace",
+            path: invalidPath,
+            patch,
+            ruleIds: ["fixture/structure"],
+          })),
+        ]),
+      );
+
+      const execution = await executeFormat({
+        cwd: root,
+        fileBatchSize: 1,
+        plugins: { fixture: mixedPlugin },
+        adapter: {
+          id: "mixed-scope-patch-failure",
+          createSession: () => ({ execute, dispose() {} }),
+        },
+      });
+
+      expect(execute).toHaveBeenCalledOnce();
+      expect(targets(execute.mock.calls[0]![0])).toEqual(paths);
+      expect(execution.exitCode).toBe(2);
+      expect(execution.result.changedFiles).toEqual([]);
+      expect(execution.result.errors).toEqual([
+        { code, message: expect.stringContaining(invalidPath), ruleIds: ["fixture/structure"] },
+      ]);
+      for (const path of paths) {
+        expect(await readFile(join(root, path), "utf8")).toBe(original);
+      }
+    },
+  );
+
+  test("writes completed batches before and after a failed batch and retains its unapplied proposal", async () => {
     const { root, paths } = await project(5);
+    const failure = {
+      code: "READ_FAILED",
+      message: "The selected file could not be read.",
+      ruleIds: [],
+    };
     let calls = 0;
     const run = vi.fn(async (input: AdapterExecuteRequest) => {
       calls += 1;
-      if (calls === 1) {
-        return response(input, [change(targets(input)[0]!)]);
+      const proposal = response(input, [change(targets(input)[0]!)]);
+      if (calls !== 2) {
+        return proposal;
       }
       return {
-        ...response(input),
+        ...proposal,
         completedRuleIds: [],
-        errors: [
-          { code: "READ_FAILED", message: "The selected file could not be read.", ruleIds: [] },
-        ],
+        errors: [failure],
         fileResults: targets(input).map((path) => ({
           path,
           status: "failed",
-          reason: "The selected file could not be read.",
+          reason: failure.message,
         })),
       };
     });
@@ -275,28 +338,30 @@ describe("format parity through real execution components", () => {
     });
 
     expect(execution.exitCode).toBe(2);
-    expect(run).toHaveBeenCalledTimes(2);
-    expect(execution.result.changedFiles).toEqual([]);
-    expect(execution.result.proposedFiles).toEqual([paths[0]]);
+    expect(run).toHaveBeenCalledTimes(5);
+    const changed = paths.filter((_, index) => index !== 1);
+    expect(execution.result.changedFiles).toEqual(changed);
+    expect(execution.result.proposedFiles).toEqual(paths);
+    expect(execution.result.errors).toEqual([failure]);
     expect(execution.result.summary).toEqual({
       totalFiles: 5,
-      completedFiles: 1,
-      skippedFiles: 3,
+      completedFiles: 4,
+      skippedFiles: 0,
       failedFiles: 1,
       activeRules: 1,
     });
     expect(execution.result.fileResults.map(({ status }) => status)).toEqual([
       "completed",
       "failed",
-      "skipped",
-      "skipped",
-      "skipped",
+      "completed",
+      "completed",
+      "completed",
     ]);
-    for (const file of execution.result.fileResults.slice(1)) {
-      expect(file.reason.trim()).not.toBe("");
-    }
+    expect(execution.result.fileResults[1]?.reason).toBe(failure.message);
     for (const path of paths) {
-      expect(await readFile(join(root, path), "utf8")).toBe(original);
+      expect(await readFile(join(root, path), "utf8")).toBe(
+        changed.includes(path) ? replacement : original,
+      );
     }
   });
 

@@ -3,7 +3,7 @@ import type {
   AdapterRunInfo,
   AnalysisSnapshot,
   ReviewResponse,
-} from "@aquarius/core/runtime";
+} from "@aqtools/core/runtime";
 import type { EvidenceLocation, SourceLocation } from "./schemas";
 
 export interface Diagnostic {

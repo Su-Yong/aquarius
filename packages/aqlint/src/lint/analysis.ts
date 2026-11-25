@@ -4,7 +4,7 @@ import {
   type AnalysisOptions,
   type PathPolicy,
   type PreparedRule,
-} from "@aquarius/core/runtime";
+} from "@aqtools/core/runtime";
 
 import { createLintFindingValidator, groupDiagnostics } from "./results";
 import { analysisUpdateSchema, type AnalysisUpdate } from "./schemas";

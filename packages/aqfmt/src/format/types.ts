@@ -4,7 +4,7 @@ import type {
   AnalysisSnapshot,
   ReviewResponse,
   ToolExecutionOptions,
-} from "@aquarius/core/runtime";
+} from "@aqtools/core/runtime";
 
 import type { FileChange } from "../changes/schema";
 

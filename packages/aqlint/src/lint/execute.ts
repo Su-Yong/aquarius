@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { runToolExecution, type RunError, type ToolExecutionOptions } from "@aquarius/core/runtime";
+import { runToolExecution, type RunError, type ToolExecutionOptions } from "@aqtools/core/runtime";
 
 import { createLintAnalysis } from "./analysis";
 import { buildLintPrompt } from "./prompt";

@@ -1,5 +1,5 @@
-import { renderAnalysisLines, type ProgressLine } from "@aquarius/core/cli";
-import type { AdapterRunInfo } from "@aquarius/core/runtime";
+import { renderAnalysisLines, type ProgressLine } from "@aqtools/core/cli";
+import type { AdapterRunInfo } from "@aqtools/core/runtime";
 
 import type { FormatAnalysisSnapshot, FormatExecutionResult, FormatWarning } from "../format/types";
 

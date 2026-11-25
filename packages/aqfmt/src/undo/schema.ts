@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { AquariusError } from "@aquarius/core/runtime";
+import { AquariusError } from "@aqtools/core/runtime";
 
 export type StoredFileState = z.infer<typeof storedFileStateSchema>;
 export type StoredFile = z.infer<typeof storedFileSchema>;

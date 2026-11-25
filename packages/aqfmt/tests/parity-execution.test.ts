@@ -2,8 +2,8 @@ import { access, mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promise
 import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { afterEach, describe, expect, test, vi } from "vitest";
-import type { AiAdapter, AdapterExecuteRequest } from "@aquarius/core/runtime";
-import type { RulePlugin } from "@aquarius/core";
+import type { AiAdapter, AdapterExecuteRequest } from "@aqtools/core/runtime";
+import type { RulePlugin } from "@aqtools/core";
 import { executeFormat } from "../src/format/execute";
 import type { FileChange, FormatAnalysisSnapshot } from "../src/format/types";
 
@@ -532,7 +532,7 @@ describe("format parity through real execution components", () => {
 
   test("preserves the last valid provisional proposal as incomplete after timeout", async () => {
     const { root, paths } = await project(1, {
-      ai: { adapter: "@aquarius/codex", timeoutMs: 25 },
+      ai: { adapter: "@aqtools/codex", timeoutMs: 25 },
     });
     const snapshots: FormatAnalysisSnapshot[] = [];
     const run = vi.fn(async (input: AdapterExecuteRequest) => {

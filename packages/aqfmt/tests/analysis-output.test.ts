@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
-import { printAnalysisSnapshot, progressLineText } from "@aquarius/core/cli";
+import { printAnalysisSnapshot, progressLineText } from "@aqtools/core/cli";
 import { analysisLines } from "../src/cli/analysis-output";
 import { runCli } from "../src/cli/run";
 import { executeFormat } from "../src/format/execute";

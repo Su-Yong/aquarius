@@ -1,4 +1,4 @@
-import { AquariusError } from "@aquarius/core/runtime";
+import { AquariusError } from "@aqtools/core/runtime";
 
 import type { ReplaceChange } from "./schema";
 import type { FileState } from "./types";

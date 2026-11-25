@@ -2,9 +2,9 @@ import { access, mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promise
 import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { afterEach, describe, expect, test, vi } from "vitest";
-import type { RulePlugin } from "@aquarius/core";
-import type { AdapterExecuteRequest, StandaloneAdapter } from "@aquarius/core/runtime";
-import builtinRules from "@aquarius/rules";
+import type { RulePlugin } from "@aqtools/core";
+import type { AdapterExecuteRequest, StandaloneAdapter } from "@aqtools/core/runtime";
+import builtinRules from "@aqtools/rules";
 import { runCli } from "../src/cli/run";
 import { executeLint } from "../src/lint/execute";
 import type { LintResult } from "../src/lint/types";
@@ -352,7 +352,7 @@ describe("lint execution", () => {
 
   test("fails missing mandatory layer settings during setup without calling AI", async () => {
     const root = await createProject({
-      plugins: ["@aquarius/rules"],
+      plugins: ["@aqtools/rules"],
       rules: {
         "aquarius/contracts/no-input-mutation": ["error", { allowOwnershipTransfer: false }],
         "aquarius/architecture/enforce-layer-direction": "warn",
@@ -363,7 +363,7 @@ describe("lint execution", () => {
     const run = await executeLint({
       cwd: root,
       onProgress: (stage) => stages.push(stage),
-      plugins: { "@aquarius/rules": builtinRules },
+      plugins: { "@aqtools/rules": builtinRules },
       adapter: ai,
     });
     expect(run.exitCode).toBe(2);
@@ -387,7 +387,7 @@ describe("lint execution", () => {
       join(root, ".aqlintrc.json"),
       JSON.stringify({
         files: ["src/**"],
-        plugins: ["@aquarius/rules"],
+        plugins: ["@aqtools/rules"],
         preset: ["aquarius/all"],
         rules: {
           "aquarius/architecture/enforce-layer-direction": [
@@ -409,7 +409,7 @@ describe("lint execution", () => {
     };
     const run = await executeLint({
       cwd: root,
-      plugins: { "@aquarius/rules": builtinRules },
+      plugins: { "@aqtools/rules": builtinRules },
       adapter: ai,
     });
     expect(run.exitCode).toBe(0);
@@ -529,7 +529,7 @@ describe("lint execution", () => {
         files: ["src/**"],
         plugins: ["fixture"],
         rules: { "fixture/first": "error", "fixture/second": "off" },
-        ai: { adapter: "@aquarius/codex", timeoutMs: 25 },
+        ai: { adapter: "@aqtools/codex", timeoutMs: 25 },
       }),
     );
     const slow = vi.fn(() => new Promise<unknown>(() => {}));

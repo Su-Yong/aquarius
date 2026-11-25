@@ -1,4 +1,4 @@
-import type { RuleSettings } from "@aquarius/core";
+import type { RuleSettings } from "@aqtools/core";
 
 import { formatRules } from "./format";
 

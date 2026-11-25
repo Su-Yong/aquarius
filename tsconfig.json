@@ -8,12 +8,12 @@
     "resolveJsonModule": true,
     "types": ["node"],
     "paths": {
-      "@aquarius/core": ["./packages/core/src/index.ts"],
-      "@aquarius/core/adapter": ["./packages/core/src/adapter/index.ts"],
-      "@aquarius/core/runtime": ["./packages/core/src/runtime/index.ts"],
-      "@aquarius/core/cli": ["./packages/core/src/cli/index.ts"],
-      "@aquarius/codex": ["./packages/codex/src/index.ts"],
-      "@aquarius/rules": ["./packages/rules/src/index.ts"]
+      "@aqtools/core": ["./packages/core/src/index.ts"],
+      "@aqtools/core/adapter": ["./packages/core/src/adapter/index.ts"],
+      "@aqtools/core/runtime": ["./packages/core/src/runtime/index.ts"],
+      "@aqtools/core/cli": ["./packages/core/src/cli/index.ts"],
+      "@aqtools/codex": ["./packages/codex/src/index.ts"],
+      "@aqtools/rules": ["./packages/rules/src/index.ts"]
     }
   }
 }

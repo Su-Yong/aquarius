@@ -5,7 +5,7 @@ export default defineProject({
   root: import.meta.dirname,
   resolve: {
     alias: {
-      "@aquarius/core/adapter": fileURLToPath(
+      "@aqtools/core/adapter": fileURLToPath(
         new URL("../core/src/adapter/index.ts", import.meta.url),
       ),
     },

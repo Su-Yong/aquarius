@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import { z } from "zod";
-import type { PathPolicy, RuleReference } from "@aquarius/core/runtime";
+import type { PathPolicy, RuleReference } from "@aqtools/core/runtime";
 import { buildFormatPrompt, buildReplacementRepairPrompt } from "../src/format/prompt";
 import { formatAnalysisUpdateSchema, formatResponseSchema } from "../src/format/schemas";
 

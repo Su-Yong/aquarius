@@ -1,4 +1,4 @@
-import type { LintRule } from "@aquarius/core";
+import type { LintRule } from "@aqtools/core";
 
 // Section 25: 성능과 알고리즘.
 // Prompt definitions only. Registration does not enable rules or prove detection quality.

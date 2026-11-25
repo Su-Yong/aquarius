@@ -3,7 +3,7 @@ import { link, mkdtemp, readFile, rm, unlink, writeFile } from "node:fs/promises
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, test, vi } from "vitest";
-import type { AdapterExecuteRequest, RulePlugin } from "@aquarius/core/runtime";
+import type { AdapterExecuteRequest, RulePlugin } from "@aqtools/core/runtime";
 import { printHuman } from "../src/cli/output";
 import { executeFormat } from "../src/format/execute";
 import type { FileChange, FormatExecutionOptions, FormatResponse } from "../src/format/types";

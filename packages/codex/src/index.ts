@@ -11,7 +11,7 @@ import {
   type AdapterExecuteRequest,
   type AdapterRunInfo,
   type SessionAdapter,
-} from "@aquarius/core/adapter";
+} from "@aqtools/core/adapter";
 
 import { readEffectiveConfig, validateEffectiveConfig } from "./config-probe";
 import { runExec } from "./exec";

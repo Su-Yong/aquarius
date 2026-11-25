@@ -53,7 +53,7 @@ export const createProject = async (): Promise<string> => {
     mkdir(join(root, "format")),
     mkdir(join(root, "ignored")),
   ]);
-  const scope = join(root, "node_modules", "@aquarius");
+  const scope = join(root, "node_modules", "@aqtools");
   await mkdir(scope, { recursive: true });
   for (const name of ["rules", "codex"]) {
     await symlink(join(repositoryRoot, "packages", name), join(scope, name), "junction");

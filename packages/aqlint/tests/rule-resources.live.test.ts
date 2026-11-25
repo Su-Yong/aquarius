@@ -3,8 +3,8 @@ import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "vitest";
-import { codexAdapter } from "@aquarius/codex";
-import type { RulePlugin } from "@aquarius/core";
+import { codexAdapter } from "@aqtools/codex";
+import type { RulePlugin } from "@aqtools/core";
 import { executeLint } from "../src/lint/execute";
 
 const liveTest = process.env.AQUARIUS_RULE_RESOURCES_LIVE === "1" ? test : test.skip;
@@ -54,7 +54,7 @@ liveTest(
             "fixture/flag-value": "error",
             "fixture/archive-handle": "warn",
           },
-          ai: { adapter: "@aquarius/codex", timeoutMs: 120_000 },
+          ai: { adapter: "@aqtools/codex", timeoutMs: 120_000 },
         }),
       );
       const beforeEntries = await readdir(root);

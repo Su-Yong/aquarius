@@ -2,10 +2,10 @@ import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "vitest";
-import { createReadonlySnapshot } from "@aquarius/core/adapter";
+import { createReadonlySnapshot } from "@aqtools/core/adapter";
 import { runExec } from "../src/exec";
 import { codexOptionsSchema } from "../src/options";
-import type { AdapterExecuteRequest } from "@aquarius/core/adapter";
+import type { AdapterExecuteRequest } from "@aqtools/core/adapter";
 
 test.skipIf(process.platform === "win32")(
   "reports referenced files and rules without revealing commands or reasoning text",

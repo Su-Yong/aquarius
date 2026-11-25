@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import type { LintRule } from "@aquarius/core";
+import type { LintRule } from "@aqtools/core";
 
 const publicEntryOptionsSchema = z.object({
   allowDocumentedException: z.boolean(),

@@ -6,14 +6,14 @@ import {
   parseResultItem,
   references,
   toRunError,
-} from "@aquarius/core/runtime";
+} from "@aqtools/core/runtime";
 import type {
   FileResult,
   PathPolicy,
   PreparedRule,
   RuleResource,
   RunError,
-} from "@aquarius/core/runtime";
+} from "@aqtools/core/runtime";
 
 import { fileChangeSchema, type FileChange, type ReplaceChange } from "../changes/schema";
 import type { ReplacementFailure } from "../changes/plan";

@@ -1,7 +1,7 @@
 import { z } from "zod";
 
-import { buildTaskPrompt } from "@aquarius/core/runtime";
-import type { JsonObject, PathPolicy, RuleReference } from "@aquarius/core/runtime";
+import { buildTaskPrompt } from "@aqtools/core/runtime";
+import type { JsonObject, PathPolicy, RuleReference } from "@aqtools/core/runtime";
 
 import type { ReplacementFailure } from "../changes/plan";
 import type { ReplaceChange } from "../changes/schema";

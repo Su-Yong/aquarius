@@ -1,6 +1,6 @@
 {
-  "name": "@aquarius/codex",
-  "version": "0.2.0",
+  "name": "@aqtools/codex",
+  "version": "0.2.1",
   "description": "Read-only Codex CLI adapter for Aquarius",
   "type": "module",
   "files": [
@@ -29,7 +29,7 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@aquarius/core": "workspace:*",
+    "@aqtools/core": "workspace:*",
     "zod": "4.6.7"
   }
 }

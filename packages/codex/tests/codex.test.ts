@@ -12,7 +12,7 @@ import {
 import { tmpdir } from "node:os";
 import { delimiter, dirname, isAbsolute, join, resolve } from "node:path";
 import { afterEach, describe, expect, test } from "vitest";
-import { createReadonlySnapshot } from "@aquarius/core/adapter";
+import { createReadonlySnapshot } from "@aqtools/core/adapter";
 import { runExec } from "../src/exec";
 import { resolveCodexExecutable } from "../src/executable";
 import { codexAdapter } from "../src/index";

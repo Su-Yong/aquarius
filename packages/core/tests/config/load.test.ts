@@ -110,9 +110,9 @@ describe("loadConfig", () => {
 
   test("retains defaults for an explicitly selected adapter", async () => {
     const root = await project();
-    await writeFile(join(root, ".aqlintrc.json"), '{ "ai": { "adapter": "@aquarius/codex" } }');
+    await writeFile(join(root, ".aqlintrc.json"), '{ "ai": { "adapter": "@aqtools/codex" } }');
     const config = await loadConfig("lint", { cwd: root });
-    expect(config.ai).toEqual({ adapter: "@aquarius/codex", options: {}, timeoutMs: 600_000 });
+    expect(config.ai).toEqual({ adapter: "@aqtools/codex", options: {}, timeoutMs: 600_000 });
   });
 
   test.each([1, 8, Number.MAX_SAFE_INTEGER])(
@@ -122,14 +122,14 @@ describe("loadConfig", () => {
       await writeFile(
         join(root, ".aqlintrc.json"),
         JSON.stringify({
-          ai: { adapter: "@aquarius/codex", fileBatchSize: value, maxConcurrency: value },
+          ai: { adapter: "@aqtools/codex", fileBatchSize: value, maxConcurrency: value },
         }),
       );
 
       const config = await loadConfig("lint", { cwd: root });
 
       expect(config.ai).toEqual({
-        adapter: "@aquarius/codex",
+        adapter: "@aqtools/codex",
         options: {},
         timeoutMs: 600_000,
         fileBatchSize: value,
@@ -147,7 +147,7 @@ describe("loadConfig", () => {
       for (const value of invalidValues) {
         await writeFile(
           join(root, ".aqlintrc.json"),
-          `{ "ai": { "adapter": "@aquarius/codex", "${field}": ${value} } }`,
+          `{ "ai": { "adapter": "@aqtools/codex", "${field}": ${value} } }`,
         );
 
         await expect(loadConfig("lint", { cwd: root })).rejects.toMatchObject({

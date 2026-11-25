@@ -1,12 +1,20 @@
 {
-  "name": "@aquarius/core",
-  "version": "0.2.0",
+  "name": "@aqtools/core",
+  "version": "0.2.1",
   "type": "module",
   "files": [
     "dist"
   ],
   "engines": {
     "node": ">=24.11.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Su-Yong/aquarius.git",
+    "directory": "packages/core"
   },
   "exports": {
     ".": {

@@ -1,10 +1,10 @@
-import { AquariusError, createAnalysisState } from "@aquarius/core/runtime";
+import { AquariusError, createAnalysisState } from "@aqtools/core/runtime";
 import type {
   AnalysisOptions,
   PathPolicy,
   PreparedRule,
   RuleResource,
-} from "@aquarius/core/runtime";
+} from "@aqtools/core/runtime";
 
 import { createFormatValidator, formatChangePaths } from "./results";
 import { formatAnalysisUpdateSchema, type FormatAnalysisUpdate } from "./schemas";

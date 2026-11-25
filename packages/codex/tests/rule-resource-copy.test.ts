@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, readFile, readdir, rm, stat, symlink, writeFile } from 
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, test, vi } from "vitest";
-import { writeRuleResources } from "@aquarius/core/adapter";
+import { writeRuleResources } from "@aqtools/core/adapter";
 import { codexAdapter, codexOptionsSchema } from "../src/index";
 import { ruleResource } from "./fixtures";
 

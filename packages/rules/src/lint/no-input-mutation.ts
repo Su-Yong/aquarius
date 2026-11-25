@@ -1,4 +1,4 @@
-import type { LintRule } from "@aquarius/core";
+import type { LintRule } from "@aqtools/core";
 
 import { ownershipOptionsSchema } from "./ownership-options";
 

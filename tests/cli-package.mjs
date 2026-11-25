@@ -80,9 +80,9 @@ const checkLibraryTypes = (workspaceRoot, installRoot) => {
     fixture,
     `
 import { z } from 'zod';
-import type { LintRule, RulePlugin } from '@aquarius/core';
-import { defineAdapter, type AdapterExecuteRequest } from '@aquarius/core/adapter';
-import suppliedRules from '@aquarius/rules';
+import type { LintRule, RulePlugin } from '@aqtools/core';
+import { defineAdapter, type AdapterExecuteRequest } from '@aqtools/core/adapter';
+import suppliedRules from '@aqtools/rules';
 
 const rule: LintRule = {
   id: 'consumer-rule',
@@ -150,7 +150,7 @@ export function checkCli(bin, name, version, cwd) {
     expect(result.error).toBeUndefined();
     expect(result.status, result.stderr).toBe(0);
     expect(result.stdout).toMatch(new RegExp(`Usage: ${name}`));
-    expect(result.stdout).toContain("@aquarius/codex");
+    expect(result.stdout).toContain("@aqtools/codex");
     expect(result.stdout).toContain("--with-node-modules");
     expect(result.stdout).not.toContain("--no-ignore");
     expect(result.stderr).toBe("");
@@ -391,16 +391,16 @@ export function checkPackedCli(workspaceRoot, packageDir) {
       expect.stringContaining("workspace:"),
     );
     expect(installedCli.dependencies).toMatchObject({
-      "@aquarius/core": core.metadata.version,
+      "@aqtools/core": core.metadata.version,
     });
-    expect(installedCli.dependencies).not.toHaveProperty("@aquarius/rules");
-    expect(installedCli.dependencies).not.toHaveProperty("@aquarius/codex");
+    expect(installedCli.dependencies).not.toHaveProperty("@aqtools/rules");
+    expect(installedCli.dependencies).not.toHaveProperty("@aqtools/codex");
     const bin = join(installedCliDir, installedCli.bin[metadata.name]);
     expect(existsSync(join(install, "node_modules", ".bin", metadata.name))).toBe(true);
     checkCli(bin, metadata.name, metadata.version, project);
 
     const configFilename = `.${metadata.name}rc.json`;
-    const config = JSON.stringify({ plugins: ["@aquarius/rules"], files: ["fixture.js"] });
+    const config = JSON.stringify({ plugins: ["@aqtools/rules"], files: ["fixture.js"] });
     writeFileSync(join(project, configFilename), config);
     const missingPlugin = runJson(bin, project, [], 2);
     expect(missingPlugin.errors).toEqual([expect.objectContaining({ code: "PLUGIN_LOAD_FAILED" })]);
@@ -416,7 +416,7 @@ export function checkPackedCli(workspaceRoot, packageDir) {
       files: ["fixture.js"],
       plugins: ["./plugin.mjs"],
       rules: { "fixture/review": metadata.name === "aqlint" ? "error" : true },
-      ai: { adapter: "@aquarius/codex", options: { ephemeral: "invalid" } },
+      ai: { adapter: "@aqtools/codex", options: { ephemeral: "invalid" } },
     };
     writeFileSync(join(localProject, configFilename), JSON.stringify(installedAdapterConfig));
     expect(runJson(bin, localProject, [], 2).errors).toEqual([

@@ -7,8 +7,8 @@ import {
   readStableRegularFile,
   references,
   toRunError,
-} from "@aquarius/core/runtime";
-import type { ActiveSeverity, PathPolicy, PreparedRule } from "@aquarius/core/runtime";
+} from "@aqtools/core/runtime";
+import type { ActiveSeverity, PathPolicy, PreparedRule } from "@aqtools/core/runtime";
 
 import { diagnosticSchema } from "./schemas";
 import type { SourceLocation } from "./schemas";

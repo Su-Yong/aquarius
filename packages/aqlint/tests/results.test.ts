@@ -2,7 +2,7 @@ import { mkdtemp, mkdir, realpath, rm, symlink, writeFile } from "node:fs/promis
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, describe, expect, test } from "vitest";
-import type { PathPolicy, PreparedRule } from "@aquarius/core/runtime";
+import type { PathPolicy, PreparedRule } from "@aqtools/core/runtime";
 import { normalizeLintResponse as normalize, summarizeLintResult } from "../src/lint/results";
 import type { FileResult } from "../src/lint/schemas";
 

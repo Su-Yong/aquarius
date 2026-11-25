@@ -8,7 +8,7 @@ import {
   attachAbort,
   terminateChild,
   waitForTermination,
-} from "@aquarius/core/adapter";
+} from "@aqtools/core/adapter";
 
 import { PROFILE_NAME } from "./config-probe";
 import { configArguments, tomlString } from "./toml";

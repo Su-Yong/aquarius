@@ -1,4 +1,4 @@
-import type { RulePlugin } from "@aquarius/core";
+import type { RulePlugin } from "@aqtools/core";
 
 import { formatRules } from "./format";
 import { architectureRules } from "./lint/architecture";

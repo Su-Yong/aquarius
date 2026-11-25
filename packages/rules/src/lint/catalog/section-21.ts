@@ -1,4 +1,4 @@
-import type { LintRule } from "@aquarius/core";
+import type { LintRule } from "@aqtools/core";
 
 // Section 21: 프런트엔드와 UI 구조.
 // Registration does not enable rules or prove detection quality.

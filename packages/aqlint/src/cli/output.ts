@@ -5,7 +5,7 @@ import {
   safeText,
   statusText,
   terminalColors,
-} from "@aquarius/core/cli";
+} from "@aqtools/core/cli";
 
 import type { LintExecutionResult } from "../lint/types";
 

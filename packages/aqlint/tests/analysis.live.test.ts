@@ -3,8 +3,8 @@ import { mkdtemp, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promis
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "vitest";
-import { codexAdapter } from "@aquarius/codex";
-import type { RulePlugin } from "@aquarius/core";
+import { codexAdapter } from "@aqtools/codex";
+import type { RulePlugin } from "@aqtools/core";
 import { executeLint } from "../src/lint/execute";
 import type { LintAnalysisSnapshot } from "../src/lint/types";
 
@@ -54,7 +54,7 @@ liveTest(
           plugins: ["fixture-live"],
           rules: { "fixture/flag-value": "error" },
           ai: {
-            adapter: "@aquarius/codex",
+            adapter: "@aqtools/codex",
             options: { reasoning: { effort: "low" } },
             timeoutMs: 120_000,
           },

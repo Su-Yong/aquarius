@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import type { RuleResource } from "@aquarius/core/adapter";
+import type { RuleResource } from "@aqtools/core/adapter";
 
 export const ruleResource = (): RuleResource => {
   const ruleId = "fixture/check";

@@ -1,7 +1,7 @@
 {
   "files": ["packages/aqlint/src/**/*.ts"],
   "ai": {
-    "adapter": "@aquarius/codex",
+    "adapter": "@aqtools/codex",
     "timeoutMs": 1800000,
     "options": {
       "ephemeral": false,
@@ -9,7 +9,7 @@
       "reasoning": { "effort": "medium" }
     }
   },
-  "plugins": ["@aquarius/rules"],
+  "plugins": ["@aqtools/rules"],
   "preset": [],
   "rules": {
     "aquarius/contracts/no-input-mutation": [

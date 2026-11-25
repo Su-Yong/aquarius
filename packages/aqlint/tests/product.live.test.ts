@@ -25,8 +25,8 @@ liveTest(
         JSON.stringify({
           files: ["lint/**"],
           ignore: ["ignored/**"],
-          plugins: ["@aquarius/rules"],
-          ai: { adapter: "@aquarius/codex" },
+          plugins: ["@aqtools/rules"],
+          ai: { adapter: "@aqtools/codex" },
           rules: {
             "aquarius/contracts/no-input-mutation": ["error", { allowOwnershipTransfer: false }],
           },

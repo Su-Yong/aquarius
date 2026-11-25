@@ -1,4 +1,4 @@
-import { formatAdapterRunInfo } from "@aquarius/core/cli";
+import { formatAdapterRunInfo } from "@aqtools/core/cli";
 import { expect, test, vi } from "vitest";
 import { printHuman } from "../src/cli/output";
 import type { LintExecutionResult } from "../src/lint/types";

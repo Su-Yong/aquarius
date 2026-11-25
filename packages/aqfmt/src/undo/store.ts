@@ -2,7 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { access, mkdir, open, readFile, rename, unlink, type FileHandle } from "node:fs/promises";
 import path from "node:path";
 
-import { AquariusError, errorMessage } from "@aquarius/core/runtime";
+import { AquariusError, errorMessage } from "@aqtools/core/runtime";
 
 import {
   FileTransitionRecoveredError,

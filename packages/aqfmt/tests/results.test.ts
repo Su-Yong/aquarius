@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import type { PathPolicy, PreparedRule, RuleResource } from "@aquarius/core/runtime";
+import type { PathPolicy, PreparedRule, RuleResource } from "@aqtools/core/runtime";
 import {
   createFormatValidator,
   formatChangePaths,

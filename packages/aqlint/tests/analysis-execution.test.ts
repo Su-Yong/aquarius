@@ -2,8 +2,8 @@ import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, test, vi } from "vitest";
-import type { RulePlugin } from "@aquarius/core";
-import type { AdapterExecuteRequest, AiAdapter } from "@aquarius/core/runtime";
+import type { RulePlugin } from "@aqtools/core";
+import type { AdapterExecuteRequest, AiAdapter } from "@aqtools/core/runtime";
 import { executeLint } from "../src/lint/execute";
 import type { AiDiagnostic, AnalysisUpdate } from "../src/lint/schemas";
 import type { LintAnalysisSnapshot } from "../src/lint/types";
@@ -46,7 +46,7 @@ const project = async (
       files: ["src/**"],
       plugins: ["fixture"],
       preset: ["fixture/all"],
-      ai: { adapter: "@aquarius/codex", timeoutMs, ...ai },
+      ai: { adapter: "@aqtools/codex", timeoutMs, ...ai },
     }),
   );
   return root;

@@ -1,4 +1,4 @@
-import type { LintRule } from "@aquarius/core";
+import type { LintRule } from "@aqtools/core";
 
 // Source: https://chatgpt.com/space/page_dd6ffadaf0448191aa29ee9e19e7d2ad
 // Source block: b5e9f0d5-47ca-4932-8973-3662ace7316b

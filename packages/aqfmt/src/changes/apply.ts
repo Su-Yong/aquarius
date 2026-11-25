@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { link, lstat, mkdir, open, rename, rmdir, unlink } from "node:fs/promises";
 import path from "node:path";
 
-import { AquariusError, errorMessage } from "@aquarius/core/runtime";
+import { AquariusError, errorMessage } from "@aqtools/core/runtime";
 
 import {
   absolutePath,

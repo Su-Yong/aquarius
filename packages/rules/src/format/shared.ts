@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import type { FormatInstructions, FormatRule } from "@aquarius/core";
+import type { FormatInstructions, FormatRule } from "@aqtools/core";
 
 const MAX_APPLICABILITY_LENGTH = 160;
 

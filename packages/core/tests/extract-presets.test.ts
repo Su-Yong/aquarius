@@ -1,4 +1,4 @@
-import aquariusRules from "@aquarius/rules";
+import aquariusRules from "@aqtools/rules";
 import { describe, expect, test, vi } from "vitest";
 import { z } from "zod";
 

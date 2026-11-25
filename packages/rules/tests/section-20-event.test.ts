@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vitest";
 import { allRulesPreset } from "../src/presets";
-import type { LintInstructions, RulePlugin, RuleSettings } from "@aquarius/core";
-import { prepareRules, type LoadedConfig } from "@aquarius/core/runtime";
+import type { LintInstructions, RulePlugin, RuleSettings } from "@aqtools/core";
+import { prepareRules, type LoadedConfig } from "@aqtools/core/runtime";
 import { eventRules } from "../src/lint/section-20-event";
 
 // Specification and preparation tests do not claim live-model detection quality.

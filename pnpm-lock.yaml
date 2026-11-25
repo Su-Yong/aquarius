@@ -171,10 +171,10 @@ importers:
 
   .:
     devDependencies:
-      '@aquarius/codex':
+      '@aqtools/codex':
         specifier: workspace:*
         version: link:packages/codex
-      '@aquarius/rules':
+      '@aqtools/rules':
         specifier: workspace:*
         version: link:packages/rules
       '@changesets/cli':
@@ -204,39 +204,39 @@ importers:
 
   packages/aqfmt:
     dependencies:
-      '@aquarius/core':
+      '@aqtools/core':
         specifier: workspace:*
         version: link:../core
       zod:
         specifier: 4.6.7
         version: 4.6.7
     devDependencies:
-      '@aquarius/codex':
+      '@aqtools/codex':
         specifier: workspace:*
         version: link:../codex
-      '@aquarius/rules':
+      '@aqtools/rules':
         specifier: workspace:*
         version: link:../rules
 
   packages/aqlint:
     dependencies:
-      '@aquarius/core':
+      '@aqtools/core':
         specifier: workspace:*
         version: link:../core
       zod:
         specifier: 4.6.7
         version: 4.6.7
     devDependencies:
-      '@aquarius/codex':
+      '@aqtools/codex':
         specifier: workspace:*
         version: link:../codex
-      '@aquarius/rules':
+      '@aqtools/rules':
         specifier: workspace:*
         version: link:../rules
 
   packages/codex:
     dependencies:
-      '@aquarius/core':
+      '@aqtools/core':
         specifier: workspace:*
         version: link:../core
       zod:
@@ -273,7 +273,7 @@ importers:
         specifier: 4.6.7
         version: 4.6.7
     devDependencies:
-      '@aquarius/core':
+      '@aqtools/core':
         specifier: workspace:*
         version: link:../core
 

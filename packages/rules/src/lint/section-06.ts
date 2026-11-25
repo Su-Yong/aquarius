@@ -1,4 +1,4 @@
-import type { LintRule } from "@aquarius/core";
+import type { LintRule } from "@aqtools/core";
 
 // Section 06. Report-only rules; registration does not select or enable them.
 // https://chatgpt.com/space/page_dd6ffadaf0448191aa29ee9e19e7d2ad

@@ -1,7 +1,7 @@
 import { pathToFileURL } from "node:url";
 import type { Readable } from "node:stream";
 
-import { toPosix } from "@aquarius/core/adapter";
+import { toPosix } from "@aqtools/core/adapter";
 
 const RAW_DIAGNOSTIC_LIMIT = 8_192;
 const DISPLAY_DIAGNOSTIC_LIMIT = 1_200;

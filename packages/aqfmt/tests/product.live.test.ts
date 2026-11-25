@@ -33,8 +33,8 @@ liveTest(
         JSON.stringify({
           files: ["format/**"],
           ignore: ["ignored/**"],
-          plugins: ["@aquarius/rules"],
-          ai: { adapter: "@aquarius/codex" },
+          plugins: ["@aqtools/rules"],
+          ai: { adapter: "@aqtools/codex" },
           rules: { "aquarius/control-flow/exit-style": { minNestingDepth: 1 } },
         }),
       );

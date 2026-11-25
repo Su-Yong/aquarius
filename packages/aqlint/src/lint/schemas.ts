@@ -5,7 +5,7 @@ import {
   fileResultSchema,
   reviewUpdateFields,
   skippedRuleSchema,
-} from "@aquarius/core/runtime";
+} from "@aqtools/core/runtime";
 
 export type SourceLocation = z.infer<typeof sourceLocationSchema>;
 export type EvidenceLocation = z.infer<typeof evidenceLocationSchema>;

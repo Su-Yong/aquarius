@@ -31,7 +31,7 @@ const loadAdapter = async (config: LoadedConfig): Promise<unknown> => {
   if (!specifier) {
     throw new AquariusError(
       "AI_ADAPTER_REQUIRED",
-      'Set ai.adapter in the project configuration, such as "@aquarius/codex" or "./adapter.mjs".',
+      'Set ai.adapter in the project configuration, such as "@aqtools/codex" or "./adapter.mjs".',
     );
   }
 

@@ -4,7 +4,7 @@ import { constants } from "node:fs";
 import { lstat, open, realpath } from "node:fs/promises";
 import path from "node:path";
 
-import { AquariusError } from "@aquarius/core/runtime";
+import { AquariusError } from "@aqtools/core/runtime";
 
 import type { FileBaseline, FileChangePlan, FileState, PlanSide } from "./types";
 

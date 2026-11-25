@@ -1,4 +1,4 @@
-import { runToolCli } from "@aquarius/core/cli";
+import { runToolCli } from "@aqtools/core/cli";
 
 import { executeLint } from "../lint/execute";
 import type { LintExecutionResult, LintFindings } from "../lint/types";
@@ -13,7 +13,7 @@ with the preset array, then override rule IDs in the rules object. Lint rule val
 are "off", "warn", "error", or [level, options]. Presets apply in order, and direct
 rules take precedence. Runs without active rules skip their target files without
 invoking AI.
-AI execution requires an explicit ai.adapter, such as "@aquarius/codex" or "./adapter.mjs".`;
+AI execution requires an explicit ai.adapter, such as "@aqtools/codex" or "./adapter.mjs".`;
 
 export const runCli = (version: string, args = process.argv.slice(2)): Promise<number> =>
   runToolCli<LintFindings, LintExecutionResult>(

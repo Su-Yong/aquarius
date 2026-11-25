@@ -2,9 +2,9 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "vitest";
-import { buildSnapshotEnvironmentPrompt } from "@aquarius/core/adapter";
+import { buildSnapshotEnvironmentPrompt } from "@aqtools/core/adapter";
 import { runExec } from "../src/exec";
-import type { AdapterExecuteRequest } from "@aquarius/core/adapter";
+import type { AdapterExecuteRequest } from "@aqtools/core/adapter";
 
 const update = (revision: number, diagnostic: unknown = null) => ({
   type: "aquarius.analysis_update",

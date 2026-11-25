@@ -11,7 +11,7 @@ import {
   toPosix,
   waitForTermination,
   type AdapterExecuteRequest,
-} from "@aquarius/core/adapter";
+} from "@aqtools/core/adapter";
 
 import { asRecord } from "./config-probe";
 import { captureStderr, withDiagnostic } from "./diagnostic";

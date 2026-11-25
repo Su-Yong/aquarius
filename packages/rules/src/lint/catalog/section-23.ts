@@ -1,4 +1,4 @@
-import type { LintRule } from "@aquarius/core";
+import type { LintRule } from "@aqtools/core";
 
 // Section 23: 설정·기능 플래그·배포.
 // Prompt definitions only. Registration does not enable rules or prove detection quality.

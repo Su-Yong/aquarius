@@ -2,7 +2,7 @@ import { constants } from "node:fs";
 import { access, lstat, realpath } from "node:fs/promises";
 import { delimiter, dirname, isAbsolute, join, sep } from "node:path";
 
-import { AquariusError } from "@aquarius/core/adapter";
+import { AquariusError } from "@aqtools/core/adapter";
 
 interface PlatformPackage {
   packageName: string;

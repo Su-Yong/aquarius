@@ -1,6 +1,6 @@
 import { isDeepStrictEqual } from "node:util";
 import { describe, expect, test } from "vitest";
-import type { JsonObject, RuleSettings } from "@aquarius/core";
+import type { JsonObject, RuleSettings } from "@aqtools/core";
 import type { LoadedConfig } from "../../core/src/config/types";
 import { prepareRules } from "../../core/src/rules/prepare";
 import { formatInstructionsSchema, formatRuleSchema } from "../../core/src/rules/schemas";

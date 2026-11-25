@@ -1,6 +1,6 @@
 import { expect, test } from "vitest";
 import { z } from "zod";
-import type { PathPolicy, RuleReference } from "@aquarius/core/runtime";
+import type { PathPolicy, RuleReference } from "@aqtools/core/runtime";
 import { buildLintPrompt } from "../src/lint/prompt";
 import { analysisUpdateSchema, lintResponseSchema } from "../src/lint/schemas";
 

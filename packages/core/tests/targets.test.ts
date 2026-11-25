@@ -392,7 +392,7 @@ const loaded = (
     ignore: [],
     plugins: [],
     preset: [],
-    ai: { adapter: "@aquarius/codex", options: {}, timeoutMs: 600_000 },
+    ai: { adapter: "@aqtools/codex", options: {}, timeoutMs: 600_000 },
     rules: {},
     ...overrides,
   };

@@ -5,7 +5,7 @@ import {
   reviewUpdateFields,
   skippedRuleSchema,
   type JsonObject,
-} from "@aquarius/core/runtime";
+} from "@aqtools/core/runtime";
 
 import { fileChangeSchema } from "../changes/schema";
 

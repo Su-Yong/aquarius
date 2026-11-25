@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import type { LintInstructions, LintRule } from "@aquarius/core";
+import type { LintInstructions, LintRule } from "@aqtools/core";
 
 type LayerPolicy = z.output<typeof layerPolicyObjectSchema>;
 

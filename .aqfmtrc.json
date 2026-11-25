@@ -1,7 +1,7 @@
 {
   "files": ["packages/*/src/**/*.ts"],
   "ai": {
-    "adapter": "@aquarius/codex",
+    "adapter": "@aqtools/codex",
     "timeoutMs": 300000,
     "fileBatchSize": 4,
     "maxConcurrency": 4,
@@ -12,7 +12,7 @@
       "reasoning": { "effort": "low" }
     }
   },
-  "plugins": ["@aquarius/rules"],
+  "plugins": ["@aqtools/rules"],
   "preset": ["aquarius/format-recommended"],
   "rules": {}
 }

@@ -1,4 +1,4 @@
-import { AquariusError, loadConfig, runToolExecution, toRunError } from "@aquarius/core/runtime";
+import { AquariusError, loadConfig, runToolExecution, toRunError } from "@aqtools/core/runtime";
 
 import { applyFileChanges } from "../changes/apply";
 import { ReplacementPatchError } from "../changes/patch";

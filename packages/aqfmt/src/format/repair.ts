@@ -1,4 +1,4 @@
-import { executeWithTimeout, toRunError, type BatchReviewContext } from "@aquarius/core/runtime";
+import { executeWithTimeout, toRunError, type BatchReviewContext } from "@aqtools/core/runtime";
 
 import { planPartialFileReplacements, type ReplacementFailure } from "../changes/plan";
 import type { ReplaceChange } from "../changes/schema";

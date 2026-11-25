@@ -1,5 +1,5 @@
 import { describe, expect, test, vi } from "vitest";
-import type { FileReview, PathPolicy, PreparedRule, RuleResource } from "@aquarius/core/runtime";
+import type { FileReview, PathPolicy, PreparedRule, RuleResource } from "@aqtools/core/runtime";
 import { createFormatAnalysis } from "../src/format/analysis";
 import type { FormatAnalysisUpdate } from "../src/format/schemas";
 import type { FormatAnalysisSnapshot, FormatResponse, FormatWarning } from "../src/format/types";

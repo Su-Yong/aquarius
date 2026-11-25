@@ -8,9 +8,9 @@ import { executeFormat } from "../src/format/execute";
 import { runCli } from "../src/cli/run";
 import { printHuman } from "../src/cli/output";
 
-import type { AiAdapter, AdapterExecuteRequest } from "@aquarius/core/runtime";
-import type { RulePlugin } from "@aquarius/core";
-import type { RuleReference } from "@aquarius/core/runtime";
+import type { AiAdapter, AdapterExecuteRequest } from "@aqtools/core/runtime";
+import type { RulePlugin } from "@aqtools/core";
+import type { RuleReference } from "@aqtools/core/runtime";
 import type { FileChange, FormatResult, FormatWarning } from "../src/format/types";
 
 const roots: string[] = [];
@@ -520,7 +520,7 @@ describe("format execution", () => {
   test.each(["rejection", "timeout", "abort", "invalid-response"] as const)(
     "disposes the session after an adapter %s without writing files",
     async (failure) => {
-      const root = await project("format", { ai: { adapter: "@aquarius/codex", timeoutMs: 25 } });
+      const root = await project("format", { ai: { adapter: "@aqtools/codex", timeoutMs: 25 } });
       const controller = new AbortController();
       const dispose = vi.fn();
       const execute = vi.fn(async (input: AdapterExecuteRequest) => {
@@ -773,7 +773,7 @@ describe("format execution", () => {
   });
 
   test("timeout stops a request without retry or source writes", async () => {
-    const root = await project("format", { ai: { adapter: "@aquarius/codex", timeoutMs: 25 } });
+    const root = await project("format", { ai: { adapter: "@aqtools/codex", timeoutMs: 25 } });
     const runSpy = vi.fn(() => new Promise<unknown>(() => {}));
     const result = await executeFormat({
       cwd: root,

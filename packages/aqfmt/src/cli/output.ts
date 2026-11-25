@@ -4,7 +4,7 @@ import {
   printSummaryCounts,
   safeText,
   statusText,
-} from "@aquarius/core/cli";
+} from "@aqtools/core/cli";
 
 import type { FormatExecutionResult } from "../format/types";
 

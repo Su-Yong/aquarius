@@ -1,4 +1,4 @@
-import type { LintRule } from "@aquarius/core";
+import type { LintRule } from "@aqtools/core";
 
 // Section 22: 테스트 설계.
 // Prompt definitions only. Registration does not enable rules or prove detection quality.

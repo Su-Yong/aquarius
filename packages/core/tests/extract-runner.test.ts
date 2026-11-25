@@ -13,7 +13,7 @@ import { normalizeConfig, validateConfig } from "../src/config/load";
 import { extractConfig } from "../src/extract";
 import { prepareRules } from "../src/rules/prepare";
 
-const builtInRules = fileURLToPath(import.meta.resolve("@aquarius/rules"));
+const builtInRules = fileURLToPath(import.meta.resolve("@aqtools/rules"));
 const directories: string[] = [];
 const mocks: symbol[] = [];
 

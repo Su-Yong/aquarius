@@ -1,6 +1,6 @@
 {
   "name": "aqfmt",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "AI-driven, behavior-preserving code transformations",
   "type": "module",
   "bin": {
@@ -21,7 +21,7 @@
     "directory": "packages/aqfmt"
   },
   "dependencies": {
-    "@aquarius/core": "workspace:*",
+    "@aqtools/core": "workspace:*",
     "zod": "4.6.7"
   },
   "scripts": {
@@ -32,7 +32,7 @@
     "test": "vitest run"
   },
   "devDependencies": {
-    "@aquarius/codex": "workspace:*",
-    "@aquarius/rules": "workspace:*"
+    "@aqtools/codex": "workspace:*",
+    "@aqtools/rules": "workspace:*"
   }
 }

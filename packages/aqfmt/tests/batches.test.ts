@@ -2,8 +2,8 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, test, vi } from "vitest";
-import type { RulePlugin } from "@aquarius/core";
-import type { AdapterExecuteRequest, AdapterSession } from "@aquarius/core/runtime";
+import type { RulePlugin } from "@aqtools/core";
+import type { AdapterExecuteRequest, AdapterSession } from "@aqtools/core/runtime";
 import { executeFormat } from "../src/format/execute";
 import type {
   FileChange,

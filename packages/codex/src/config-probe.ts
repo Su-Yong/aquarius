@@ -6,7 +6,7 @@ import {
   attachAbort,
   terminateChild,
   waitForTermination,
-} from "@aquarius/core/adapter";
+} from "@aqtools/core/adapter";
 
 import { captureStderr, withDiagnostic } from "./diagnostic";
 import {

@@ -2,7 +2,7 @@ import { access, mkdtemp, mkdir, readFile, readdir, rm, writeFile } from "node:f
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { afterEach, expect, test } from "vitest";
-import type { AdapterSessionContext } from "@aquarius/core/adapter";
+import type { AdapterSessionContext } from "@aqtools/core/adapter";
 import { codexAdapter, codexOptionsSchema, type CodexOptions } from "../src/index";
 import { ruleResource } from "./fixtures";
 

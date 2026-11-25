@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import type { JsonObject, LintInstructions } from "@aquarius/core";
+import type { JsonObject, LintInstructions } from "@aqtools/core";
 import { prepareRules } from "../../core/src/rules/prepare";
 import { lintInstructionsSchema, lintRuleSchema } from "../../core/src/rules/schemas";
 import type { LoadedConfig } from "../../core/src/config/types";

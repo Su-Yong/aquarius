@@ -171,6 +171,9 @@ importers:
 
   .:
     devDependencies:
+      '@aqtools/antigravity':
+        specifier: workspace:*
+        version: link:packages/antigravity
       '@aqtools/codex':
         specifier: workspace:*
         version: link:packages/codex
@@ -207,6 +210,15 @@ importers:
       vitest:
         specifier: 5.0.1
         version: 5.0.1(@types/node@24.13.6)(vite@8.3.0(@types/node@24.13.6)(jiti@2.7.0)(yaml@2.9.1))
+
+  packages/antigravity:
+    dependencies:
+      '@aqtools/core':
+        specifier: workspace:*
+        version: link:../core
+      zod:
+        specifier: 4.6.7
+        version: 4.6.7
 
   packages/aqfmt:
     dependencies:

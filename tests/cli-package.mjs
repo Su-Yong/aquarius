@@ -82,6 +82,7 @@ const checkLibraryTypes = (workspaceRoot, installRoot) => {
 import { z } from 'zod';
 import type { LintRule, RulePlugin } from '@aqtools/core';
 import { defineAdapter, type AdapterExecuteRequest } from '@aqtools/core/adapter';
+import antigravity, { antigravityAdapter, antigravityOptionsSchema, type AntigravityMode, type AntigravityOptions, type EffortHint } from '@aqtools/antigravity';
 import suppliedRules from '@aqtools/rules';
 
 const rule: LintRule = {
@@ -100,7 +101,12 @@ const adapter = defineAdapter({
   id: 'consumer-adapter',
   run: async (request: AdapterExecuteRequest) => ({ cwd: request.projectRoot }),
 });
-export { rule, plugin, adapter };
+const mode: AntigravityMode = 'plan';
+const effort: EffortHint = 'high';
+const options: AntigravityOptions = { mode, effort };
+const agyOptions = antigravityOptionsSchema.parse(options);
+const installedAdapter: typeof antigravityAdapter = antigravity;
+export { rule, plugin, adapter, installedAdapter, agyOptions };
 `,
   );
   run(
@@ -151,6 +157,7 @@ export function checkCli(bin, name, version, cwd) {
     expect(result.status, result.stderr).toBe(0);
     expect(result.stdout).toMatch(new RegExp(`Usage: ${name}`));
     expect(result.stdout).toContain("@aqtools/codex");
+    expect(result.stdout).toContain("@aqtools/antigravity");
     expect(result.stdout).toContain("--with-node-modules");
     expect(result.stdout).not.toContain("--no-ignore");
     expect(result.stderr).toBe("");
@@ -239,6 +246,15 @@ export default {
     plugins: ["./plugin.mjs"],
     rules: { [ruleId]: lint ? "error" : true },
   };
+  writeFileSync(config, JSON.stringify(fixtureConfig));
+  const adapterRequired = runJson(bin, cwd, [], 2);
+  expect(adapterRequired.errors).toEqual([
+    expect.objectContaining({
+      code: "AI_ADAPTER_REQUIRED",
+      message: expect.stringContaining("@aqtools/antigravity"),
+    }),
+  ]);
+
   writeFileSync(config, JSON.stringify({ ...fixtureConfig, ai: { adapter: "./adapter.mjs" } }));
   const incomplete = runJson(bin, cwd, [], 2);
   expect(incomplete.errors.some(({ code }) => code.startsWith("INCOMPLETE_FILE_"))).toBe(true);
@@ -354,7 +370,8 @@ export function checkPackedCli(workspaceRoot, packageDir) {
 
     const core = packPackage(join(workspaceRoot, "packages", "core"), packs);
     const rules = packPackage(join(workspaceRoot, "packages", "rules"), packs);
-    const adapter = packPackage(join(workspaceRoot, "packages", "codex"), packs);
+    const codex = packPackage(join(workspaceRoot, "packages", "codex"), packs);
+    const antigravity = packPackage(join(workspaceRoot, "packages", "antigravity"), packs);
     const cli = packPackage(packageDir, packs);
     run(
       process.execPath,
@@ -369,14 +386,15 @@ export function checkPackedCli(workspaceRoot, packageDir) {
         "--no-package-lock",
         core.tarball,
         rules.tarball,
-        adapter.tarball,
+        codex.tarball,
+        antigravity.tarball,
         cli.tarball,
       ],
       { cwd: install },
     );
     checkLibraryTypes(workspaceRoot, install);
 
-    for (const packed of [core, rules, adapter, cli]) {
+    for (const packed of [core, rules, codex, antigravity, cli]) {
       const installed = JSON.parse(
         readFileSync(join(packagePath(install, packed.metadata.name), "package.json"), "utf8"),
       );
@@ -392,6 +410,7 @@ export function checkPackedCli(workspaceRoot, packageDir) {
     });
     expect(installedCli.dependencies).not.toHaveProperty("@aqtools/rules");
     expect(installedCli.dependencies).not.toHaveProperty("@aqtools/codex");
+    expect(installedCli.dependencies).not.toHaveProperty("@aqtools/antigravity");
     const bin = join(installedCliDir, installedCli.bin[command]);
     expect(existsSync(join(install, "node_modules", ".bin", command))).toBe(true);
     checkCli(bin, command, metadata.version, project);
@@ -413,11 +432,57 @@ export function checkPackedCli(workspaceRoot, packageDir) {
       files: ["fixture.js"],
       plugins: ["./plugin.mjs"],
       rules: { "fixture/review": command === "aqlint" ? "error" : true },
-      ai: { adapter: "@aqtools/codex", options: { ephemeral: "invalid" } },
     };
-    writeFileSync(join(localProject, configFilename), JSON.stringify(installedAdapterConfig));
-    expect(runJson(bin, localProject, [], 2).errors).toEqual([
-      expect.objectContaining({ code: "AI_ADAPTER_OPTIONS_INVALID" }),
+    for (const ai of [
+      { adapter: "@aqtools/codex", options: { ephemeral: "invalid" } },
+      { adapter: "@aqtools/antigravity", options: { mode: "accept-edits" } },
+    ]) {
+      writeFileSync(
+        join(localProject, configFilename),
+        JSON.stringify({ ...installedAdapterConfig, ai }),
+      );
+      expect(runJson(bin, localProject, [], 2).errors).toEqual([
+        expect.objectContaining({ code: "AI_ADAPTER_OPTIONS_INVALID" }),
+      ]);
+    }
+
+    const output = {
+      completedRuleIds: ["fixture/review"],
+      fileResults: [{ path: "fixture.js", status: "completed", reason: "" }],
+      skippedRules: [],
+      errors: [],
+      ...(command === "aqlint" ? { diagnostics: [] } : { changes: [], warnings: [] }),
+    };
+    const mock = join(directory, "mock-agy.cjs");
+    const response = { event: "result", result: { status: "SUCCESS", structured_output: output } };
+    writeFileSync(
+      mock,
+      `#!/usr/bin/env node
+const fs = require('node:fs');
+const sent = JSON.parse(fs.readFileSync(0, 'utf8'));
+const file = fs.readFileSync('fixture.js', 'utf8');
+if (sent.event !== 'user' || file !== 'export const fixture = true;\\n') process.exit(1);
+console.log(${JSON.stringify(JSON.stringify(response))});
+`,
+      { mode: 0o700 },
+    );
+    let executable = mock;
+    if (process.platform === "win32") {
+      executable = join(directory, "mock-agy.cmd");
+      writeFileSync(executable, `@"${process.execPath}" "${mock}" %*\r\n`);
+    }
+    writeFileSync(
+      join(localProject, configFilename),
+      JSON.stringify({
+        ...installedAdapterConfig,
+        ai: { adapter: "@aqtools/antigravity", options: { executable } },
+      }),
+    );
+    const completed = runJson(bin, localProject, [], 0);
+    expect(completed.ai).toEqual({ adapter: "antigravity" });
+    expect(completed.errors).toEqual([]);
+    expect(completed.fileResults).toEqual([
+      expect.objectContaining({ path: "fixture.js", status: "completed" }),
     ]);
   } finally {
     removeOwnedTemporaryDirectory(directory, prefix);

@@ -17,7 +17,8 @@ save validated changes even when other files or batches fail.
 Module or project rules use one request, retain create/delete/move support,
 and write changes only if the entire run succeeds.
 The configured timeout applies to each AI request.
-AI execution requires an explicit ai.adapter, such as "@aqtools/codex" or "./adapter.mjs".`;
+AI execution requires an explicit ai.adapter, such as "@aqtools/codex",
+"@aqtools/antigravity", or "./adapter.mjs".`;
 
 export const runCli = (version: string, args = process.argv.slice(2)): Promise<number> =>
   runToolCli<FormatSnapshotDetails, FormatExecutionResult>(

@@ -55,7 +55,7 @@ export const createProject = async (): Promise<string> => {
   ]);
   const scope = join(root, "node_modules", "@aqtools");
   await mkdir(scope, { recursive: true });
-  for (const name of ["rules", "codex"]) {
+  for (const name of ["rules", "codex", "antigravity"]) {
     await symlink(join(repositoryRoot, "packages", name), join(scope, name), "junction");
   }
   await writeFile(join(root, "ignored", "private.txt"), "AQUARIUS_PRODUCT_LIVE_IGNORED_42d1\n");

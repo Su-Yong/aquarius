@@ -12,6 +12,7 @@
       "@aqtools/core/adapter": ["./packages/core/src/adapter/index.ts"],
       "@aqtools/core/runtime": ["./packages/core/src/runtime/index.ts"],
       "@aqtools/core/cli": ["./packages/core/src/cli/index.ts"],
+      "@aqtools/antigravity": ["./packages/antigravity/src/index.ts"],
       "@aqtools/codex": ["./packages/codex/src/index.ts"],
       "@aqtools/rules": ["./packages/rules/src/index.ts"]
     }

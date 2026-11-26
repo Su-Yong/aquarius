@@ -1,15 +1,13 @@
 {
-  "files": ["packages/*/src/**/*.ts"],
+  "files": ["packages/antigravity/src/**/*.ts"],
   "ai": {
-    "adapter": "@aqtools/codex",
+    "adapter": "@aqtools/antigravity",
     "timeoutMs": 300000,
     "fileBatchSize": 4,
     "maxConcurrency": 4,
     "options": {
-      "ephemeral": true,
-      "model": "gpt-6.2-sol",
-      "serviceTier": "ultrafast",
-      "reasoning": { "effort": "low" }
+      "model": "gemini-4-hydrogen",
+      "effort": "low"
     }
   },
   "plugins": ["@aqtools/rules"],

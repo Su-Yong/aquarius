@@ -1,0 +1,35 @@
+{
+  "name": "@aqtools/antigravity",
+  "version": "0.2.2",
+  "description": "Read-only Antigravity CLI adapter for Aquarius",
+  "type": "module",
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "node": ">=24.11.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Su-Yong/aquarius.git",
+    "directory": "packages/antigravity"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.mjs"
+    }
+  },
+  "scripts": {
+    "build": "tsdown",
+    "typecheck": "tsc --project tsconfig.json --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@aqtools/core": "workspace:*",
+    "zod": "4.6.7"
+  }
+}
